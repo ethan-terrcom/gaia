@@ -51,7 +51,7 @@ Any application logic.
 ## Acceptance criteria
 - [x] `make setup && make check` passes on a clean clone.
 - [x] Committing a file containing a fake Anthropic key (`sk-ant-api03-...`) or DeepSeek key is blocked by pre-commit.
-- [ ] CI runs on a PR and passes. (Checked on the PR itself.)
+- [x] CI runs on a PR and passes (PR #2).
 
 ## For later docs
 - Add dependencies with `uv add <pkg>` (backend) or `npm install -D <pkg>` (frontend). Never hand-edit
