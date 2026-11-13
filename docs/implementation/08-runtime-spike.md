@@ -6,26 +6,44 @@ is open to either **driving existing harnesses** (Claude Code via the Claude Age
 and Cline) or **native API agents** that Gaia builds itself. Background is in
 `ARCHITECTURE.md §3`.
 
+**Owner:** the lead engineer, not a junior. This is judgment-heavy evaluation.
+
 This is a **time-boxed spike: 2–3 days.** The output is a decision record plus throwaway
 prototype code under `backend/spikes/`. That code is not merged into `gaia/`.
 
 ## Candidates
-1. **Lead: Claude Agent SDK** (`pip install claude-agent-sdk`; docs at code.claude.com/docs/en/agent-sdk).
-   Run it with `cwd=<worktree>`, restricted `allowed_tools`, and a permission callback that sends
-   Bash requests to Gaia's command policy.
-2. **Junior: Cline CLI** with DeepSeek as the provider. Find out:
-   - Does it have a non-interactive/headless mode that takes a task prompt and exits?
-   - Can it emit structured output (JSON events or a final summary) that Gaia can parse?
-   - Can tool and command approvals be auto-denied or routed back to Gaia?
-   - How is the API key supplied? Prefer a per-process env var, never a global config file.
+1. **Lead: Claude Agent SDK** (`uv add claude-agent-sdk`; docs at code.claude.com/docs/en/agent-sdk).
+   Use `ClaudeSDKClient`, which supports `interrupt()`; `query()` does not. Run it with
+   `cwd=<worktree>` and `setting_sources=[]`. Remove unwanted tools (`WebFetch`, `WebSearch`, …) with
+   `disallowed_tools`: `allowed_tools` only auto-approves, it does not restrict, and auto-approved
+   calls skip `can_use_tool`. Use `permission_mode="dontAsk"` and a `PreToolUse` hook that sends every
+   call to Gaia's command policy. Also evaluate the `sandbox`, `max_budget_usd`, `output_format` and
+   `user` options. Note that `env` merges onto the inherited environment.
+2. **Junior: Cline CLI** with DeepSeek as the provider. Known from the docs (2026-11): passing a prompt
+   runs headless, but **auto-approves everything by default**; `--json` emits JSON lines (`agent_event`,
+   `run_result`, `run_aborted`, …); `--timeout`, `-c/--cwd`, `--config`/`--data-dir` and `--hooks-dir`
+   exist; there is no shell allow/deny list, only `PreToolUse` hooks; `-k` **persists the key** to
+   `~/.cline/data/settings/providers.json`. Find out:
+   - Does `--auto-approve false` plus a `PreToolUse` hook deny commands reliably in headless mode?
+   - Can hooks from the workspace's `.cline/hooks` be disabled? If not, Cline is disqualified,
+     because repo content would run code.
+   - Can the provider point at the Gaia gateway (07b), so no key is supplied or persisted?
+   - How do we cancel it (kill the process group?), and what do its exit codes mean?
 3. **Junior: native DeepSeek loop.** A ~150-line prototype using `deepseek_client` (07) plus
    `read_file`, `write_file`, `list_dir` and `run_command` tools confined to the worktree.
-4. Optional: **Aider** or **OpenHands** headless, as more harness candidates for the junior role.
+4. **Junior: Claude Agent SDK driving DeepSeek** through DeepSeek's Anthropic-compatible endpoint
+   (`ANTHROPIC_BASE_URL` → the gateway → `https://api.deepseek.com/anthropic`). If it holds up, one
+   harness, one permission model and one event mapping serve both roles. Check tool-call fidelity,
+   thinking blocks and cost. This is not an Anthropic-supported configuration, so weigh that in.
+5. Optional: **Aider** or **OpenHands** headless, as more harness candidates for the junior role.
 
 ## Method
 - Pick one small real ticket in a sample repo (for example, "add a CLI flag and a test").
 - The lead (Anthropic SDK structured call) writes a 3–5 step plan once. Every junior candidate
   gets the same plan.
+- Also compare **agentic planning** (the lead explores the repo read-only through the Agent SDK
+  and returns a `Plan` through `output_format`) with doc 11's static repo context, on plan quality
+  and cost.
 - For each candidate, record:
 
 | Metric | How |
@@ -35,7 +53,9 @@ prototype code under `backend/spikes/`. That code is not merged into `gaia/`.
 | Wall time | |
 | Observability | can Gaia stream per-tool-call events? |
 | Control | can Gaia confine paths, deny commands, cancel mid-run, set a timeout? |
-| Secret isolation | can the runtime run with an env holding only its own key? |
+| Secret isolation | can it run with **no** provider key in its env (through the gateway)? Which endpoints does it call? |
+| Repo-config isolation | does it load any settings, hooks or instructions from the worktree? |
+| Sandboxing | does it work under `srt` (sandbox-runtime) with the worktree-only profile? |
 | Integration effort | estimated days to production quality |
 
 ## Deliverable

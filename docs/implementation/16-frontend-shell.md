@@ -8,11 +8,13 @@ hook and the layout.
 The feature views (17).
 
 ## Tasks
-1. Dependencies: `react-router-dom`, `@tanstack/react-query`, `tailwindcss`, `openapi-typescript`,
-   `zod` (light runtime checks). Pin exact versions.
+1. Dependencies: `react-router` (v7+ ships everything from `react-router`; `react-router-dom` is legacy),
+   `@tanstack/react-query`, `tailwindcss` with `@tailwindcss/vite` (Tailwind v4: no config file),
+   `openapi-typescript`, `openapi-fetch`, `zod` (light runtime checks). Versions are exact automatically
+   (`frontend/.npmrc`).
 2. `npm run gen:api` → `openapi-typescript src/api/openapi.json -o src/api/schema.d.ts`.
-   Write a small typed `apiFetch<Path, Method>` wrapper that adds the bearer token, parses the error
-   envelope, and sends a 401 to the "connect" screen.
+   Use `openapi-fetch` (`createClient<paths>()`) with a middleware that adds the bearer token, parses
+   the error envelope, and sends a 401 to the "connect" screen. Don't hand-write a typed fetch wrapper.
 3. Token bootstrap: on load, read `#token=` from the URL, store it in `sessionStorage`, then call
    `history.replaceState` to remove it. Without a token, show a "Run `gaia ui` to connect" screen.
    Never use `localStorage` for the token.
@@ -22,7 +24,10 @@ The feature views (17).
    Settings), a top bar with today's spend versus the budget, and a dark/light theme.
 6. Keyboard: `g d`, `g t`, `g r`, `g a` to switch sections, and `/` to focus search. (The owner wants to
    "move between" things fast.)
-7. Content Security Policy in `index.html` via a meta tag: `default-src 'self'; connect-src 'self' http://127.0.0.1:<port>`.
+7. **Same origin.** In dev, Vite's `server.proxy` forwards `/api` to the backend; in production, FastAPI
+   serves `frontend/dist`. The UI only calls relative `/api/...` URLs, so there's no CORS.
+8. Content Security Policy in `index.html` via a meta tag: `default-src 'self'` (same origin, so
+   `connect-src 'self'` covers the API and SSE).
    No `dangerouslySetInnerHTML`. Agent output is rendered as text or sanitized markdown (`react-markdown`
    without raw HTML).
 

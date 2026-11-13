@@ -27,7 +27,8 @@ UI (17).
    - Run it in a DB transaction that locks the approval row; a second decision gets 409.
    - Validate `edited_payload` against the schema for the approval kind (for example, the `Plan` model).
    - Record `decided_by`, the timestamp and an audit row. Publish `approval.decided`.
-   - Call `RunManager.resume(run_id, decision)`.
+   - Graph gates (`plan`, `escalation`, `budget`, `pr_open`, `merge`): call `RunManager.resume(run_id, decision)`.
+     `command` approvals: resolve the runtime's pending wait (doc 10, requirement 8). The graph is not resumed.
 2. **Merge approvals** need re-confirmation: the request must include `confirm: "merge <pr_number>"`.
    Anything else gets 422.
 3. Approval kinds `command` and `budget` show the exact argv or budget figures in the payload. The UI must
