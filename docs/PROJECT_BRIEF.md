@@ -26,6 +26,8 @@ The Architect can:
      ready for a PR.
    - **Junior Engineer agents (DeepSeek).** Implement one plan step at a time inside an
      isolated git worktree, and run the tests.
+     In v1 a run has one junior working at a time; parallelism comes from running several
+     tickets at once.
 4. **Gate the important moments.** Plan approval, risky commands, opening a PR and merging
    all wait in an **approval inbox**. Agents never merge to a protected branch on their own.
 5. **Monitor the team.** Run timelines, PR and CI status, token spend and budgets.

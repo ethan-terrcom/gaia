@@ -14,7 +14,7 @@ Starting runs (12/14) and importing GitHub Issues (15).
 ## Endpoints (all under `/api/v1`, all auth'd, all workspace-scoped)
 | Method | Path | Notes |
 |---|---|---|
-| POST | `/repositories` | body `{local_path}`. Validate with `GitService.validate_repo`; detect the remote and default branch |
+| POST | `/repositories` | body `{local_path, setup_command?, test_command?}` (argv lists, owner-registered, never read from the repo). Validate with `GitService.validate_repo`; detect the remote and default branch |
 | GET | `/repositories` | |
 | GET | `/repositories/{id}` | includes worktree count and active runs |
 | DELETE | `/repositories/{id}` | unregister only; **never** delete files on disk |

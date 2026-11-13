@@ -5,6 +5,11 @@ The two structured "brains" of the lead engineer: **plan a ticket** and **review
 or final diff**. Both are single structured-output calls to `claude-opus-5-5` through the
 Anthropic SDK client from doc 07.
 
+**Ownership:** a junior wires the code; the lead writes `lead_plan.md` and `lead_review.md`.
+If ADR-001 adopts **agentic planning** (the lead explores the repo read-only through the Agent SDK and
+returns `Plan` through `output_format`), `plan_ticket` switches to that, and the static `repo_context`
+below becomes the fallback.
+
 ## Out of scope
 Executing steps (10) and graph wiring (12).
 
@@ -45,6 +50,8 @@ class Review(BaseModel):
 3. Keep the system prompts stable byte for byte (no timestamps) so prompt caching hits. Volatile content
    goes in the user message.
 4. Record usage through the recorder (07) with `agent_id` = lead.
+5. A refusal (`LLMStop`, after any fallback) escalates to the owner with the refusal category. Never
+   loop on it.
 
 ## Prompt guidance (put this in the md prompts)
 - Lead persona: a senior engineer writing instructions for a capable but junior engineer. Steps are

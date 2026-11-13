@@ -22,8 +22,8 @@ UI rendering (17), and any distributed bus such as Redis (that comes with the cl
 3. SSE endpoints:
    - `POST /api/v1/stream/ticket` (bearer auth) → `{ticket}`, single-use and valid for 60s.
      This avoids putting the long-lived token in a URL.
-   - `GET /api/v1/stream?ticket=...&run_id=...` → `text/event-stream`. Supports `Last-Event-ID`
-     for replay from the DB, and sends a heartbeat comment every 15s.
+   - `GET /api/v1/stream?ticket=...&run_id=...` → `text/event-stream`. The SSE `id:` is `event.seq`,
+     `Last-Event-ID` replays from the DB, and a heartbeat comment goes out every 15s.
 4. `GET /api/v1/runs/{id}/events?after=&limit=` for paginated history.
 
 ## Tests
