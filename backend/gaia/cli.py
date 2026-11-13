@@ -1,8 +1,7 @@
 """The ``gaia`` command line.
 
-Owned by doc 02. argparse from the standard library, so the CLI adds no
-dependency. Only ``gaia secrets ...`` exists today; doc 04 adds the server
-commands.
+Owned by doc 02 (``secrets``) and doc 04 (``serve``, ``ui``). argparse from the
+standard library, so the CLI adds no dependency.
 
 Every command runs :func:`gaia.config.settings.ensure_data_dir` first, so
 ``~/.gaia`` is created owner-only before anything can write into it.
@@ -13,12 +12,25 @@ from __future__ import annotations
 import argparse
 import getpass
 import sys
+from collections.abc import Callable
+
+from pydantic import ValidationError
 
 import gaia
-from gaia.config.secrets import SecretName, SecretStore, get_secret_store
+from gaia.config.secrets import (
+    SecretName,
+    SecretStore,
+    ensure_api_token,
+    get_secret_store,
+)
 from gaia.config.settings import ensure_data_dir, get_settings
 
 PROG = "gaia"
+
+#: What ``gaia serve`` hands uvicorn. A string rather than an app instance,
+#: because ``--reload`` re-imports the target in a child process instead of
+#: receiving a pickled app, and because the child must build its own settings.
+APP_TARGET = "gaia.api.app:create_app"
 
 _SECRET_NAMES = [name.value for name in SecretName]
 
@@ -54,6 +66,30 @@ def _build_parser() -> argparse.ArgumentParser:
 
     delete_parser = secrets_commands.add_parser("delete", help="remove a secret")
     delete_parser.add_argument("name", choices=_SECRET_NAMES, metavar="NAME")
+
+    serve = commands.add_parser(
+        "serve",
+        help="run the API server on the host and port from Settings",
+        description=(
+            "Serves the API on 127.0.0.1 unless GAIA_ALLOW_REMOTE is set, because "
+            "every requirement for a token on a LAN is a token in someone else's logs."
+        ),
+    )
+    serve.add_argument(
+        "--reload",
+        action="store_true",
+        help="restart when a Python file changes (development)",
+    )
+
+    commands.add_parser(
+        "ui",
+        help="print the one-time login URL for the UI",
+        description=(
+            "Prints <ui_origin>/#token=<token>. The token stays in the URL fragment, "
+            "which a browser never sends to a server; the UI moves it into "
+            "sessionStorage and strips it from the address bar (doc 16)."
+        ),
+    )
 
     return parser
 
@@ -114,7 +150,57 @@ def _secrets(args: argparse.Namespace) -> int:
     return handler(args, store)
 
 
-_COMMANDS = {"secrets": _secrets}
+def _ui(args: argparse.Namespace) -> int:
+    """Print the one-time login URL for the UI (doc 04 task 2).
+
+    The token is generated here if the server has not run yet, so the order of
+    ``make dev-frontend``, ``make dev-backend`` and ``gaia ui`` does not matter.
+
+    Printed, not opened: only ``gaia/services/proc.py`` may spawn a process, and
+    it does not exist until doc 05.
+    """
+    settings = get_settings()
+    token = ensure_api_token(get_secret_store())
+    print(f"{settings.ui_origin.rstrip('/')}/#token={token.get_secret_value()}")
+    # TODO(gaia-05): add --open, launching the browser through run_proc.
+    return 0
+
+
+def _serve(args: argparse.Namespace) -> int:
+    """Run the API with uvicorn, on the host and port Settings allows.
+
+    ``Settings`` rejects anything but a loopback address unless ``allow_remote``
+    is set (doc 02), so a bad ``GAIA_HOST`` stops the server here rather than
+    binding it to the LAN.
+    """
+    # Imported here so `gaia secrets` and `gaia ui` do not pay for the server
+    # stack (uvicorn pulls in a lot of it).
+    import uvicorn
+
+    settings = get_settings()
+    uvicorn.run(
+        APP_TARGET,
+        factory=True,
+        host=settings.host,
+        port=settings.port,
+        reload=args.reload,
+    )
+    return 0
+
+
+_COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
+    "secrets": _secrets,
+    "serve": _serve,
+    "ui": _ui,
+}
+
+
+def _first_message(error: ValidationError) -> str:
+    """Render pydantic's first complaint as one line, without pydantic's prefix.
+
+    A :class:`pydantic.ValidationError` always carries at least one error.
+    """
+    return error.errors()[0]["msg"].removeprefix("Value error, ")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -122,7 +208,15 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
-    settings = get_settings()
+    try:
+        settings = get_settings()
+    except ValidationError as error:
+        # Settings refuses an unsafe bind address or a non-positive budget (doc
+        # 02). One line beats a traceback: this is a configuration mistake, and
+        # the message says which variable to change.
+        print(f"error: {_first_message(error)}", file=sys.stderr)
+        return 2
+
     ensure_data_dir(settings)
 
     return _COMMANDS[args.command](args)

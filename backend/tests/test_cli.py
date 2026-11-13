@@ -10,10 +10,16 @@ import pytest
 
 import gaia
 from gaia import cli
+from gaia.config import settings as settings_module
 from gaia.config.secrets import InMemorySecretStore, SecretName
 from gaia.config.settings import Settings
 
 DUMMY_ANTHROPIC = "dummy" + "-anthropic-value"
+DUMMY_TOKEN = "dummy" + "-api-token-value"
+
+#: A bind address `Settings` refuses: docs 02 and 04 test that the server will not
+#: listen on the whole network by accident. It is a value in a test, never a socket.
+WILDCARD_HOST = "0.0.0.0"  # noqa: S104 - rejected input, never bound
 
 
 @pytest.fixture(autouse=True)
@@ -194,3 +200,101 @@ def test_secrets_set_creates_a_private_data_directory(data_dir: Path) -> None:
     assert cli.main(["secrets", "set", "GITHUB_TOKEN"]) == 0
 
     assert stat.S_IMODE(data_dir.stat().st_mode) == 0o700
+
+
+def test_ui_generates_the_token_and_prints_the_login_url(
+    capsys: pytest.CaptureFixture[str], store: InMemorySecretStore, data_dir: Path
+) -> None:
+    """Doc 04 task 2: the UI gets its token from a fragment, never from argv."""
+    assert store.get(SecretName.GAIA_API_TOKEN) is None
+
+    assert cli.main(["ui"]) == 0
+
+    token = store.require(SecretName.GAIA_API_TOKEN).get_secret_value()
+    captured = capsys.readouterr()
+    assert captured.out.strip() == f"http://127.0.0.1:5173/#token={token}"
+    assert captured.err == ""
+    assert data_dir.is_dir()
+
+
+def test_ui_reuses_the_token_the_server_already_generated(
+    capsys: pytest.CaptureFixture[str], store: InMemorySecretStore
+) -> None:
+    store.set(SecretName.GAIA_API_TOKEN, DUMMY_TOKEN)
+
+    assert cli.main(["ui"]) == 0
+
+    assert capsys.readouterr().out.strip().endswith(f"#token={DUMMY_TOKEN}")
+
+
+def test_ui_follows_the_configured_ui_origin(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    settings = Settings(data_dir=tmp_path / "gaia-data", ui_origin="http://127.0.0.1:6000/")
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+
+    assert cli.main(["ui"]) == 0
+
+    # The trailing slash is not doubled.
+    assert capsys.readouterr().out.startswith("http://127.0.0.1:6000/#token=")
+
+
+def test_serve_passes_the_settings_to_uvicorn(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: dict[str, object] = {}
+
+    def fake_run(app: str, **kwargs: object) -> None:
+        calls["app"] = app
+        calls.update(kwargs)
+
+    monkeypatch.setattr("uvicorn.run", fake_run)
+
+    assert cli.main(["serve"]) == 0
+
+    assert calls == {
+        "app": cli.APP_TARGET,
+        "factory": True,
+        "host": "127.0.0.1",
+        "port": 8765,
+        "reload": False,
+    }
+
+
+def test_serve_can_enable_reload(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`make dev-backend` passes --reload; a string target is what makes it work."""
+    calls: dict[str, object] = {}
+    monkeypatch.setattr("uvicorn.run", lambda app, **kwargs: calls.update(kwargs))
+
+    assert cli.main(["serve", "--reload"]) == 0
+
+    assert calls["reload"] is True
+    assert cli.APP_TARGET == "gaia.api.app:create_app"
+
+
+def test_serve_refuses_a_non_loopback_host(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Acceptance criterion: 0.0.0.0 is refused unless `allow_remote` is set."""
+    monkeypatch.setenv("GAIA_HOST", WILDCARD_HOST)
+    monkeypatch.setattr(cli, "get_settings", settings_module.get_settings)
+
+    assert cli.main(["serve"]) == 2
+
+    message = capsys.readouterr().err
+    assert "not a loopback address" in message
+    assert "allow_remote=True" in message
+    assert "Traceback" not in message
+
+
+def test_serve_binds_a_remote_host_when_the_owner_allows_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: dict[str, object] = {}
+    monkeypatch.setenv("GAIA_HOST", WILDCARD_HOST)
+    monkeypatch.setenv("GAIA_ALLOW_REMOTE", "true")
+    monkeypatch.setenv("GAIA_DATA_DIR", str(tmp_path / "gaia-data"))
+    monkeypatch.setattr(cli, "get_settings", settings_module.get_settings)
+    monkeypatch.setattr("uvicorn.run", lambda app, **kwargs: calls.update(kwargs))
+
+    assert cli.main(["serve"]) == 0
+
+    assert calls["host"] == WILDCARD_HOST

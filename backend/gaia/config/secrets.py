@@ -12,6 +12,7 @@ is masked even when some caller forgets it is a secret.
 from __future__ import annotations
 
 from enum import StrEnum
+from secrets import token_urlsafe
 from typing import Protocol, runtime_checkable
 
 import keyring
@@ -23,6 +24,10 @@ from gaia.security.redaction import register_secret
 #: Keychain service name used for Gaia's own secrets.
 DEFAULT_SERVICE = "gaia"
 
+#: Entropy in the generated API token; ``token_urlsafe`` renders 32 bytes as 43
+#: characters. Doc 04 generates and compares it.
+API_TOKEN_BYTES = 32
+
 
 class SecretName(StrEnum):
     """The secrets Gaia knows how to use. Nothing else can be stored."""
@@ -32,7 +37,6 @@ class SecretName(StrEnum):
     # ruff's S105 ("hardcoded password") fires on these *names*. Both are keychain
     # entry names, never values, so the suppression cannot hide a credential.
     GITHUB_TOKEN = "GITHUB_TOKEN"  # noqa: S105 - an entry name, not a secret value
-    # TODO(gaia-04): generate GAIA_API_TOKEN on first run and store it with this name.
     GAIA_API_TOKEN = "GAIA_API_TOKEN"  # noqa: S105 - an entry name, not a secret value
 
 
@@ -164,3 +168,21 @@ def get_secret_store() -> SecretStore:
     docs can substitute a cloud store (ARCHITECTURE section 7).
     """
     return KeyringSecretStore()
+
+
+def ensure_api_token(store: SecretStore) -> SecretStr:
+    """Return ``GAIA_API_TOKEN``, generating and storing one on first run.
+
+    Doc 04 owns this entry: the API server and ``gaia ui`` both call it, so
+    whichever runs first creates the token and later calls return the same one.
+    Nobody types this secret, which is why ``gaia secrets set`` refuses the name -
+    a hand-written token would be a token in a shell history.
+
+    ``token_urlsafe(32)`` is 32 bytes of entropy in 43 URL-safe characters: long
+    enough that guessing is hopeless, and safe to put in a URL fragment.
+    """
+    existing = store.get(SecretName.GAIA_API_TOKEN)
+    if existing is not None:
+        return existing
+    store.set(SecretName.GAIA_API_TOKEN, token_urlsafe(API_TOKEN_BYTES))
+    return store.require(SecretName.GAIA_API_TOKEN)
