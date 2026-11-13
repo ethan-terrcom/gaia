@@ -23,6 +23,11 @@ GitHub API calls (15) and pushing to the remote (15 owns `push`).
    - `current_sha`, `default_branch`, `status_porcelain`, `diff(base, head)`, `log`.
    - `branch_name_for(ticket)` → `gaia/<ticket-short-id>-<slug>`. Slug: lowercase `[a-z0-9-]`, at most 40 characters.
    - Validate ref names with `git check-ref-format --branch`.
+   - **Hardened git environment for every call:** `GIT_CONFIG_NOSYSTEM=1`,
+     `GIT_CONFIG_GLOBAL=<data_dir>/gitconfig` (Gaia-managed: `user.name`, `user.email`,
+     `commit.gpgsign=false`), and `-c core.hooksPath=/dev/null` on every invocation; commits use
+     `--no-verify`. Repo hooks can be tracked files (husky's `.husky/`) that an agent can write,
+     so Gaia must never run them.
 3. `WorktreeService`:
    - `create(repo, ticket, base_ref)` → `git worktree add -b <branch> <worktrees_root>/<repo_id>/<worktree_id> <base_ref>`.
      Record a `worktree` row with `base_sha`.
@@ -40,6 +45,7 @@ Use a `tmp_path` git repo fixture (run `git init` and commit a file).
 - A branch name with `..` or spaces is rejected.
 - `run_proc` times out a `sleep 10` and leaves no zombie process.
 - The env passed to the child does not contain `ANTHROPIC_API_KEY` even when it is set in the parent.
+- A repo `pre-commit` hook, including one under a `core.hooksPath` directory, does not run when Gaia commits.
 
 ## Acceptance criteria
 - [ ] Every git call goes through `run_proc`. `grep -rn "subprocess" gaia/ | grep -v proc.py` is empty.
