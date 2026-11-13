@@ -1,8 +1,8 @@
 # 07 — LLM Providers & Cost Accounting
 
 **Split (2026-11-12 review):** **07a** is everything below except the last section, and depends on
-03 because the recorder writes `llm_usage` rows. **07b** (LLM gateway) is the last section and
-waits on owner decision D2.
+03 because the recorder writes `llm_usage` rows. **07b** (LLM gateway) is the last section
+(approved as D2 on 2026-11-13).
 
 ## Goal
 Thin, typed clients for Claude (lead) and DeepSeek (junior). Every call records its usage
@@ -33,7 +33,7 @@ Agent loops and tools (09/10), and prompts (11).
    - Turn on prompt caching for the stable system prompt (top-level `cache_control={"type":"ephemeral"}`).
    - Always check `stop_reason` before reading content, and handle `refusal`, `max_tokens` and `pause_turn`.
    - Refusals: Opus 5.5's classifiers can refuse security-heavy work, and Gaia's own tickets are
-     security code. Recommended: enable server-side `fallbacks="default"` (beta
+     security code. Enable server-side `fallbacks="default"` (beta
      `server-side-fallback-2026-07-01`) on planning and review calls, so a refusal retries on
      another model instead of failing the run. Price the usage by the model that actually served
      (`message.model`).
@@ -70,7 +70,7 @@ Agent loops and tools (09/10), and prompts (11).
 
 ---
 
-## 07b — LLM gateway (pending owner decision D2)
+## 07b — LLM gateway (D2)
 
 ### Goal
 No agent process ever holds a provider key, and budgets are enforced at the one place every

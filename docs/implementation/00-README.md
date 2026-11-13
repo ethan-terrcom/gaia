@@ -8,8 +8,8 @@ Before you start any package, read `../PROJECT_BRIEF.md` and `../ARCHITECTURE.md
 receive their assignment through [`HANDOFF_TEMPLATE.md`](HANDOFF_TEMPLATE.md).
 
 The 2026-11-12 plan review ([`../reviews/2026-11-12-plan-review.md`](../reviews/2026-11-12-plan-review.md))
-revised this table. Rows marked **(D*n*)** depend on an owner decision listed in that review. Do not
-start them until it is made.
+revised this table. Rows marked **(D*n*)** came from owner decisions in that review; all four were
+accepted as recommended on 2026-11-13.
 
 | # | Package | Depends on | Can run alongside | Owner |
 |---|---|---|---|---|

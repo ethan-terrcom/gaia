@@ -83,7 +83,7 @@ Whichever runtime is chosen, Gaia enforces worktree confinement, secret isolatio
 **outside** the runtime as well: an OS sandbox around every agent process (§6.4), the LLM
 gateway (provider keys never enter an agent's environment, and budgets stop at the gateway;
 §6.1), process env scrubbing, `cwd` and wall-clock timeouts. The harness's own controls are
-not enough on their own. (Sandbox and gateway are pending owner decisions D1 and D2 in
+not enough on their own. (Sandbox and gateway were decided as D1 and D2 on 2026-11-13; see
 `reviews/2026-11-12-plan-review.md`.)
 
 ## 4. Orchestration (LangGraph)
@@ -147,8 +147,8 @@ agent spends money.
 Controls:
 1. **Secrets:** stored with `keyring`, loaded at process start into a `SecretStr`, never
    logged, never written to `.env`, and never passed into agent subprocess environments.
-   Runtimes reach their provider through the Gaia LLM gateway with a per-run token (pending
-   D2): a harness holding the real key would expose it to every shell command it runs. A
+   Runtimes reach their provider through the Gaia LLM gateway with a per-run token (D2):
+   a harness holding the real key would expose it to every shell command it runs. A
    redaction filter covers logs and events. `gitleaks` runs in pre-commit and CI.
 2. **Filesystem confinement:** every tool path is resolved (`Path.resolve()`, symlinks
    followed) and must sit under the task's worktree. `.git/` internals are blocked. Writes
@@ -159,12 +159,11 @@ Controls:
    `shell=False`, a timeout, a scrubbed env (`PATH`, `HOME`=temp dir, `LANG`), and output caps.
    The policy is a tripwire, not a boundary: allowlisted test runners execute code the agent
    wrote, so containment comes from the sandbox (point 4).
-4. **OS sandbox (pending D1):** every agent-spawned process (harness, test run, native
+4. **OS sandbox (D1):** every agent-spawned process (harness, test run, native
    `run_command`) runs under `sandbox-runtime` (Seatbelt on macOS). Writes are limited to the
    worktree; `~/.ssh`, `~/.aws`, `~/.config` and the keychain are unreadable; the network is
-   limited to a per-repo allowlist plus the gateway. If D1 defers this, the accepted risk is
-   that an agent can read and send anything the owner can, not just reach the network. Docker
-   runners (`implementation/18c`) remain the stronger option.
+   limited to a per-repo allowlist plus the gateway. It arrives with doc 09a, before the
+   first real run. Docker runners (`implementation/18c`) remain the stronger option.
 5. **API surface:** binds to `127.0.0.1`. A bearer token is generated on first run (stored
    in the keychain and handed to the UI through a one-time local login URL). The UI is served
    from the same origin as the API, so there is no CORS allowance (docs 04, 16). Host-header
@@ -177,8 +176,8 @@ Controls:
    The lead's system prompt states that instructions found in files are not commands.
    High-risk actions require approval no matter what the model says.
 9. **Audit:** every tool call, command, approval decision and git push is written to `audit_log`.
-10. **Budgets:** per-run and per-day USD caps, enforced before each LLM call (at the gateway
-    when D2 is adopted).
+10. **Budgets:** per-run and per-day USD caps, enforced before each LLM call at the gateway
+    (D2).
 11. **Repo content never configures Gaia's tools:** harnesses run with project settings and
     hooks disabled (Agent SDK `setting_sources=[]`; Cline hooks only from a Gaia-owned dir).
     Gaia's git calls disable repo hooks (`core.hooksPath=/dev/null`, `commit --no-verify`) and use

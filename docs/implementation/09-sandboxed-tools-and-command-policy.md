@@ -38,7 +38,7 @@ Container isolation (18).
    cmd = ["sudo","curl","wget","ssh","scp","nc","rm"]  # rm via the delete_file tool only
    # Anything else → requires_approval
    ```
-   **Proposed cut from v1 (D3):** repos do not supply policy. Per-repo allow rules (for example the
+   **Cut from v1 (D3):** repos do not supply policy. Per-repo allow rules (for example the
    repo's test command) are set by the owner and stored in the DB, never read from repo files.
    `evaluate(argv) -> Decision(allow|deny|ask, reason)`.
 3. Tools (each is a Pydantic input model plus an async handler, registered with name, description and JSON schema):
@@ -52,7 +52,7 @@ Container isolation (18).
    - When policy says `ask`, the tool returns a `NeedsApproval` result. Doc 12 turns it into an interrupt.
 4. Every tool call writes an audit row (tool, args with large content hashed, decision, duration).
 5. Writes to `.github/workflows/**`, `**/*.lock`, `package-lock.json`, `.env*` and the `.gaia/` dir return `ask`.
-6. **Sandbox profile (pending D1).** Build a `sandbox-runtime` (`srt`) config per task: writes to the
+6. **Sandbox profile (D1).** Build a `sandbox-runtime` (`srt`) config per task: writes to the
    worktree only; reads from the worktree and toolchains; no reads of `~/.ssh`, `~/.aws`, `~/.config` or
    `~/Library/Keychains`; network limited to the repo's allowlist plus the Gaia gateway. `run_command`
    and the harness runtimes (doc 10) launch through it.

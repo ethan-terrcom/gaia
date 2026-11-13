@@ -215,6 +215,10 @@ Corrections to the dependency table: **07 depends on 03** (the recorder writes `
 and the wave plan are in `implementation/00-README.md`.
 
 ## 8. Decisions needed from you
+
+**Outcome (2026-11-13):** the owner accepted every recommendation below, along with enabling
+refusal fallbacks (§2) and protecting `main` (§1.4).
+
 | # | Decision | Options | Recommendation |
 |---|---|---|---|
 | D1 | When does an OS sandbox arrive? | (a) In 09a, using `srt`, before the first real run · (b) Keep 18c; until then run only on fully trusted repos and accept the risk · (c) A dedicated macOS user for agents | **(a).** Cheap, no Docker, and covers every runtime |
