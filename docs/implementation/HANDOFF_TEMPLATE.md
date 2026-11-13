@@ -1,7 +1,9 @@
 # Junior handoff prompt: template
 
 The lead engineer copies everything below the line, fills in every `{{…}}` placeholder, and gives
-it to the junior agent as its task prompt. One prompt per work package (one PR). Placeholders:
+it to the junior agent as its task prompt. One prompt per work package (one PR). Save each filled
+prompt as `handoffs/NN-short-name.md`, so reviewers can see exactly what the junior was told.
+Placeholders:
 
 | Placeholder | Example |
 |---|---|
