@@ -15,11 +15,11 @@ Read `PROJECT_BRIEF.md` first. This document records the decisions; the
 | Junior LLM | DeepSeek (`https://api.deepseek.com`, OpenAI-compatible; use the `openai` SDK with `base_url`) | Owner requirement; cheap |
 | Git | `git` CLI via a safe subprocess wrapper; worktrees | Fewer surprises than libgit2 bindings |
 | GitHub | `githubkit` or `PyGithub` with a fine-grained PAT (GitHub App later) | PRs, checks, issues |
-| Frontend | Vite + React + TypeScript + TanStack Query + Tailwind | Fast, typed |
+| Frontend | Vite 8 + React 19 + TypeScript 7 + TanStack Query + Tailwind; Node 26 LTS | Fast, typed |
 | Live updates | Server-Sent Events (SSE) | One-way, simple, works through proxies |
 | Secrets | `keyring` (macOS Keychain) | No plaintext keys on disk |
 | Tests | pytest + pytest-asyncio; Vitest + Playwright | |
-| Lint/type | ruff, mypy (strict on `gaia/core`), eslint, tsc | |
+| Lint/type | ruff, mypy (strict on all of `gaia`), oxlint + prettier, tsc (strict) | oxlint is the create-vite default |
 
 ## 2. Repository layout
 

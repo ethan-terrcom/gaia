@@ -1,0 +1,109 @@
+[project]
+name = "gaia"
+version = "0.1.0"
+description = "Local-first control plane for a hierarchy of AI coding agents"
+requires-python = "==3.12.*"
+dependencies = [
+    "aiosqlite>=0.22.1",
+    "alembic>=1.20.1",
+    "fastapi>=0.162.5",
+    "httpx>=0.28.1",
+    "keyring>=25.7.0",
+    "pydantic>=2.14",
+    "pydantic-settings>=2.16.2",
+    "sqlalchemy>=2.1",
+    "structlog>=26.1.0",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=2.4.1",
+    "pre-commit>=4.7.0",
+    "pytest>=9.2.0",
+    "pytest-asyncio>=1.5.0",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.17.5",
+]
+
+[build-system]
+requires = ["uv_build>=0.13.7,<0.14"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+# Flat layout: the package lives at backend/gaia, as ARCHITECTURE.md section 2 shows.
+module-root = ""
+
+# ---------------------------------------------------------------------------
+# Ruff
+# ---------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["."]
+
+[tool.ruff.lint]
+# E/F pycodestyle+pyflakes, I isort, B bugbear, S bandit (security), UP pyupgrade,
+# ASYNC async pitfalls, RUF ruff-specific, PT pytest style, TID banned APIs (below).
+select = ["E", "F", "I", "B", "S", "UP", "ASYNC", "RUF", "PT", "TID"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+# Security convention (ARCHITECTURE section 6, docs 05 and 18d): exactly one module may
+# spawn processes, and it never uses a shell. Everything else calls run_proc().
+"subprocess".msg = "Spawn processes only through gaia.services.proc.run_proc (doc 05)."
+"os.system".msg = "Never use a shell. Use gaia.services.proc.run_proc (doc 05)."
+"os.popen".msg = "Never use a shell. Use gaia.services.proc.run_proc (doc 05)."
+"asyncio.create_subprocess_shell".msg = "Never use a shell. Use gaia.services.proc.run_proc (doc 05)."
+"asyncio.create_subprocess_exec".msg = "Only gaia/services/proc.py may call this. Use run_proc (doc 05)."
+"pickle".msg = "Never unpickle data. Use JSON or Pydantic models."
+
+[tool.ruff.lint.per-file-ignores]
+# The single sanctioned process-spawning module (created by doc 05).
+"gaia/services/proc.py" = ["TID251"]
+# Tests may assert, use fake credentials and build fixture repos with subprocess.
+"tests/**" = ["S101", "S105", "S106", "S108", "S603", "S607", "TID251"]
+
+# ---------------------------------------------------------------------------
+# mypy
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+packages = ["gaia", "tests"]
+strict = true
+warn_unreachable = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "9.0"
+testpaths = ["tests"]
+addopts = ["-ra", "--strict-markers", "--strict-config", "--import-mode=importlib", "-m", "not live"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+xfail_strict = true
+# Warnings are errors: this catches un-awaited coroutines and deprecated library calls.
+# If a dependency emits a warning you cannot fix, ignore that exact warning here with a comment.
+filterwarnings = ["error"]
+markers = [
+    "live: calls real external services (LLM providers, GitHub). Never runs in CI; opt in with -m live.",
+]
+
+[tool.coverage.run]
+source = ["gaia"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
