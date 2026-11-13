@@ -1,0 +1,10 @@
+# gitleaks configuration: the default rule set, plus providers Gaia uses that the
+# defaults miss. The defaults already cover Anthropic (sk-ant-...) and GitHub tokens.
+[extend]
+useDefault = true
+
+[[rules]]
+id = "deepseek-api-key"
+description = "DeepSeek API key"
+regex = '''\bsk-[a-f0-9]{32}\b'''
+keywords = ["sk-"]
