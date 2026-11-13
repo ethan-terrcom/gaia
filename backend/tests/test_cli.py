@@ -94,6 +94,24 @@ def test_secrets_set_prompts_and_stores(
     assert data_dir.is_dir()
 
 
+def test_secrets_set_reports_a_closed_prompt(
+    capsys: pytest.CaptureFixture[str],
+    store: InMemorySecretStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ctrl-D (or no terminal) must exit 1 with a message, not a traceback."""
+
+    def closed(prompt: str = "") -> str:
+        raise EOFError
+
+    monkeypatch.setattr("getpass.getpass", closed)
+
+    assert cli.main(["secrets", "set", "ANTHROPIC_API_KEY"]) == 1
+
+    assert "no value entered for ANTHROPIC_API_KEY" in capsys.readouterr().err
+    assert store.get(SecretName.ANTHROPIC_API_KEY) is None
+
+
 def test_secrets_set_accepts_any_known_name(store: InMemorySecretStore) -> None:
     assert cli.main(["secrets", "set", "DEEPSEEK_API_KEY"]) == 0
 

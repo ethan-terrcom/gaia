@@ -69,7 +69,13 @@ def _secrets_set(args: argparse.Namespace, store: SecretStore) -> int:
         return 1
     # getpass reads from the terminal without echoing; the value never appears
     # in argv, in a shell history or in the environment.
-    value = getpass.getpass(f"{name.value}: ")
+    try:
+        value = getpass.getpass(f"{name.value}: ")
+    except EOFError:
+        # Ctrl-D, or no terminal at all (a pipe, an editor task runner): say so
+        # rather than escaping with a traceback.
+        print(f"error: no value entered for {name.value}.", file=sys.stderr)
+        return 1
     try:
         store.set(name, value)
     except ValueError as error:

@@ -148,8 +148,10 @@ Cloud secret managers (leave the `SecretStore` interface for them). Generating `
 9. **Tests:** `tests/conftest.py` installs an in-memory `keyring` backend **and** deletes inherited
    `GAIA_*` variables, so a developer's `GAIA_DATA_DIR` cannot point a test at the real `~/.gaia`.
    The real-keychain round trip is `@pytest.mark.live` (deselected by default; `uv run pytest -m live`).
-10. **`README.md`** gained a "Secrets" section: the CLI commands, the `~/.zshrc` migration, and the
-    instruction to rotate a key that was stored in plaintext.
+10. **`README.md`** gained a "Secrets" section: the CLI commands (written as
+    `uv run --project backend gaia …`, because the repo root has no Python project and plain
+    `uv run gaia …` there fails with `Failed to spawn: gaia`), which key each feature needs, the
+    `~/.zshrc` migration, and the instruction to rotate a key that was stored in plaintext.
 
 ## Hand-off to doc 04 (host binding)
 
@@ -172,6 +174,9 @@ this package:
 ## Acceptance criteria
 - [ ] `uv run gaia secrets set ANTHROPIC_API_KEY` stores the key in the macOS Keychain (verified by the
       owner by hand with a real key; the junior verifies with the live test above).
+      Run it from `backend/`, or as `uv run --project backend gaia secrets set ANTHROPIC_API_KEY` from the
+      repo root: `gaia` is a console script of the backend project, so `uv run` at the root reports
+      `Failed to spawn: gaia`.
       **Status:** the live test passes on macOS (`uv run pytest -m live`), which round-trips a dummy value
       through the real Keychain; the real key is for the owner to store.
 - [x] After `gaia secrets list` has run, `grep -r "sk-" ~/.gaia` finds nothing, and `~/.gaia` is mode `0700`.
@@ -179,5 +184,5 @@ this package:
       values) and by `tests/test_settings.py::test_ensure_data_dir_*`.
 - [x] `make check` passes, and no test touches the real keychain (CI on Linux proves it). `tests/conftest.py`
       installs an in-memory `keyring` backend for every test; the single real-keychain test is `live`-marked
-      and deselected by default. `make check` passes locally: 112 tests, 100% backend coverage, gitleaks
+      and deselected by default. `make check` passes locally: 113 tests, 100% backend coverage, gitleaks
       clean over the full history.
