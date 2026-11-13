@@ -1,5 +1,8 @@
 # 02 — Config & Secrets
 
+**Status:** done (PR `impl/02-config-and-secrets`). The tasks below are the plan as written;
+"Deviations as built" records what actually shipped.
+
 ## Goal
 Typed settings, plus a secrets store backed by the OS keychain, plus log redaction.
 No API key ever lives in a plaintext file managed by Gaia.
@@ -87,7 +90,7 @@ Cloud secret managers (leave the `SecretStore` interface for them). Generating `
 - `ensure_data_dir` gives `0o700` both for a new directory and for an existing `0o755` one.
 - Secrets: the in-memory and keyring stores (with the in-memory backend) round-trip `set`, `get` and
   `delete`; `require` on a missing name raises an error naming the CLI command; empty or whitespace
-  values are rejected; a fetched value is redacted afterwards.
+  values are rejected; a fetched value is redacted afterwards, and a deleted one stays redacted.
 - Redaction masks every pattern above, registered secrets, values nested in dicts and lists, and a
   secret inside a formatted exception. Short values (< 8 characters) are not registered.
 - CLI (with `getpass` monkeypatched, because a non-TTY `getpass` warns and warnings are errors):
@@ -96,8 +99,85 @@ Cloud secret managers (leave the `SecretStore` interface for them). Generating `
 - One `@pytest.mark.live` test round-trips a dummy value through `KeyringSecretStore(service="gaia-test")`
   on the real keychain and deletes it.
 
+## Deviations as built
+
+1. **The derived path fields are non-optional and derived with a data-aware `default_factory`.**
+   Task 1 says `model_validator(mode="after")`, and that is what the first draft did - which forces
+   `db_url`, `checkpoint_path` and `worktrees_root` to be declared `| None` so that "not set" stays
+   distinguishable from an explicit value. The cost lands on every consumer (docs 03, 04, 05, 12): each
+   one narrows a value that cannot be `None`, and the tempting `settings.db_url or <fallback>` hides a
+   misconfiguration instead of failing. pydantic >= 2.10 passes the already-validated model data to a
+   `default_factory` that takes one positional argument, so the fields are declared `str` / `Path`
+   with `default_factory=_derive_db_url` and friends, and `_derive_paths` is gone. Two constraints this
+   keeps: `data_dir` must stay declared before them (a factory only sees fields validated earlier),
+   and an explicit `GAIA_DB_URL` / `GAIA_CHECKPOINT_PATH` / `GAIA_WORKTREES_ROOT` still wins, because a
+   factory only runs when nothing was supplied. pydantic-settings sets `validate_default=True`, so the
+   derived values still pass through the `~`-expanding field validator. `tests/test_settings.py` pins
+   the annotations, the derivation from an expanded `data_dir`, and that explicit values are kept.
+2. **`localhost` is rejected as "not an IP address".** The validator parses `host` with
+   `ipaddress.ip_address()` and then requires `is_loopback`, so a hostname is refused before it can
+   be resolved through `/etc/hosts`. Only `127.0.0.0/8` and `::1` pass without `allow_remote=True`.
+   See "Hand-off to doc 04" below: this constrains the **bind** address only.
+3. **`ensure_data_dir(settings)` also expands `~`** before `mkdir`/`chmod`, so it is safe to call with
+   the raw `~/.gaia` default outside `Settings`. `chmod` runs on every call (an existing directory can
+   be looser than the umask allowed).
+4. **The secret factory is `gaia.config.secrets.get_secret_store()`.** The CLI resolves the store
+   through it on every invocation, which is what the tests patch (`InMemorySecretStore`).
+5. **`configure_logging(level=logging.INFO, stream=None)`** takes keyword arguments only and sets
+   `cache_logger_on_first_use=False`; a caching config would make the logging tests unreconfigurable.
+   `level` accepts a `logging` level, so doc 18b can raise it.
+6. **Redaction order:** registered literals are masked first (longest first), then the token patterns.
+   `MIN_SECRET_LENGTH = 8`. The registry is module state with `_reset_for_tests()`; `tests/conftest.py`
+   clears it around every test. **`delete()` does not un-register the value**: a traceback or a log
+   record that captured it may not be rendered yet, the registry is per process and a few strings
+   large, and masking a retired value is harmless where printing it is not. The protocol and both
+   implementations say so, and `test_deleting_a_secret_does_not_un_redact_it` pins it, so a later
+   "cleanup" cannot quietly turn this into a leak.
+7. **CLI dispatch** is a `_COMMANDS` table keyed by `args.command`; `secrets` is the only entry today.
+   `ensure_data_dir()` runs before dispatch, so every command (including `list` and `delete`) leaves
+   `~/.gaia` at `0700`. `secrets set` refuses `GAIA_API_TOKEN` with exit code 1 *before* prompting.
+8. **Lint:** three inline suppressions in the whole backend, one per line, each carrying its reason.
+   `# noqa: S105` on the two enum members whose *names* contain `TOKEN` (they are keychain entry
+   names, never values) and `# noqa: S104` on the one `0.0.0.0` literal in the settings tests (a
+   literal address in a test cannot bind a socket). No `[tool.*]` section changed: the only edit to
+   `backend/pyproject.toml` is the `[project.scripts]` entry that task 5 requires.
+   `[tool.ruff.lint.per-file-ignores]` already waives `S101`/`S105`/`S106`/`S108`/`S603`/`S607`/`TID251`
+   for `tests/**`, so adding `S104` there was the alternative; the owner chose the inline form in
+   review, and a module-wide `S105` ignore in `gaia/config/secrets.py` was rejected outright because
+   that module stores credentials.
+9. **Tests:** `tests/conftest.py` installs an in-memory `keyring` backend **and** deletes inherited
+   `GAIA_*` variables, so a developer's `GAIA_DATA_DIR` cannot point a test at the real `~/.gaia`.
+   The real-keychain round trip is `@pytest.mark.live` (deselected by default; `uv run pytest -m live`).
+10. **`README.md`** gained a "Secrets" section: the CLI commands, the `~/.zshrc` migration, and the
+    instruction to rotate a key that was stored in plaintext.
+
+## Hand-off to doc 04 (host binding)
+
+The bind address and the `Host` header are different things, so doc 04 task 3 does not conflict with
+this package:
+
+- `settings.host` is the **bind** address and must be an IP literal. Doc 04 task 6 passes it straight
+  to uvicorn, so `uvicorn(host=settings.host)` never resolves a name and never depends on
+  `/etc/hosts`. `::1` is accepted as well as `127.0.0.1`; binding `::1` serves IPv6 clients only, so
+  `127.0.0.1` stays the default.
+- `TrustedHostMiddleware(allowed_hosts=["127.0.0.1", "localhost"])` stays exactly as doc 04 writes it:
+  that list constrains the `Host` **header a client sends**, not the socket. Dropping `localhost`
+  would make `http://localhost:8765` answer 400, and a browser that resolves `localhost` to `::1`
+  would fail to connect at all - `ui_origin`, `frontend/vite.config.ts` and `gaia ui` all use
+  `127.0.0.1`, which is the address users actually reach.
+- `allow_remote` is all-or-nothing: when it is true the loopback check is skipped entirely, so
+  `GAIA_ALLOW_REMOTE=true` with `GAIA_HOST=localhost` (or `0.0.0.0`, or any hostname) binds. That is
+  the deliberate opt-in for a container or LAN setup; the strict check stays the default.
+
 ## Acceptance criteria
 - [ ] `uv run gaia secrets set ANTHROPIC_API_KEY` stores the key in the macOS Keychain (verified by the
       owner by hand with a real key; the junior verifies with the live test above).
-- [ ] After `gaia secrets list` has run, `grep -r "sk-" ~/.gaia` finds nothing, and `~/.gaia` is mode `0700`.
-- [ ] `make check` passes, and no test touches the real keychain (CI on Linux proves it).
+      **Status:** the live test passes on macOS (`uv run pytest -m live`), which round-trips a dummy value
+      through the real Keychain; the real key is for the owner to store.
+- [x] After `gaia secrets list` has run, `grep -r "sk-" ~/.gaia` finds nothing, and `~/.gaia` is mode `0700`.
+      Verified by `tests/test_cli.py` (the CLI creates `data_dir` at `0700` and `list` prints names only, no
+      values) and by `tests/test_settings.py::test_ensure_data_dir_*`.
+- [x] `make check` passes, and no test touches the real keychain (CI on Linux proves it). `tests/conftest.py`
+      installs an in-memory `keyring` backend for every test; the single real-keychain test is `live`-marked
+      and deselected by default. `make check` passes locally: 112 tests, 100% backend coverage, gitleaks
+      clean over the full history.
