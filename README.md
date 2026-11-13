@@ -22,6 +22,7 @@ worktrees, and a human approval inbox for every irreversible step.
 
 ```sh
 make setup         # backend + frontend dependencies, and the pre-commit hooks
+make migrate       # create or upgrade ~/.gaia/gaia.sqlite (Alembic)
 make check         # lint, typecheck, test and secret scan (exactly what CI runs)
 make dev-frontend  # UI on http://127.0.0.1:5173
 make dev-backend   # API server (arrives with doc 04)
@@ -67,6 +68,11 @@ backend/    Python 3.12 package `gaia` (FastAPI, LangGraph), managed with uv
 frontend/   Vite + React + TypeScript UI
 docs/       brief, architecture, decisions and implementation work packages
 ```
+
+The database is a single SQLite file at `~/.gaia/gaia.sqlite` (WAL mode), created and
+upgraded by `make migrate` from the migrations in `backend/alembic/`. The path follows
+`GAIA_DATA_DIR`, and LangGraph keeps its own checkpoints in a separate file next to it.
+Tenant scoping goes through `gaia/db/repo.py`: no service queries a domain table directly.
 
 ## Conventions that tooling enforces
 

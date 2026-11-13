@@ -8,19 +8,29 @@ Doc 02 requires that no test touches the real keychain or ``~/.gaia``:
   ``GAIA_DATA_DIR`` cannot point a test at the real ``~/.gaia``;
 - the redaction registry and the ``get_settings()`` cache are process-wide
   state, so both are reset around every test.
+
+Doc 03 adds one more rule: every database test gets its own SQLite **file** in
+``tmp_path``. A file rather than ``:memory:``, because each connection to
+``:memory:`` opens a separate empty database, and because the WAL pragma only
+means anything for a real file.
 """
 
 from __future__ import annotations
 
 import os
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
+from dataclasses import dataclass
+from pathlib import Path
 
 import keyring
 import pytest
 from keyring.backend import KeyringBackend
 from keyring.errors import PasswordDeleteError
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from gaia.config.settings import get_settings
+from gaia.db.engine import create_engine, create_session_factory
+from gaia.db.models import Base
 from gaia.security import redaction
 
 
@@ -77,3 +87,37 @@ def reset_process_state() -> Iterator[None]:
     finally:
         redaction._reset_for_tests()
         get_settings.cache_clear()
+
+
+@dataclass(frozen=True)
+class Database:
+    """A throwaway SQLite database, its engine and its session factory."""
+
+    engine: AsyncEngine
+    sessions: async_sessionmaker[AsyncSession]
+    url: str
+
+
+@pytest.fixture
+async def database(tmp_path: Path) -> AsyncIterator[Database]:
+    """Create an empty schema in ``tmp_path`` and tear it down afterwards.
+
+    Tests build their schema with ``create_all`` on purpose: the Alembic
+    migration is exercised by ``tests/test_migrations.py``, which also proves the
+    two agree.
+    """
+    url = f"sqlite+aiosqlite:///{tmp_path / 'gaia-test.sqlite'}"
+    engine = create_engine(url=url)
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    try:
+        yield Database(engine=engine, sessions=create_session_factory(engine), url=url)
+    finally:
+        await engine.dispose()
+
+
+@pytest.fixture
+async def session(database: Database) -> AsyncIterator[AsyncSession]:
+    """A session on the test's database (doc 03)."""
+    async with database.sessions() as db_session:
+        yield db_session

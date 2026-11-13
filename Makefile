@@ -5,7 +5,7 @@ BACKEND := backend
 FRONTEND := frontend
 
 .DEFAULT_GOAL := help
-.PHONY: help setup dev-backend dev-frontend fmt lint typecheck test secrets check
+.PHONY: help setup migrate dev-backend dev-frontend fmt lint typecheck test secrets check
 
 help: ## List the available targets
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-14s %s\n", $$1, $$2}'
@@ -14,6 +14,9 @@ setup: ## Install backend and frontend dependencies and the git hooks
 	cd $(BACKEND) && uv sync --locked
 	cd $(FRONTEND) && npm ci
 	cd $(BACKEND) && uv run pre-commit install
+
+migrate: ## Create or upgrade the database schema in ~/.gaia/gaia.sqlite
+	cd $(BACKEND) && uv run alembic upgrade head
 
 dev-backend: ## Run the API server (implemented by doc 04)
 	@# TODO(gaia-04): run uvicorn with the app factory, host and port taken from Settings.
