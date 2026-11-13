@@ -25,10 +25,30 @@ make setup         # backend + frontend dependencies, and the pre-commit hooks
 make migrate       # create or upgrade ~/.gaia/gaia.sqlite (Alembic)
 make check         # lint, typecheck, test and secret scan (exactly what CI runs)
 make dev-frontend  # UI on http://127.0.0.1:5173
-make dev-backend   # API server (arrives with doc 04)
+make dev-backend   # API on http://127.0.0.1:8765, reloading on change
 ```
 
 Run `make` with no arguments to list every target.
+
+## The API
+
+`make dev-backend` serves on `127.0.0.1:8765`; host and port come from `GAIA_HOST` and
+`GAIA_PORT`, and `Settings` refuses anything but a loopback address unless
+`GAIA_ALLOW_REMOTE=true` is set. `GET /api/health` answers without a token; every other route
+needs `Authorization: Bearer <token>`.
+
+That token is generated on the first start and kept in the Keychain, so the UI never asks for
+it:
+
+```sh
+uv run --project backend gaia ui    # prints http://127.0.0.1:5173/#token=<token>
+```
+
+Open the printed URL: the token stays in the fragment (which a browser never sends to a
+server), the UI moves it into `sessionStorage` and strips it from the address bar (doc 16).
+`gaia secrets set GAIA_API_TOKEN` is refused on purpose - Gaia generates this one itself.
+An error is always `{"error": {"code", "message", "request_id"}}`, and the same id is in the
+`X-Request-ID` response header, so a report can be traced to a log line.
 
 ## Secrets
 

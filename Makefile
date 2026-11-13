@@ -18,9 +18,8 @@ setup: ## Install backend and frontend dependencies and the git hooks
 migrate: ## Create or upgrade the database schema in ~/.gaia/gaia.sqlite
 	cd $(BACKEND) && uv run alembic upgrade head
 
-dev-backend: ## Run the API server (implemented by doc 04)
-	@# TODO(gaia-04): run uvicorn with the app factory, host and port taken from Settings.
-	@echo "dev-backend is implemented by doc 04 (API skeleton & local auth)." >&2; exit 1
+dev-backend: ## Run the API server on the host and port from Settings
+	cd $(BACKEND) && uv run gaia serve --reload
 
 dev-frontend: ## Run the Vite dev server on 127.0.0.1:5173
 	cd $(FRONTEND) && npm run dev

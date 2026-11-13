@@ -17,12 +17,14 @@ from gaia.config.secrets import (
     MissingSecretError,
     SecretName,
     SecretStore,
+    ensure_api_token,
     get_secret_store,
 )
 from gaia.security.redaction import REDACTED, redact
 
 DUMMY_ANTHROPIC = "dummy" + "-anthropic-value"
 DUMMY_GITHUB = "dummy" + "-github-value"
+DUMMY_TOKEN = "dummy" + "-api-token-value"
 
 
 @pytest.fixture(params=["in_memory", "keyring"])
@@ -191,3 +193,31 @@ def test_a_backend_that_refuses_to_delete_reports_false(
     monkeypatch.setattr(keyring.get_keyring(), "delete_password", refuse)
 
     assert keyring_store.delete(SecretName.GITHUB_TOKEN) is False
+
+
+def test_ensure_api_token_generates_and_stores_one(store: SecretStore) -> None:
+    """Doc 04: first run creates the token, so nothing can be left unauthenticated."""
+    token = ensure_api_token(store)
+
+    stored = store.require(SecretName.GAIA_API_TOKEN)
+    assert stored.get_secret_value() == token.get_secret_value()
+    # token_urlsafe(32) is 43 URL-safe characters.
+    assert len(token.get_secret_value()) == 43
+
+
+def test_ensure_api_token_is_stable(store: SecretStore) -> None:
+    """Two generations would log the UI out on every restart."""
+    assert ensure_api_token(store).get_secret_value() == ensure_api_token(store).get_secret_value()
+
+
+def test_ensure_api_token_keeps_a_value_that_already_exists(store: SecretStore) -> None:
+    store.set(SecretName.GAIA_API_TOKEN, DUMMY_TOKEN)
+
+    assert ensure_api_token(store).get_secret_value() == DUMMY_TOKEN
+
+
+def test_a_generated_token_is_redacted_in_logs(store: SecretStore) -> None:
+    """A token in a URL fragment must not survive a log line."""
+    token = ensure_api_token(store).get_secret_value()
+
+    assert token not in redact(f"GET /?token={token}")

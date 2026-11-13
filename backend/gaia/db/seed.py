@@ -4,8 +4,8 @@ A fresh database has no workspace, so nothing can be scoped and no user can own
 anything. The first start creates exactly two rows - one workspace and one local
 user - through this module, and calling it again is a no-op.
 
-Doc 04 calls :func:`seed_initial_data` from the app lifespan; until then,
-``# TODO(gaia-04)`` below is the only caller it needs.
+:func:`gaia.api.app.create_app` calls :func:`seed_initial_data` from the app
+lifespan (doc 04), before the first request and inside its own transaction.
 """
 
 from __future__ import annotations
@@ -68,6 +68,3 @@ async def seed_initial_data(session: AsyncSession) -> Seeded:
     workspace = await _default_workspace(session)
     user = await _default_user(session, workspace.id)
     return Seeded(workspace=workspace, user=user)
-
-
-# TODO(gaia-04): call seed_initial_data() from the app lifespan on first start.
