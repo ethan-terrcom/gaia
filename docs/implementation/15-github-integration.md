@@ -1,5 +1,9 @@
 # 15 — GitHub Integration
 
+**Split (2026-11-12 review):** **15a** covers the token check, `push_branch`, `open_pr` and `merge`
+(tasks 1–3 and 5). **15b** covers `watch_ci`, `PRSyncService` and the PR API (tasks 4, 6 and 8).
+**15c** covers issue import (task 7, optional in v1).
+
 ## Goal
 Push agent branches, open PRs, track CI and reviews, merge after approval, and
 optionally import issues as tickets.
@@ -19,6 +23,7 @@ A GitHub App or webhooks (local v1 polls instead). GitLab.
 2. `push_branch(worktree)`: `git push origin <branch>` through `run_proc`. The token is passed with a
    one-shot `GIT_ASKPASS` helper script that reads it from an env var set for this process only.
    **Never** embed the token in the remote URL or in git config. Refuse any branch not matching `gaia/*`.
+   Use `GitService`'s hardened environment, which disables hooks, so a repo `pre-push` hook never runs.
 3. `open_pr`: title `[gaia] <ticket title>`. The body contains the plan summary, the step list, test
    results, a cost summary and `Closes #<n>` if the ticket was imported. Create it as a **draft** by default.
 4. `watch_ci`: poll combined status and check runs every 30s with backoff. Publish `ci.*` events and

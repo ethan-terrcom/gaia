@@ -11,15 +11,17 @@ Cloud secret managers. Leave a `SecretStore` interface for them.
 - `gaia/config/settings.py`
 - `gaia/config/secrets.py`
 - `gaia/security/redaction.py`
-- `gaia/cli.py` (Typer, or argparse to avoid a new dependency)
+- `gaia/cli.py` (Typer, or argparse to avoid a new dependency), registered as the `gaia` console
+  script under `[project.scripts]` in `backend/pyproject.toml`
 
 ## Tasks
 1. `Settings(BaseSettings)` with the env prefix `GAIA_`. Fields: `data_dir` (default `~/.gaia`),
    `db_url` (default `sqlite+aiosqlite:///{data_dir}/gaia.sqlite`), `checkpoint_path`,
    `host` (default and **validated** to be `127.0.0.1` unless `allow_remote=True`), `port`,
    `ui_origin` (default `http://127.0.0.1:5173`), `worktrees_root` (default `{data_dir}/worktrees`),
-   `lead_model="claude-opus-5-5"`, `junior_model="deepseek-chat"` (confirm the current DeepSeek
-   model ids against their docs), `daily_budget_usd`, `run_budget_usd`.
+   `lead_model="claude-opus-5-5"`, `junior_model="deepseek-v4-pro"` (DeepSeek's current IDs are
+   `deepseek-v4-pro` and `deepseek-flash`; `deepseek-chat` is retired; ADR-001 confirms the default),
+   `junior_base_url="https://api.deepseek.com"`, `daily_budget_usd`, `run_budget_usd`.
    Settings must **not** contain API keys.
 2. `SecretStore` protocol with `get(name) -> SecretStr | None`, `set(name, value)` and `delete(name)`.
    `KeyringSecretStore` uses service name `gaia`. Known names live in an enum:

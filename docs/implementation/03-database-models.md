@@ -18,12 +18,15 @@ API routes (04/06) and LangGraph checkpoint tables (LangGraph manages those itse
 ## Tasks
 1. A base mixin: `id: str` (UUIDv7 as a string, from the `uuid6` package or a small helper),
    `workspace_id`, `created_at`, `updated_at` (UTC, timezone-aware).
-2. Models for every table in ARCHITECTURE §5. Use `JSON` columns for payloads, not
-   SQLite-specific types. Add indexes on `(workspace_id, status)` for `run` and `ticket`,
-   and on `(run_id, ts)` for `event`.
+2. Models for every table in ARCHITECTURE §5, including the fields the 2026-11-12 review added
+   (`ticket.repo_id`, `event.seq`, and the extra `run`, `run_step`, `llm_usage` and `repository`
+   columns). The user table is `users`, because `user` is reserved in Postgres. `event.seq` is an
+   autoincrementing integer, unique, and the SSE event ID (doc 13). Use `JSON` columns for
+   payloads, not SQLite-specific types. Add indexes on `(workspace_id, status)` for `run` and `ticket`,
+   and on `(run_id, seq)` for `event`.
 3. Enums: `TicketStatus` (backlog, ready, in_progress, in_review, done, cancelled), `RunStatus`
    (pending, planning, awaiting_approval, implementing, reviewing, pr_open, paused_budget, failed,
-   completed, cancelled), `ApprovalKind` (plan, command, pr_open, merge, budget), `ApprovalStatus`,
+   completed, cancelled), `ApprovalKind` (plan, command, escalation, pr_open, merge, budget), `ApprovalStatus`,
    `AgentRole` (lead, junior), `RuntimeKind` (native_claude, native_deepseek, claude_agent_sdk, cline_cli).
 4. Allowed status transitions live in `domain/state.py` as a dict. Write a
    `transition(entity, new_status)` that raises on an illegal move.

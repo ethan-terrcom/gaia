@@ -21,11 +21,13 @@ Domain routes (06+). OIDC/multi-user auth (leave the `AuthProvider` interface re
    - On first run, generate `GAIA_API_TOKEN` with `secrets.token_urlsafe(32)` and store it in the keychain.
    - Accept `Authorization: Bearer <token>`. Compare with `hmac.compare_digest`.
    - `gaia ui` CLI command: print or open `http://127.0.0.1:5173/#token=<token>`. The UI moves the
-     token into `sessionStorage` and strips it from the URL. (SSE uses a `?token=` query param
-     because `EventSource` cannot set headers. Doc 13 requires a short-lived SSE ticket instead.)
+     token into `sessionStorage` and strips it from the URL. (`EventSource` cannot set headers, so
+     SSE uses doc 13's short-lived ticket, never the long-lived token in a URL.)
 3. Middleware:
    - `TrustedHostMiddleware(allowed_hosts=["127.0.0.1", "localhost"])` to block DNS rebinding.
-   - `CORSMiddleware` allowing only `settings.ui_origin`, with explicit methods and headers.
+   - No CORS middleware: the UI is same-origin (Vite's `/api` proxy in dev, and FastAPI serving
+     `frontend/dist` in production; see doc 16). Without CORS headers, browsers refuse other
+     origins' requests. If CORS is ever added, it allows only `settings.ui_origin`.
    - Security headers: `X-Content-Type-Options`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store` on API responses.
    - Request-ID middleware that binds the ID into the structlog context.
 4. Error envelope: `{"error": {"code": str, "message": str, "request_id": str}}`. Never return stack traces.
