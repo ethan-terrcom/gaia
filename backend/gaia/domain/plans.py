@@ -41,6 +41,8 @@ class PlanStep(BaseModel):
     @field_validator("title")
     @classmethod
     def _title_is_short_enough(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("title must not be empty")
         if len(value) > MAX_STEP_TITLE_CHARS:
             raise ValueError(
                 f"title must be at most {MAX_STEP_TITLE_CHARS} characters, got {len(value)}"

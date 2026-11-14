@@ -89,6 +89,8 @@ class Settings(BaseSettings):
 
     run_budget_usd: float = Field(default=5.0, gt=0)
     daily_budget_usd: float = Field(default=20.0, gt=0)
+    #: How many graph invocations may run at once (doc 12a).
+    max_concurrent_runs: int = Field(default=3, ge=1)
 
     #: Path to the sandbox-runtime ``srt`` binary. ``None`` uses the pinned copy
     #: installed by ``make sandbox-install`` under ``data_dir``.

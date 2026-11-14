@@ -44,9 +44,17 @@ TICKET_TRANSITIONS: Mapping[TicketStatus, frozenset[TicketStatus]] = {
 }
 
 RUN_TRANSITIONS: Mapping[RunStatus, frozenset[RunStatus]] = {
-    RunStatus.PENDING: frozenset({RunStatus.PLANNING, RunStatus.FAILED, RunStatus.CANCELLED}),
+    RunStatus.PENDING: frozenset(
+        {RunStatus.PLANNING, RunStatus.PAUSED_BUDGET, RunStatus.FAILED, RunStatus.CANCELLED}
+    ),
     RunStatus.PLANNING: frozenset(
-        {RunStatus.AWAITING_APPROVAL, RunStatus.IMPLEMENTING, RunStatus.FAILED, RunStatus.CANCELLED}
+        {
+            RunStatus.AWAITING_APPROVAL,
+            RunStatus.IMPLEMENTING,
+            RunStatus.PAUSED_BUDGET,
+            RunStatus.FAILED,
+            RunStatus.CANCELLED,
+        }
     ),
     RunStatus.AWAITING_APPROVAL: frozenset(
         {
