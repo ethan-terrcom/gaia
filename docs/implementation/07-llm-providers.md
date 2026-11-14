@@ -68,6 +68,39 @@ Agent loops and tools (09/10), and prompts (11).
 ## Acceptance criteria
 - [ ] `make smoke-llm` succeeds against both providers using keys from the keychain.
 
+## Decisions and deviations (as built)
+- **`PriceTable` lives in `gaia/services/costs.py`, not `gaia/llm/base.py`.** The doc's file list put
+  it in `base.py`, but `base.py` must stay importable without pulling in SQLAlchemy models; putting the
+  pricing class next to `load_price_table` and `DbUsageRecorder` avoids a circular import. `base.py`
+  keeps `LLMUsage` and the `UsageRecorder` protocol.
+- **`LLMUsage.input_tokens` is "tokens billed at the base input rate", not "total prompt tokens".**
+  For Anthropic that is the SDK's `input_tokens` (cache reads/writes are separate fields). For DeepSeek
+  it is `prompt_cache_miss_tokens` (or `prompt_tokens - prompt_cache_hit_tokens` when miss is absent),
+  and `cache_read_tokens` is `prompt_cache_hit_tokens`. This lets one price formula work for both
+  providers without adding columns to `llm_usage`.
+- **DeepSeek prices and off-peak window are placeholders.** Every DeepSeek line in
+  `gaia/llm/prices.toml` carries a `# VERIFY:` comment pointing at
+  https://api-docs.deepseek.com/quick_start/pricing. The shipped table sets
+  `off_peak_start_utc == off_peak_end_utc`, which `PriceTable` treats as "off-peak disabled" so Gaia
+  never applies an unverified discount. Tests build their own `PriceTable` and never read the shipped
+  file.
+- **Anthropic request shape is intentionally narrow.** The client omits `thinking` (Opus 5.5 refuses
+  `enabled`/`disabled` variants), sets `output_config={"effort": "high"}`, sends `tool_choice` as
+  `{"type": "auto"}`, adds `strict: true` to tool definitions, and uses the top-level
+  `cache_control={"type": "ephemeral"}` parameter that exists in anthropic 2.8.0.
+- **Large requests stream at > 8192 `max_tokens`.** The doc says "large" without a number; 8192 is the
+  client's explicit `STREAM_MAX_TOKENS_THRESHOLD` and is unit-tested on both sides of the boundary.
+- **`make smoke-llm` is not part of the test suite.** It runs
+  `backend/scripts/smoke_llm.py`, which reads the real keychain and makes two tiny live calls. CI and
+  `pytest` never execute it.
+
+- **Lead review fixes (2026-11-13, `docs/reviews/2026-11-13-review-07a.md`).** `tool_choice` is sent only
+  with tools (the API rejects it otherwise). An unpriced serving model, as after a refusal fallback, is
+  priced at the requested model's rates with `price_tier="priced-as-requested"`
+  (`PriceTable.quote_or_price_as`), and clients refuse an unpriced model at construction
+  (`PriceTable.require`). `LLMResponse.reasoning_content` carries DeepSeek's thinking output for tool
+  loops. The smoke script allows 2048 output tokens.
+
 ---
 
 ## 07b — LLM gateway (D2)

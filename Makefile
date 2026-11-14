@@ -5,7 +5,7 @@ BACKEND := backend
 FRONTEND := frontend
 
 .DEFAULT_GOAL := help
-.PHONY: help setup migrate dev-backend dev-frontend fmt lint typecheck test secrets check
+.PHONY: help setup migrate dev-backend dev-frontend fmt lint typecheck test secrets smoke-llm check
 
 help: ## List the available targets
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-14s %s\n", $$1, $$2}'
@@ -39,6 +39,9 @@ typecheck: ## Type-check backend (mypy strict) and frontend (tsc)
 test: ## Run backend (pytest) and frontend (vitest) tests
 	cd $(BACKEND) && uv run pytest --cov
 	cd $(FRONTEND) && npm test
+
+smoke-llm: ## Make one tiny real call to each LLM provider (uses keychain keys)
+	cd $(BACKEND) && uv run python scripts/smoke_llm.py
 
 secrets: ## Scan the full git history for secrets with gitleaks
 	@command -v gitleaks >/dev/null || { echo "gitleaks not found: brew install gitleaks" >&2; exit 1; }

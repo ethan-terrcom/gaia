@@ -28,9 +28,10 @@ day. It is the vocabulary for the rest of the guides.
 | [Database](database.md) | Models, migrations, `ScopedRepo`, status state machines, schemas | 03 |
 | [API](api.md) | The app factory, lifespan, middleware, auth, dependencies, errors | 04 |
 | [Git & processes](git-and-processes.md) | `run_proc`, `GitService`, `WorktreeService` | 05 |
+| [LLM clients & costs](llm.md) | `AnthropicClient`, `DeepSeekClient`, `FakeLLM`, pricing and usage recording | 07a |
 | [Python concepts](python-concepts.md) | Explainers for the techniques the code relies on | – |
 
-Guides for `llm/`, `runtimes/`, `tools/`, `orchestrator/` and the event stream will be added as
+Guides for the gateway (07b), `runtimes/`, `tools/`, `orchestrator/` and the event stream will be added as
 those packages land (07–15).
 
 ## Tooling and conventions
