@@ -65,4 +65,35 @@ class Review(BaseModel):
 - A golden test that the system prompt contains no volatile values.
 
 ## Acceptance criteria
-- [ ] `gaia dev plan <ticket_id>` prints a plan for a real ticket and records its cost.
+- [x] `gaia dev plan <ticket_id>` prints a plan for a real ticket and records its cost (lead, live, 2026-11-14:
+      a ticket against Gaia's own repo, 18 s, $0.0977, usage recorded against the `lead` agent, run left `cancelled`).
+
+## Decisions and deviations (as built)
+
+- **`messages.parse` has no `cache_control` in anthropic 2.8.0** (the non-streaming helper). This
+  is superseded by lead review L1: `parse` now goes through `messages.stream`, which accepts
+  `cache_control` on both the plain and the beta path.
+- **`output_config={"effort": "high"}` together with `output_format=` is legal.** The beta
+  helper calls `_validate_output_config_conflict`, which only rejects an explicit
+  `output_config["format"]`; the non-beta helper merges `output_format` into
+  `output_config["format"]`. Both accept the `effort` key.
+- **Repository-context budget is character-based.** `build_repo_context` has
+  `budget_chars=400_000` (the lead notes' approximate 100k-token cap). `LeadEngineer`
+  accepts `repo_context_budget_tokens` for callers that already built a context and stores it
+  for later graph nodes, but does not re-truncate the passed `RepoContext`.
+- **`gaia dev plan` makes the client factory injectable as `_make_client`**, so tests pass a
+  `FakeLLM` and the lead runs the real Anthropic client. `repo.test_command` is passed as
+  `extra_allow` when present.
+- **Validation retry message wraps the policy reasons in `wrap_untrusted`** even though the
+  reasons are Gaia-generated: they echo the model's denied argv, which is untrusted model
+  output.
+
+### Lead review changes (2026-11-14, [`review-11`](../reviews/2026-11-14-review-11.md))
+- **L1: `AnthropicClient.parse` always streams.** It calls `messages.stream(..., output_format=...)`, or
+  `beta.messages.stream` with fallbacks, plus `get_final_message()`. It never uses the SDK's
+  non-streaming `parse` helper. This removes the 16K `max_tokens` cap and lets `cache_control` be
+  sent on both paths (doc 08 spike: a long non-streamed call died mid-flight).
+- **L2:** the `test_command` retry replays the rejected plan as an assistant turn before the policy's
+  objections. Without it, the model was asked to revise a plan it could not see.
+- **L3:** `gaia dev plan` logs to stderr, so stdout is pure JSON. Its cost line counts every prompt
+  token, including cache writes and reads.

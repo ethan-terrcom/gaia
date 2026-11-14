@@ -9,7 +9,7 @@ from typing import Any
 import anthropic
 import httpx2
 import pytest
-from pydantic import SecretStr
+from pydantic import BaseModel, SecretStr
 
 from gaia.llm.anthropic_client import AnthropicClient
 from gaia.llm.base import LLMMessage, LLMStop, LLMTool, LLMUsage
@@ -53,6 +53,7 @@ class StubMessages:
         self._error = error
         self.create_calls: list[dict[str, Any]] = []
         self.stream_calls: list[dict[str, Any]] = []
+        self.parse_calls: list[dict[str, Any]] = []
 
     async def create(self, **kwargs: Any) -> Any:
         self.create_calls.append(kwargs)
@@ -63,6 +64,12 @@ class StubMessages:
     def stream(self, **kwargs: Any) -> StubStream:
         self.stream_calls.append(kwargs)
         return StubStream(self._message, self._error)
+
+    async def parse(self, **kwargs: Any) -> Any:
+        self.parse_calls.append(kwargs)
+        if self._error is not None:
+            raise self._error
+        return self._message
 
 
 class StubAnthropic:
@@ -106,6 +113,30 @@ def _message(**overrides: Any) -> Any:
         "model": "claude-opus-5-5",
         "stop_reason": "end_turn",
         "content": [SimpleNamespace(type="text", text="hi")],
+        "usage": SimpleNamespace(
+            input_tokens=100,
+            output_tokens=50,
+            cache_read_input_tokens=10,
+            cache_creation_input_tokens=20,
+        ),
+        "_request_id": "req_1",
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
+class _ExamplePlan(BaseModel):
+    summary: str
+
+
+def _parsed_message(**overrides: Any) -> Any:
+    values: dict[str, Any] = {
+        "model": "claude-opus-5-5",
+        "stop_reason": "end_turn",
+        "content": [
+            SimpleNamespace(type="text", text="{}", parsed_output=_ExamplePlan(summary="ok"))
+        ],
+        "parsed_output": _ExamplePlan(summary="ok"),
         "usage": SimpleNamespace(
             input_tokens=100,
             output_tokens=50,
@@ -405,3 +436,160 @@ async def test_a_fallback_model_without_a_price_is_still_recorded() -> None:
 def test_a_model_without_a_price_is_refused_before_any_call() -> None:
     with pytest.raises(KeyError, match="no price configured"):
         _client(StubAnthropic(_message()), RecordingRecorder(), model="claude-unknown")
+
+
+async def test_parse_returns_parsed_output_and_records_usage() -> None:
+    stub = StubAnthropic(_parsed_message())
+    recorder = RecordingRecorder()
+    client = _client(stub, recorder)
+
+    response = await client.parse(
+        system="plan",
+        messages=[LLMMessage(role="user", content="go")],
+        output_model=_ExamplePlan,
+    )
+
+    assert response.output == _ExamplePlan(summary="ok")
+    assert response.model == "claude-opus-5-5"
+    assert response.request_id == "req_1"
+    assert response.stop_reason == "end_turn"
+    assert stub.messages.stream_calls
+    assert not stub.messages.parse_calls
+    kwargs = stub.messages.stream_calls[0]
+    assert kwargs["model"] == "claude-opus-5-5"
+    assert kwargs["max_tokens"] == 16000
+    assert kwargs["system"] == "plan"
+    assert kwargs["messages"] == [{"role": "user", "content": "go"}]
+    assert kwargs["output_format"] is _ExamplePlan
+    assert kwargs["output_config"] == {"effort": "high"}
+    assert kwargs["cache_control"] == {"type": "ephemeral"}
+    assert "tools" not in kwargs
+    assert "tool_choice" not in kwargs
+    assert "thinking" not in kwargs
+    assert len(recorder.records) == 1
+    usage, cost, tier = recorder.records[0]
+    assert usage.input_tokens == 100
+    assert usage.output_tokens == 50
+    assert cost == Decimal("0.001502")
+    assert tier is None
+
+
+async def test_parse_with_fallback_streams_through_beta_with_cache_control() -> None:
+    stub = StubAnthropic(_parsed_message())
+    client = _client(stub, RecordingRecorder())
+
+    await client.parse(
+        system="plan",
+        messages=[LLMMessage(role="user", content="go")],
+        output_model=_ExamplePlan,
+        enable_fallback=True,
+    )
+
+    assert not stub.messages.stream_calls
+    assert stub.beta.messages.stream_calls
+    kwargs = stub.beta.messages.stream_calls[0]
+    assert kwargs["betas"] == ["server-side-fallback-2026-07-01"]
+    assert kwargs["fallbacks"] == "default"
+    assert kwargs["cache_control"] == {"type": "ephemeral"}
+
+
+async def test_parse_fallback_without_system_omits_cache_control() -> None:
+    stub = StubAnthropic(_parsed_message())
+    client = _client(stub, RecordingRecorder())
+
+    await client.parse(
+        system="",
+        messages=[LLMMessage(role="user", content="go")],
+        output_model=_ExamplePlan,
+        enable_fallback=True,
+    )
+
+    kwargs = stub.beta.messages.stream_calls[0]
+    assert "cache_control" not in kwargs
+
+
+async def test_parse_allows_large_max_tokens_because_it_streams() -> None:
+    """Lead review 11 (L1): no 16K cap; long structured calls stream."""
+    stub = StubAnthropic(_parsed_message())
+    client = _client(stub, RecordingRecorder())
+
+    await client.parse(
+        system="plan",
+        messages=[LLMMessage(role="user", content="go")],
+        output_model=_ExamplePlan,
+        max_tokens=64000,
+    )
+
+    assert stub.messages.stream_calls[0]["max_tokens"] == 64000
+
+
+async def test_parse_refusal_stop_raises_after_recording() -> None:
+    message = _parsed_message(
+        stop_reason="refusal",
+        parsed_output=None,
+        stop_details=SimpleNamespace(category="cyber"),
+    )
+    stub = StubAnthropic(message)
+    recorder = RecordingRecorder()
+    client = _client(stub, recorder)
+
+    with pytest.raises(LLMStop) as caught:
+        await client.parse(
+            system="plan",
+            messages=[LLMMessage(role="user", content="go")],
+            output_model=_ExamplePlan,
+        )
+
+    assert caught.value.stop_reason == "refusal"
+    assert caught.value.refusal_category == "cyber"
+    assert caught.value.request_id == "req_1"
+    assert len(recorder.records) == 1
+
+
+async def test_parse_max_tokens_stop_raises_after_recording() -> None:
+    message = _parsed_message(stop_reason="max_tokens", parsed_output=None)
+    stub = StubAnthropic(message)
+    recorder = RecordingRecorder()
+    client = _client(stub, recorder)
+
+    with pytest.raises(LLMStop) as caught:
+        await client.parse(
+            system="plan",
+            messages=[LLMMessage(role="user", content="go")],
+            output_model=_ExamplePlan,
+        )
+
+    assert caught.value.stop_reason == "max_tokens"
+    assert caught.value.refusal_category is None
+    assert len(recorder.records) == 1
+
+
+async def test_parse_invalid_output_raises_after_recording() -> None:
+    stub = StubAnthropic(_parsed_message(parsed_output=None))
+    recorder = RecordingRecorder()
+    client = _client(stub, recorder)
+
+    with pytest.raises(LLMStop) as caught:
+        await client.parse(
+            system="plan",
+            messages=[LLMMessage(role="user", content="go")],
+            output_model=_ExamplePlan,
+        )
+
+    assert caught.value.stop_reason == "invalid_output"
+    assert len(recorder.records) == 1
+
+
+@pytest.mark.parametrize("kind", ["rate", "status", "connection"])
+async def test_parse_sdk_errors_are_reraises(kind: str) -> None:
+    stub = StubAnthropic(_parsed_message(), error=_anthropic_error(kind))
+    client = _client(stub, RecordingRecorder())
+
+    with pytest.raises(
+        (anthropic.RateLimitError, anthropic.APIStatusError, anthropic.APIConnectionError)
+    ):
+        await client.parse(
+            system="plan",
+            messages=[LLMMessage(role="user", content="go")],
+            output_model=_ExamplePlan,
+        )
