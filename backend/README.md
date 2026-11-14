@@ -34,7 +34,7 @@ come next, in the order given in [`docs/implementation/00-README.md`](../docs/im
 │ llm/           provider clients, cost accounting, LLM gateway (all built)     │  07a / 07b
 │ tools/         sandboxed file/shell/git tools, registry, audit                │  built (09a, 09b)
 ├──────────────────────────────────────────────────────────────────────────────┤
-│ services/   git, worktrees, tickets, costs, events (built) · GitHub (planned) │
+│ services/   git, worktrees, tickets, costs, events, GitHub push/PR/merge      │
 │             └─ proc.py: the ONLY place a process is ever started              │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ db/ + domain/   SQLAlchemy models, migrations, workspace-scoped repositories, │
@@ -65,12 +65,13 @@ never imports FastAPI. `db/` knows nothing about HTTP or git.
 | 07b | `llm/{gateway,run_tokens,metering}.py`, migration `0004` | Provider-key-free agents: per-run tokens, an allowlisted streaming proxy, metering, and budget hard-stop (403) | [gateway](../docs/backend/gateway.md) |
 | 09a | `security/{paths,commands,sandbox}.py` | Path confinement, the command policy (a tripwire), and the `srt` sandbox profile (the boundary), proved live | [security core](../docs/backend/security.md) |
 | 09b | `tools/`, `security/audit.py` | The one tool layer every runtime uses: confined file tools, two-mode search, `run_command` through policy → in-turn approval → `srt`, git tools, an audit row and events per call | [tools](../docs/backend/tools.md) |
+| 15a | `services/{github,pull_requests}.py`, `GitService.push` | Token permission check, a push whose token lives only in one process's env, idempotent draft PRs, SHA-pinned squash merges after approval | [GitHub](../docs/backend/github.md) |
 | 13 | `services/events.py`, `api/routes/stream.py` | Durable event log plus live SSE stream with single-use tickets, replay and gap healing | [events](../docs/backend/events.md) |
 | 11 | `orchestrator/{lead,repo_context}.py`, `domain/plans.py` | The lead's plan and review calls: streamed structured outputs, policy-checked test commands, refusals escalate | [lead](../docs/backend/lead.md) |
 | 10a | `runtimes/`, `services/proc.py` (`stream_proc`) | The runtime seam: limits, scrubbed env, git-computed `files_changed`, in-turn approvals, orphan reaping, fake runtimes and a contract suite | [runtimes](../docs/backend/runtimes.md) |
 | 12a | `orchestrator/{graph,guard,runner,approvals}.py`, `nodes/` | The durable LangGraph ticket-run workflow on interfaces: idempotent human gates, budget guard, crash recovery, concurrency limit ([diagram](../docs/graph.md)) | [orchestrator](../docs/backend/orchestrator.md) |
 
-The whole suite (1255 tests, 100% line and branch coverage) runs with `make check`, which is also what CI runs.
+The whole suite (1383 tests, 100% line and branch coverage) runs with `make check`, which is also what CI runs.
 
 ## Five design rules that explain most of the code
 

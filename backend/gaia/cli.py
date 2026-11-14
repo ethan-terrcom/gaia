@@ -98,6 +98,26 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    github = commands.add_parser(
+        "github",
+        help="GitHub helpers for the local workspace (doc 15a)",
+    )
+    github_commands = github.add_subparsers(dest="github_command", required=True, metavar="ACTION")
+    github_check = github_commands.add_parser(
+        "check",
+        help="check the GitHub token permissions for one repository",
+        description=(
+            "Loads a repository by name from the local workspace, reads GITHUB_TOKEN "
+            "from the keychain, and prints a table of the fine-grained PAT "
+            "permissions doc 15a requires. Exits 1 when any are missing."
+        ),
+    )
+    github_check.add_argument(
+        "--repo",
+        required=True,
+        help="repository name in the local workspace",
+    )
+
     dev = commands.add_parser(
         "dev",
         help="development helpers that are only available when the server enables them",
@@ -189,6 +209,94 @@ def _secrets(args: argparse.Namespace) -> int:
     store = get_secret_store()
     handler = _SECRETS_HANDLERS[args.secrets_command]
     return handler(args, store)
+
+
+async def _github_check_async(args: argparse.Namespace) -> int:
+    """Async body of ``gaia github check``.
+
+    stdout carries only the permission table, so it can be piped; logs go to
+    stderr. The token is read from the keychain, never printed, and only used as
+    the bearer credential for the API calls.
+    """
+    from gaia.config.logging import configure_logging
+    from gaia.db.engine import create_engine_for, create_session_factory, session_scope
+    from gaia.db.models import Repository
+    from gaia.db.repo import ScopedRepo
+    from gaia.db.seed import seed_initial_data
+    from gaia.services.github import (
+        GitHubClient,
+        UnsupportedRemote,
+        check_token,
+        parse_github_remote,
+    )
+
+    configure_logging()
+    settings = get_settings()
+    store = get_secret_store()
+    engine = create_engine_for(settings)
+    sessions = create_session_factory(engine)
+    try:
+        async with session_scope(sessions) as session:
+            seeded = await seed_initial_data(session, settings)
+            repositories = ScopedRepo(session, Repository, seeded.workspace.id)
+            rows = await repositories.list(name=args.repo)
+            if not rows:
+                print(
+                    f"error: no repository named {args.repo!r} in workspace "
+                    f"{seeded.workspace.slug!r}",
+                    file=sys.stderr,
+                )
+                return 1
+            repository = rows[0]
+            if not repository.remote_url:
+                print("error: this repository has no GitHub remote", file=sys.stderr)
+                return 1
+            try:
+                slug = parse_github_remote(repository.remote_url)
+            except UnsupportedRemote:
+                print("error: this repository has no GitHub remote", file=sys.stderr)
+                return 1
+
+            token = store.require(SecretName.GITHUB_TOKEN)
+            async with GitHubClient(token) as client:
+                result = await check_token(client, slug)
+
+            permissions = (
+                "Metadata R",
+                "Contents R/W",
+                "Pull requests R",
+                "Issues R",
+                "Commit statuses R",
+                "Checks R",
+            )
+            for permission in permissions:
+                status = "ok" if permission not in result.missing else "missing"
+                print(f"{permission:<20} {status}")
+            if not result.ok:
+                print(
+                    "GitHub token is missing permissions. See "
+                    "docs/implementation/15-github-integration.md for the required "
+                    "fine-grained PAT scopes.",
+                    file=sys.stderr,
+                )
+                return 1
+            return 0
+    except MissingSecretError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    finally:
+        await engine.dispose()
+
+
+def _github_check(args: argparse.Namespace) -> int:
+    """Run the GitHub permission check against the real keychain and GitHub."""
+    return asyncio.run(_github_check_async(args))
+
+
+def _github(args: argparse.Namespace) -> int:
+    if args.github_command == "check":
+        return _github_check(args)
+    return 2
 
 
 def _ui(args: argparse.Namespace) -> int:
@@ -489,6 +597,7 @@ def _dev(args: argparse.Namespace) -> int:
 
 _COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "secrets": _secrets,
+    "github": _github,
     "serve": _serve,
     "ui": _ui,
     "dev": _dev,

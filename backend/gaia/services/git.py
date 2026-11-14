@@ -37,6 +37,7 @@ from typing import Protocol
 from urllib.parse import urlsplit, urlunsplit
 
 import structlog
+from pydantic import SecretStr
 
 from gaia.config.settings import Settings
 from gaia.security.paths import UnsafePath as UnsafePath
@@ -116,6 +117,21 @@ _NON_ID_CHARS = re.compile(r"[^0-9a-zA-Z]")
 _NON_SLUG_CHARS = re.compile(r"[^a-z0-9]+")
 #: A value git may see as a revision, a branch or a worktree name.
 _REF_FORBIDDEN = re.compile(r"[\x00-\x20\x7f]")
+
+#: The helper script path, relative to ``data_dir``. Written once by
+#: :meth:`GitService._write_askpass`; the token lives in the environment only.
+ASKPASS_RELATIVE_PATH = Path("bin") / "gaia-askpass"
+
+#: Contents of the one-shot askpass helper (doc 15a). The shell prompt starts
+#: with ``Username`` for the user name and anything else is the password prompt.
+ASKPASS_CONTENT = """\
+#!/bin/sh
+# Written by Gaia (doc 15a). Answers git's credential prompts from the environment only.
+case "$1" in
+  Username*) printf '%s\\n' x-access-token ;;
+  *) printf '%s\\n' "$GAIA_GIT_TOKEN" ;;
+esac
+"""
 
 
 class GitError(RuntimeError):
@@ -284,6 +300,22 @@ def strip_url_credentials(url: str) -> str:
         return url
     host = parts.netloc.rsplit("@", 1)[1]
     return urlunsplit((parts.scheme, host, parts.path, parts.query, parts.fragment))
+
+
+def validate_push_url(url: str) -> str:
+    """Return ``url`` only when Gaia may push to it (doc 15a).
+
+    The remote is always the HTTPS clone URL from :class:`RepoSlug.https_url`
+    (``https://github.com/<owner>/<repo>.git``). This rule keeps a token out of
+    the URL and keeps Gaia from pushing to another host or to a URL with embedded
+    credentials. ``@`` is forbidden even after the host prefix: a credential in a
+    URL is exactly what doc 15a says must never exist.
+    """
+    if not url.startswith("https://github.com/"):
+        raise ValueError(f"push URL {url!r} must be an https://github.com/ URL")
+    if "@" in url:
+        raise ValueError(f"push URL {url!r} must not contain credentials")
+    return url
 
 
 def check_ref_argument(name: str, *, what: str = "ref") -> str:
@@ -837,6 +869,126 @@ class GitService:
     async def worktree_prune(self, repo: Path, *, timeout_s: float | None = None) -> None:
         """Drop git's records of worktrees whose directory is gone."""
         await self._run("worktree", "prune", cwd=repo, timeout_s=timeout_s)
+
+    # --------------------------------------------------------------- push 15a --
+    def _askpass_path(self) -> Path:
+        """The absolute path of the one-shot askpass helper."""
+        return self.data_dir / ASKPASS_RELATIVE_PATH
+
+    def _write_askpass(self) -> Path:
+        """Write (and repair) the askpass helper, owner-executable only.
+
+        The same pattern as :meth:`_write_config`: written on the first push and
+        repaired if its content differs. The file contains no secret; the token is
+        read from the environment of the single git process that needs it.
+        """
+        path = self._askpass_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if not path.exists() or path.read_text() != ASKPASS_CONTENT:
+            path.write_text(ASKPASS_CONTENT)
+            path.chmod(0o700)
+        return path
+
+    def _push_argv(self, url: str, branch: str) -> tuple[str, ...]:
+        """The argv after :data:`HARDENED_CONFIG` for one ``git push``.
+
+        No ``--force`` in any form, and no token in the URL or argv. The empty
+        ``credential.helper=`` resets the helper list so an owner credential
+        helper such as macOS's ``osxkeychain`` never stores or offers anything.
+        """
+        return (
+            "-c",
+            "credential.helper=",
+            "-c",
+            f"core.askPass={self._askpass_path()}",
+            "-c",
+            "push.default=nothing",
+            # The repository's own config is still read for this command. These
+            # pin the settings that could send the token somewhere else (lead
+            # review P4): TLS verification on, no proxy, no extra headers, no
+            # redirects. URL rewrites are refused before the push runs.
+            "-c",
+            "http.sslVerify=true",
+            "-c",
+            "http.proxy=",
+            "-c",
+            "http.extraHeader=",
+            "-c",
+            "http.followRedirects=false",
+            "push",
+            "--no-verify",
+            "--porcelain",
+            url,
+            f"refs/heads/{branch}:refs/heads/{branch}",
+        )
+
+    async def _push(
+        self,
+        location: WorktreeLocation,
+        *,
+        url: str,
+        branch: str,
+        token: SecretStr,
+        timeout_s: float,
+    ) -> None:
+        """Push one ``gaia/*`` branch without validating the URL rule.
+
+        Private so the no-network bare-repo test can exercise the real push with a
+        ``file://`` URL while :meth:`push` still refuses anything but
+        ``https://github.com/``.
+        """
+        check_ref_argument(branch, what="branch")
+        if not branch.startswith(BRANCH_PREFIX):
+            raise InvalidRef(f"push branch {branch!r} must start with {BRANCH_PREFIX!r}")
+        cwd, env = self._command_context(location)
+        await self._refuse_url_rewrites(cwd, env)
+        askpass = self._write_askpass()
+        child_env = dict(env or {})
+        child_env.update(
+            {
+                "GIT_ASKPASS": str(askpass),
+                "GAIA_GIT_TOKEN": token.get_secret_value(),
+                "GIT_TERMINAL_PROMPT": "0",
+            }
+        )
+        args = self._push_argv(url, branch)
+        result = await self._invoke(*args, cwd=cwd, env=child_env, timeout_s=timeout_s)
+        if not result.ok:
+            raise GitError(args, result)
+
+    async def _refuse_url_rewrites(self, cwd: Path, env: dict[str, str] | None) -> None:
+        """Refuse to push when any config rewrites URLs (``url.<base>.insteadOf``).
+
+        A rewrite can send ``https://github.com/...`` to another host, or to SSH
+        with the owner's keys, and git would hand the token to whatever answers.
+        ``git config --get-regexp`` exits 1 when nothing matches.
+        """
+        result = await self._invoke(
+            "config", "--get-regexp", r"^url\..*\.(insteadof|pushinsteadof)$", cwd=cwd, env=env
+        )
+        if result.ok and result.stdout.strip():
+            raise UnsafePath(
+                "refusing to push: git config rewrites URLs (url.*.insteadOf); "
+                "remove the rewrite or push this branch by hand"
+            )
+
+    async def push(
+        self,
+        location: WorktreeLocation,
+        *,
+        url: str,
+        branch: str,
+        token: SecretStr,
+        timeout_s: float = 120,
+    ) -> None:
+        """Push the worktree's ``gaia/*`` branch to GitHub over HTTPS.
+
+        The URL rule is checked before anything else, then :meth:`_push` does the
+        real work. The token travels only in ``GAIA_GIT_TOKEN`` in the environment
+        of this one git process - never in argv, the URL, git config or a file.
+        """
+        validate_push_url(url)
+        await self._push(location, url=url, branch=branch, token=token, timeout_s=timeout_s)
 
 
 def _check_absolute(path: Path) -> None:
