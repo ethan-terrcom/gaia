@@ -62,22 +62,22 @@ class AgentRuntime(Protocol):
   (tokens/cost), and `transcript_ref`.
 - `EventSink` streams progress (tool calls, messages, cost) to the event bus.
 
-Implementations:
+Implementations, as decided by [ADR-001](decisions/ADR-001-agent-runtimes.md) (accepted
+2026-11-14):
 
-| Runtime | Role | Notes |
-|---|---|---|
-| `NativeClaudeRuntime` | lead | Anthropic SDK tool loop over Gaia's sandboxed tools (§6) |
-| `NativeDeepSeekRuntime` | junior | OpenAI SDK pointed at DeepSeek; same tools |
-| `ClaudeAgentSdkRuntime` | lead (or junior) | `claude-agent-sdk` package; `cwd` = worktree; `setting_sources=[]` so the worktree's `.claude/` settings, hooks and `CLAUDE.md` never load; unwanted tools removed with `disallowed_tools` (`allowed_tools` only auto-approves, it does not restrict); a `PreToolUse` hook routes every call to Gaia's command policy and approvals. Can also drive DeepSeek through its Anthropic-compatible endpoint (a spike candidate) |
-| `ClineCliRuntime` | junior | Runs the Cline CLI headless in the worktree with DeepSeek configured. Headless mode and JSON-lines output exist, but it **auto-approves by default**, loads hooks from the workspace's `.cline/hooks`, and `-k` persists the key to disk. **Spike required:** confirm `PreToolUse` denial works headless, workspace hooks can be disabled, and the key can come from the gateway |
+| Runtime | Role | Package | Notes |
+|---|---|---|---|
+| `NativeRuntime` | **junior (default)**; also the non-Claude lead fallback | 10b | Gaia's own tool loop over the 09b tools. Provider-neutral: it talks to any `ChatLLM` (DeepSeek first, through the gateway). Policy, approvals and events are native, not adapted |
+| `ClaudeAgentSdkRuntime` | **lead implementation and escalations** | 10c | `claude-agent-sdk` in the worktree under `srt`, with `setting_sources=[]`. Built-in tools are off (`tools=[]`); the agent sees only Gaia's 09b tools, served in-process over MCP. Claude is reached through the gateway |
+| Cline CLI | — | — | **Out of scope for v1**: it runs hook scripts shipped in the repository, with no opt-out (ADR-001) |
 
-**Recommendation:** run the spike (`implementation/08-runtime-spike.md`) on one real
-ticket with each runtime. Working hypothesis, which ADR-001 confirms or overturns: **harness runtimes for v1** if the spike passes,
-because the hard, security-sensitive work (edit tools, context management) is already
-done there and matches the owner's current workflow. Keep **native runtimes** as the
-fallback and for steps that need strict structured output, such as planning. Planning
-and review on the lead side are single structured calls, so they always go straight
-through the Anthropic SDK whichever runtime does implementation.
+Lead **planning and review** are single structured calls behind the `StructuredLLM` seam (doc 11),
+on Claude by default and on DeepSeek as a tested alternative.
+
+**Portability.** The owner accepted Claude for lead work on the condition that Gaia can move off
+it later without a rewrite. ADR-001's rules P1–P6 keep every vendor SDK inside one adapter module,
+make "which model and runtime plays which role" a setting, and keep tools, state, prompts and cost
+accounting in Gaia's hands. Every runtime passes the same contract suite.
 
 Whichever runtime is chosen, Gaia enforces worktree confinement, secret isolation and budgets
 **outside** the runtime as well: an OS sandbox around every agent process (§6.4), the LLM

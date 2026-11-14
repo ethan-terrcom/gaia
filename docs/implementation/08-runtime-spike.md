@@ -66,7 +66,7 @@ scores better on control and observability), and **native Anthropic SDK structur
 planning and review**.
 
 ## Acceptance criteria
-- [x] The ADR is merged: [`ADR-001`](../decisions/ADR-001-agent-runtimes.md), status *Proposed* (2026-11-14).
+- [x] The ADR is merged: [`ADR-001`](../decisions/ADR-001-agent-runtimes.md), status *Accepted* on 2026-11-14, with the owner's portability condition (P1–P6).
 - [ ] The owner signs off before 10b starts. (10a does not wait: its runtime-agnostic base was built in parallel.)
 
 ## As run (2026-11-14)
