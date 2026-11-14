@@ -607,6 +607,44 @@ class GitService:
         )
         return result.stdout
 
+    async def changed_paths(
+        self,
+        location: WorktreeLocation,
+        base: str,
+        *,
+        timeout_s: float | None = None,
+    ) -> tuple[str, ...]:
+        """Every path that changed since ``base``, sorted and de-duplicated.
+
+        Covers committed, staged and unstaged changes (``git diff --name-only
+        <base>``) plus untracked files (``git ls-files --others
+        --exclude-standard``). This is the result a runtime reports, never the
+        agent's own list (doc 10a requirement 6).
+        """
+        check_ref_argument(base, what="revision")
+        cwd, env = self._command_context(location)
+        diff = await self._run(
+            "diff",
+            "--name-only",
+            "--no-ext-diff",
+            "--no-textconv",
+            base,
+            cwd=cwd,
+            env=env,
+            timeout_s=timeout_s,
+        )
+        untracked = await self._run(
+            "ls-files",
+            "--others",
+            "--exclude-standard",
+            cwd=cwd,
+            env=env,
+            timeout_s=timeout_s,
+        )
+        lines = (*diff.stdout.splitlines(), *untracked.stdout.splitlines())
+        paths = {line for line in lines if line}
+        return tuple(sorted(paths))
+
     async def log(
         self,
         repo: Path | WorktreeLocation,

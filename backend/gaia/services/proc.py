@@ -38,7 +38,7 @@ import asyncio
 import os
 import signal
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
@@ -249,6 +249,203 @@ async def run_proc(
         duration_s=round(result.duration_s, 3),
     )
     return result
+
+
+async def stream_proc(
+    argv: Sequence[str],
+    cwd: Path,
+    *,
+    env: Mapping[str, str] | None,
+    on_line: Callable[[str, str], Awaitable[None]],
+    timeout_s: float,
+    max_line_bytes: int = DEFAULT_MAX_OUTPUT_BYTES,
+    on_start: Callable[[int], None] | None = None,
+) -> ProcResult:
+    """Run ``argv`` with no shell and stream each output line to ``on_line``.
+
+    This is :func:`run_proc` for harness runtimes that produce machine-readable
+    JSON lines (doc 10): the process gets the same no-shell argv checks, its own
+    process group, a bounded timeout and a bounded reap. Instead of buffering the
+    whole stream, ``on_line(stream_name, line)`` is awaited for every line as it
+    arrives, with over-long lines split at ``max_line_bytes``. The returned
+    :class:`ProcResult` keeps only the last 64 KB of each stream, so a runaway
+    harness cannot make Gaia buffer unbounded output while the caller still sees
+    each line.
+    """
+    _check_argv(argv)
+    if timeout_s <= 0:
+        raise ProcError(f"timeout_s must be positive, not {timeout_s!r}")
+    if max_line_bytes <= 0:
+        raise ProcError(f"max_line_bytes must be positive, not {max_line_bytes!r}")
+
+    directory = _existing_directory(cwd)
+
+    child_env = base_environment()
+    if env is not None:
+        child_env.update(env)
+
+    started = time.monotonic()
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *argv,
+            cwd=str(directory),
+            env=child_env,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
+        )
+    except (FileNotFoundError, NotADirectoryError, PermissionError) as exc:
+        raise ProcError(f"could not run {argv[0]!r}: {exc}") from exc
+
+    stdout_stream = cast("asyncio.StreamReader", process.stdout)
+    stderr_stream = cast("asyncio.StreamReader", process.stderr)
+    stdout_task = asyncio.create_task(
+        _read_stream_lines(
+            stdout_stream,
+            "stdout",
+            on_line,
+            max_line_bytes=max_line_bytes,
+            max_output_bytes=DEFAULT_MAX_OUTPUT_BYTES,
+        )
+    )
+    stderr_task = asyncio.create_task(
+        _read_stream_lines(
+            stderr_stream,
+            "stderr",
+            on_line,
+            max_line_bytes=max_line_bytes,
+            max_output_bytes=DEFAULT_MAX_OUTPUT_BYTES,
+        )
+    )
+
+    timed_out = False
+    escaped = False
+    try:
+        if on_start is not None:
+            on_start(process.pid)
+        returncode = await asyncio.wait_for(process.wait(), timeout_s)
+    except TimeoutError:
+        timed_out = True
+        _kill_process_group(process.pid)
+        (
+            returncode,
+            (stdout, stdout_truncated),
+            (stderr, stderr_truncated),
+            escaped,
+        ) = await _reap_after_kill(process, stdout_stream, stderr_stream, stdout_task, stderr_task)
+    except BaseException:
+        # A cancellation (doc 14) or an ``on_start`` callback failure must not
+        # leave the child behind, exactly like :func:`run_proc`.
+        _kill_process_group(process.pid)
+        await _reap_after_kill(process, stdout_stream, stderr_stream, stdout_task, stderr_task)
+        raise
+    else:
+        (stdout, stdout_truncated), (stderr, stderr_truncated) = await asyncio.gather(
+            stdout_task, stderr_task
+        )
+
+    result = ProcResult(
+        argv=tuple(argv),
+        cwd=directory,
+        pid=process.pid,
+        returncode=returncode,
+        stdout=stdout,
+        stderr=stderr,
+        stdout_truncated=stdout_truncated,
+        stderr_truncated=stderr_truncated,
+        duration_s=time.monotonic() - started,
+        timed_out=timed_out,
+        escaped=escaped,
+    )
+    if escaped:
+        logger.warning("proc.escaped", program=argv[0][:_MAX_LOGGED_ARG], pid=process.pid)
+    logger.debug(
+        "proc.finished",
+        program=argv[0][:_MAX_LOGGED_ARG],
+        argc=len(argv),
+        returncode=result.returncode,
+        timed_out=result.timed_out,
+        escaped=result.escaped,
+        truncated=result.truncated,
+        duration_s=round(result.duration_s, 3),
+    )
+    return result
+
+
+async def _read_stream_lines(
+    stream: asyncio.StreamReader,
+    name: str,
+    on_line: Callable[[str, str], Awaitable[None]],
+    *,
+    max_line_bytes: int,
+    max_output_bytes: int,
+) -> tuple[str, bool]:
+    """Read ``stream`` to EOF, emit lines, and keep the last ``max_output_bytes``.
+
+    The whole stream is drained so a chatty child never blocks on a full pipe.
+    Only the last ``max_output_bytes`` are kept for the result, because a
+    harness's earlier output has already been consumed by ``on_line``.
+    """
+    kept = bytearray()
+    pending = bytearray()
+    total = 0
+    try:
+        while chunk := await stream.read(READ_CHUNK_BYTES):
+            total += len(chunk)
+            kept += chunk
+            if len(kept) > max_output_bytes:
+                del kept[: len(kept) - max_output_bytes]
+            pending += chunk
+            await _emit_complete_lines(pending, name, on_line, max_line_bytes)
+    except asyncio.CancelledError:
+        pass
+    if pending:
+        await _emit_pieces(bytes(pending), name, on_line, max_line_bytes)
+    return kept.decode("utf-8", "replace"), total > max_output_bytes
+
+
+async def _emit_complete_lines(
+    pending: bytearray,
+    name: str,
+    on_line: Callable[[str, str], Awaitable[None]],
+    max_line_bytes: int,
+) -> None:
+    """Emit every complete line in ``pending``, leaving only the partial tail.
+
+    A line longer than ``max_line_bytes`` is emitted in pieces even before its
+    newline arrives, so no line can make the pending buffer grow without bound.
+    """
+    while True:
+        newline = pending.find(b"\n")
+        if newline >= 0:
+            line = bytes(pending[:newline])
+            del pending[: newline + 1]
+            await _emit_pieces(line, name, on_line, max_line_bytes)
+            continue
+        if len(pending) >= max_line_bytes:
+            line = bytes(pending[:max_line_bytes])
+            del pending[:max_line_bytes]
+            await _emit_pieces(line, name, on_line, max_line_bytes)
+            continue
+        return
+
+
+async def _emit_pieces(
+    line: bytes,
+    name: str,
+    on_line: Callable[[str, str], Awaitable[None]],
+    max_line_bytes: int,
+) -> None:
+    """Emit ``line`` as one or more text lines of at most ``max_line_bytes``."""
+    if not line:
+        await on_line(name, "")
+        return
+    while len(line) >= max_line_bytes:
+        await on_line(name, line[:max_line_bytes].decode("utf-8", "replace"))
+        line = line[max_line_bytes:]
+    if line:
+        await on_line(name, line.decode("utf-8", "replace"))
 
 
 def _existing_directory(cwd: Path) -> Path:

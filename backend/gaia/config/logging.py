@@ -8,12 +8,30 @@ renderer (so nothing can print an event once redaction ran).
 
 from __future__ import annotations
 
+import io
 import logging
-from typing import TextIO
+import sys
+from typing import TextIO, cast
 
 import structlog
 
 from gaia.security.redaction import redaction_processor
+
+
+class _CurrentStderr(io.TextIOBase):
+    """A stream that writes to whatever ``sys.stderr`` is *now*.
+
+    Logs go to stderr so stdout stays clean for command output (``gaia dev
+    plan | jq``). The stream is resolved at write time because binding
+    ``sys.stderr`` itself would pin the object of the moment; under pytest that
+    is a capture stream that is closed after the test.
+    """
+
+    def write(self, text: str) -> int:
+        return sys.stderr.write(text)
+
+    def flush(self) -> None:
+        sys.stderr.flush()
 
 
 def configure_logging(
@@ -23,7 +41,7 @@ def configure_logging(
 ) -> None:
     """Install structlog with redaction, at ``level``.
 
-    ``stream`` defaults to stdout; tests pass a ``StringIO`` to assert on the
+    ``stream`` defaults to the current stderr; tests pass a ``StringIO`` to assert on the
     rendered output, which is the only way to prove the processor chain (and
     therefore redaction) actually runs.
     """
@@ -37,7 +55,11 @@ def configure_logging(
             structlog.dev.ConsoleRenderer(colors=False),
         ],
         wrapper_class=structlog.make_filtering_bound_logger(level),
-        logger_factory=structlog.PrintLoggerFactory(file=stream),
+        logger_factory=structlog.PrintLoggerFactory(
+            # A TextIOBase subclass is a text stream at runtime; typing only
+            # knows the TextIO protocol, hence the cast.
+            file=stream if stream is not None else cast("TextIO", _CurrentStderr())
+        ),
         # Tests reconfigure logging; without this a logger built earlier would
         # keep the old chain.
         cache_logger_on_first_use=False,

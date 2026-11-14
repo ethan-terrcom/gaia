@@ -11,6 +11,8 @@ import pytest
 from gaia import cli
 from gaia.config.secrets import InMemorySecretStore, SecretName
 from gaia.config.settings import Settings
+from tests.conftest import Database
+from tests.runtime_contract import make_worktree_location
 
 DUMMY_TOKEN = "dummy" + "-api-token-value"
 
@@ -122,3 +124,82 @@ def test_dev_fake_run_reports_a_non_json_body(
 
 def test_dev_with_an_unknown_action_is_an_error() -> None:
     assert cli._dev(argparse.Namespace(dev_command="other")) == 2
+
+
+def test_dev_run_task_dispatches(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[argparse.Namespace] = []
+
+    def fake_run_task(args: argparse.Namespace) -> int:
+        calls.append(args)
+        return 0
+
+    monkeypatch.setattr(cli, "_dev_run_task", fake_run_task)
+
+    assert cli._dev(argparse.Namespace(dev_command="run-task")) == 0
+    assert calls == [argparse.Namespace(dev_command="run-task")]
+
+
+def test_dev_run_task_prints_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    async def fail(args: argparse.Namespace, settings: Settings) -> int:
+        del args, settings
+        raise ValueError("bad worktree")
+
+    monkeypatch.setattr(cli, "_run_fake_task", fail)
+    monkeypatch.setattr(cli, "get_settings", lambda: Settings(data_dir=Path("/tmp")))
+
+    assert cli._dev_run_task(argparse.Namespace(worktree="/bad")) == 1
+    assert "bad worktree" in capsys.readouterr().err
+
+
+def test_worktree_location_parses_a_gaia_worktree(tmp_path: Path) -> None:
+    work_tree = tmp_path / "worktree"
+    work_tree.mkdir()
+    git_dir = tmp_path / "admin"
+    (work_tree / ".git").write_text(f"gitdir: {git_dir}\n")
+
+    location = cli._worktree_location(work_tree)
+
+    assert location.work_tree == work_tree.resolve()
+    assert location.git_dir == git_dir.resolve()
+
+
+@pytest.mark.parametrize("content", ["", "not-a-gitdir\n"])
+def test_worktree_location_rejects_malformed_git_file(tmp_path: Path, content: str) -> None:
+    work_tree = tmp_path / "worktree"
+    work_tree.mkdir()
+    (work_tree / ".git").write_text(content)
+
+    with pytest.raises(ValueError, match="Gaia worktree"):
+        cli._worktree_location(work_tree)
+
+
+def test_worktree_location_rejects_a_missing_git_file(tmp_path: Path) -> None:
+    work_tree = tmp_path / "worktree"
+    work_tree.mkdir()
+
+    with pytest.raises(ValueError, match=r"no \.git file"):
+        cli._worktree_location(work_tree)
+
+
+async def test_run_fake_task_end_to_end(
+    database: Database,
+    git_repo: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    worktree = make_worktree_location(git_repo, tmp_path)
+    settings = Settings(data_dir=tmp_path / "gaia-data", db_url=database.url)
+    args = argparse.Namespace(
+        runtime="fake",
+        worktree=str(worktree.work_tree),
+        instructions="write hello.py",
+    )
+
+    assert await cli._run_fake_task(args, settings) == 0
+
+    captured = capsys.readouterr()
+    assert "completed" in captured.out
+    assert (worktree.work_tree / "hello.py").exists()
