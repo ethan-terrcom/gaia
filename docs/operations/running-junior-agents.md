@@ -125,7 +125,9 @@ What the harness does:
   - `read_file`, `list_dir`, `search`, `write_file` and `edit_file` reach only inside the worktree.
     Paths are resolved, and `.git` is refused.
   - `run` accepts an argv list with no shell, allowlisted to `uv run
-    {pytest,ruff,mypy,alembic,python,gaia}` and `git {status,diff,log,show,ls-files}`.
+    {pytest,ruff,mypy,alembic,python,gaia}`, `npm run {lint,format,typecheck,test,build,gen:api}`
+    (offline, with npm's cache and logs in the run's tmp dir) and
+    `git {status,diff,log,show,ls-files}`.
   - `finish(report)` ends the run.
 - **Sandbox:** every `run` command executes under `sandbox-exec` with a generated profile:
   - remote network is denied;
@@ -226,5 +228,6 @@ and the Alembic revision chain. Rerun `make check`, then push with `--force-with
   (ADR-001, consequences 1–2).
 - **ADR-001** (accepted) makes this native loop Gaia's junior runtime (10b), so this harness is the
   prototype for it.
-- **Frontend packages:** packages 16 and 17 need `npm run lint|test|build` added to the `run`
-  allowlist.
+- **Frontend packages:** done. `npm run <script>` is allowlisted (2026-11-14), and was verified under
+  the sandbox profile with `lint`, `test`, `typecheck` and `build`. New npm dependencies must be
+  installed by the lead before dispatch, because the junior is offline.

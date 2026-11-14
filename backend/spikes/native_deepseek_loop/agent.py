@@ -40,6 +40,9 @@ SKIP_DIRS = {
 
 ALLOWED_UV_RUN = {"pytest", "ruff", "mypy", "alembic", "python", "gaia"}
 ALLOWED_GIT = {"status", "diff", "log", "show", "ls-files"}
+#: Frontend packages (16, 17): `npm run <script>` only, offline, with npm's cache and logs in the
+#: per-run tmp dir. Scripts are the ones in frontend/package.json; the sandbox still applies.
+ALLOWED_NPM_RUN = {"lint", "format", "typecheck", "test", "build", "gen:api"}
 
 SANDBOX_PROFILE = """(version 1)
 (allow default)
@@ -131,7 +134,9 @@ TOOLS = [
             "name": "run",
             "description": (
                 "Run a command (argv list, no shell) in a sandbox without network. Allowed: "
-                "['uv','run',<pytest|ruff|mypy|alembic|python|gaia>, ...] and ['git',<status|diff|log|show|ls-files>, ...]. "
+                "['uv','run',<pytest|ruff|mypy|alembic|python|gaia>, ...], "
+                "['npm','run',<lint|format|typecheck|test|build|gen:api>, ...] (use cwd 'frontend') "
+                "and ['git',<status|diff|log|show|ls-files>, ...]. "
                 "cwd is relative to the worktree root (default 'backend')."
             ),
             "parameters": {
@@ -268,8 +273,11 @@ class Agent:
         elif argv[0] == "git":
             if len(argv) < 2 or argv[1] not in ALLOWED_GIT:
                 raise ToolError(f"only git {sorted(ALLOWED_GIT)} are allowed")
+        elif argv[0] == "npm":
+            if len(argv) < 3 or argv[1] != "run" or argv[2] not in ALLOWED_NPM_RUN:
+                raise ToolError(f"only npm run {sorted(ALLOWED_NPM_RUN)} are allowed")
         else:
-            raise ToolError("only uv run ... and read-only git are allowed")
+            raise ToolError("only uv run ..., npm run ... and read-only git are allowed")
         directory = self._path(cwd)
         env = {
             "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
@@ -282,6 +290,13 @@ class Agent:
             "GIT_CONFIG_NOSYSTEM": "1",
             "GIT_CONFIG_GLOBAL": "/dev/null",
             "GAIA_DATA_DIR": str(self.tmp / "gaia-data"),
+            # npm: offline, cache and logs inside the sandbox's writable tmp, no update check.
+            "npm_config_offline": "true",
+            "npm_config_cache": str(self.tmp / "npm-cache"),
+            "npm_config_logs_dir": str(self.tmp / "npm-logs"),
+            "npm_config_update_notifier": "false",
+            "npm_config_fund": "false",
+            "CI": "1",
         }
         try:
             proc = subprocess.run(
