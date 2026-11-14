@@ -21,7 +21,7 @@ Starting runs (12/14) and importing GitHub Issues (15).
 | POST/GET/PATCH | `/tickets`, `/tickets/{id}` | PATCH status goes through `transition()` |
 | GET | `/tickets?status=&repo_id=&q=` | paginated (`limit` ≤ 100, cursor) |
 | GET | `/agents` | the agent roster with live status (static rows for now) |
-| GET | `/worktrees?repo_id=` | from `WorktreeService.list`, including orphan flags |
+| GET | `/worktrees?repo_id=` | from `WorktreeService.list`, including orphan flags; add `dirty` here with one `GitService.is_dirty` per row (doc 05 deviation 7 - it is deliberately not in `list()`) |
 | DELETE | `/worktrees/{id}?force=` | writes an audit log entry |
 
 ## Tasks

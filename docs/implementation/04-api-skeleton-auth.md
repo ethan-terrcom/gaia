@@ -95,7 +95,9 @@ uses doc 13's short-lived ticket, never this token in a URL); if CORS is ever ad
    configured; restart the server" rather than `require()`'s advice, which would tell the owner to
    run `gaia secrets set GAIA_API_TOKEN` - a command the CLI refuses on purpose.
 2. **`gaia ui` prints the URL; it does not open a browser.** Only `gaia/services/proc.py` may spawn a
-   process and it arrives with doc 05, so `TODO(gaia-05)` marks the `--open` flag. The token travels
+   process and it arrived with doc 05, so `TODO(gaia-05)` marked the `--open` flag. Doc 05 re-pointed
+   that `TODO` at doc 16 (`TODO(gaia-16)`): the flag was never about `run_proc` being missing, since
+   opening the URL hands the token to a child's `argv`, where `ps` can read it. The token travels
    in the fragment, which a browser never sends to a server, and never through `argv`.
 3. **`gaia serve` is a new CLI subcommand, and `make dev-backend` calls it.** uvicorn cannot read
    `Settings`, so something has to bridge them. It passes the import string

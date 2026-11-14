@@ -252,6 +252,11 @@ class GitService:
     Constructed once per process from :class:`~gaia.config.settings.Settings`,
     which supplies ``data_dir`` (where the git config goes) and
     ``worktrees_root`` (the only place a worktree may live).
+
+    ``timeout_s`` bounds every command. Each command method also takes
+    ``timeout_s=`` to override it for one call, because the right bound is a
+    property of the command rather than of the service: a ``status`` on a request
+    path wants seconds, a ``push`` of a large repo (doc 15) wants minutes.
     """
 
     def __init__(self, settings: Settings, *, timeout_s: float = DEFAULT_TIMEOUT_S) -> None:
@@ -319,7 +324,7 @@ class GitService:
         return result
 
     # ---------------------------------------------------------------- repos --
-    async def validate_repo(self, path: Path | str) -> Path:
+    async def validate_repo(self, path: Path | str, *, timeout_s: float | None = None) -> Path:
         """Return the repository root for ``path``, or raise.
 
         Refused: a path that is not a directory, a directory outside git, and
@@ -331,7 +336,9 @@ class GitService:
         if not candidate.is_dir():
             raise NotARepository(candidate, "it is not a directory")
         self._refuse_worktree_path(candidate)
-        result = await self._invoke("rev-parse", "--show-toplevel", cwd=candidate)
+        result = await self._invoke(
+            "rev-parse", "--show-toplevel", cwd=candidate, timeout_s=timeout_s
+        )
         if not result.ok:
             raise NotARepository(candidate, _first_line(result) or result.describe())
         root = _resolved(result.stdout.strip())
@@ -345,18 +352,24 @@ class GitService:
                 f"{str(path)!r} is inside the worktrees root; register the repository itself"
             )
 
-    async def current_sha(self, repo: Path, rev: str = "HEAD") -> str:
+    async def current_sha(
+        self, repo: Path, rev: str = "HEAD", *, timeout_s: float | None = None
+    ) -> str:
         """The commit ``rev`` points at, as a full SHA."""
         check_ref_argument(rev, what="revision")
-        result = await self._run("rev-parse", "--verify", f"{rev}^{{commit}}", cwd=repo)
+        result = await self._run(
+            "rev-parse", "--verify", f"{rev}^{{commit}}", cwd=repo, timeout_s=timeout_s
+        )
         return result.stdout.strip()
 
-    async def current_branch(self, repo: Path) -> str | None:
+    async def current_branch(self, repo: Path, *, timeout_s: float | None = None) -> str | None:
         """The checked-out branch, or ``None`` for a detached HEAD."""
-        result = await self._invoke("symbolic-ref", "--quiet", "--short", "HEAD", cwd=repo)
+        result = await self._invoke(
+            "symbolic-ref", "--quiet", "--short", "HEAD", cwd=repo, timeout_s=timeout_s
+        )
         return result.stdout.strip() or None
 
-    async def default_branch(self, repo: Path) -> str:
+    async def default_branch(self, repo: Path, *, timeout_s: float | None = None) -> str:
         """The branch a run should start from.
 
         ``origin/HEAD`` when the repo has a remote that names it - that is the
@@ -365,20 +378,25 @@ class GitService:
         owner set ``repository.default_branch`` for anything stranger.
         """
         remote_head = await self._invoke(
-            "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD", cwd=repo
+            "symbolic-ref",
+            "--quiet",
+            "--short",
+            "refs/remotes/origin/HEAD",
+            cwd=repo,
+            timeout_s=timeout_s,
         )
         if remote_head.ok and remote_head.stdout.strip():
             return remote_head.stdout.strip().removeprefix("origin/")
-        return await self.current_branch(repo) or "main"
+        return await self.current_branch(repo, timeout_s=timeout_s) or "main"
 
-    async def status_porcelain(self, repo: Path) -> str:
+    async def status_porcelain(self, repo: Path, *, timeout_s: float | None = None) -> str:
         """``git status --porcelain`` verbatim: empty when the tree is clean."""
-        result = await self._run("status", "--porcelain", cwd=repo)
+        result = await self._run("status", "--porcelain", cwd=repo, timeout_s=timeout_s)
         return result.stdout
 
-    async def is_dirty(self, repo: Path) -> bool:
+    async def is_dirty(self, repo: Path, *, timeout_s: float | None = None) -> bool:
         """True when the tree has staged, unstaged or untracked changes."""
-        return bool((await self.status_porcelain(repo)).strip())
+        return bool((await self.status_porcelain(repo, timeout_s=timeout_s)).strip())
 
     async def diff(
         self,
@@ -386,6 +404,7 @@ class GitService:
         base: str,
         head: str,
         *,
+        timeout_s: float | None = None,
         max_output_bytes: int = DEFAULT_MAX_OUTPUT_BYTES,
     ) -> str:
         """``git diff base head``, capped at ``max_output_bytes``.
@@ -396,16 +415,30 @@ class GitService:
         """
         check_ref_argument(base, what="revision")
         check_ref_argument(head, what="revision")
-        result = await self._run("diff", base, head, cwd=repo, max_output_bytes=max_output_bytes)
+        result = await self._run(
+            "diff", base, head, cwd=repo, timeout_s=timeout_s, max_output_bytes=max_output_bytes
+        )
         return result.stdout
 
-    async def log(self, repo: Path, *, limit: int = 20, rev: str = "HEAD") -> list[Commit]:
+    async def log(
+        self,
+        repo: Path,
+        *,
+        limit: int = 20,
+        rev: str = "HEAD",
+        timeout_s: float | None = None,
+    ) -> list[Commit]:
         """The newest ``limit`` commits reachable from ``rev``, newest first."""
         if limit <= 0:
             raise ValueError(f"limit must be positive, not {limit!r}")
         check_ref_argument(rev, what="revision")
         result = await self._run(
-            "log", f"--max-count={limit}", "--pretty=format:%H%x1f%s%x1e", rev, cwd=repo
+            "log",
+            f"--max-count={limit}",
+            "--pretty=format:%H%x1f%s%x1e",
+            rev,
+            cwd=repo,
+            timeout_s=timeout_s,
         )
         commits = []
         for record in result.stdout.split("\x1e"):
@@ -414,7 +447,14 @@ class GitService:
                 commits.append(Commit(sha=sha, summary=summary))
         return commits
 
-    async def commit(self, repo: Path, message: str, *, add_all: bool = True) -> str:
+    async def commit(
+        self,
+        repo: Path,
+        message: str,
+        *,
+        add_all: bool = True,
+        timeout_s: float | None = None,
+    ) -> str:
         """Stage (optionally) and commit; return the new SHA.
 
         ``--no-verify`` is the belt to ``core.hooksPath=/dev/null``'s braces: a
@@ -423,14 +463,17 @@ class GitService:
         09b's ``git_commit`` tool is the caller.
 
         TODO(gaia-15): ``push_branch`` belongs beside this, with the token in the
-        child's environment rather than in argv; doc 15 owns the remote.
+        child's environment rather than in argv; doc 15 owns the remote. It will
+        pass a larger ``timeout_s`` than the 30 s default.
         """
         if not message.strip():
             raise ValueError("a commit message cannot be empty")
         if add_all:
-            await self._run("add", "--all", cwd=repo)
-        await self._run("commit", "--no-verify", "--message", message, cwd=repo)
-        return await self.current_sha(repo)
+            await self._run("add", "--all", cwd=repo, timeout_s=timeout_s)
+        await self._run(
+            "commit", "--no-verify", "--message", message, cwd=repo, timeout_s=timeout_s
+        )
+        return await self.current_sha(repo, timeout_s=timeout_s)
 
     # -------------------------------------------------------------- branches --
     def branch_name_for(self, ticket: TicketLike) -> str:
@@ -438,34 +481,51 @@ class GitService:
         slug = slugify(ticket.title) or SLUG_FALLBACK
         return f"{BRANCH_PREFIX}{short_id(ticket.id)}-{slug}"
 
-    async def validate_ref(self, name: str) -> str:
+    async def validate_ref(self, name: str, *, timeout_s: float | None = None) -> str:
         """Ask git whether ``name`` is a legal branch name; return it if so.
 
         ``git check-ref-format --branch`` is the authority, not a regex: it knows
         about ``..``, ``@{``, a trailing ``.lock``, a leading ``-`` and the rest.
         """
         check_ref_argument(name, what="branch")
-        result = await self._invoke("check-ref-format", "--branch", name, cwd=self.data_dir)
+        result = await self._invoke(
+            "check-ref-format", "--branch", name, cwd=self.data_dir, timeout_s=timeout_s
+        )
         if not result.ok:
             raise InvalidRef(f"{name!r} is not a valid branch name")
         return name
 
-    async def branch_exists(self, repo: Path, branch: str) -> bool:
+    async def branch_exists(
+        self, repo: Path, branch: str, *, timeout_s: float | None = None
+    ) -> bool:
         """True when ``refs/heads/<branch>`` exists."""
         check_ref_argument(branch, what="branch")
         result = await self._invoke(
-            "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}", cwd=repo
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            f"refs/heads/{branch}",
+            cwd=repo,
+            timeout_s=timeout_s,
         )
         return result.ok
 
     # ------------------------------------------------------------- worktrees --
-    async def worktree_list(self, repo: Path) -> list[GitWorktree]:
+    async def worktree_list(
+        self, repo: Path, *, timeout_s: float | None = None
+    ) -> list[GitWorktree]:
         """``git worktree list --porcelain``, parsed (task 3)."""
-        result = await self._run("worktree", "list", "--porcelain", cwd=repo)
+        result = await self._run("worktree", "list", "--porcelain", cwd=repo, timeout_s=timeout_s)
         return _parse_worktree_porcelain(result.stdout)
 
     async def worktree_add(
-        self, repo: Path, *, path: Path, ref: str, new_branch: str | None = None
+        self,
+        repo: Path,
+        *,
+        path: Path,
+        ref: str,
+        new_branch: str | None = None,
+        timeout_s: float | None = None,
     ) -> None:
         """``git worktree add``: check out ``ref``, optionally on a new branch.
 
@@ -483,19 +543,21 @@ class GitService:
             check_ref_argument(new_branch, what="branch")
             args += ["-b", new_branch]
         _check_absolute(path)
-        await self._run(*args, "--", str(path), ref, cwd=repo)
+        await self._run(*args, "--", str(path), ref, cwd=repo, timeout_s=timeout_s)
 
-    async def worktree_remove(self, repo: Path, path: Path, *, force: bool = False) -> None:
+    async def worktree_remove(
+        self, repo: Path, path: Path, *, force: bool = False, timeout_s: float | None = None
+    ) -> None:
         """Remove the worktree at ``path``; ``force`` discards local changes."""
         _check_absolute(path)
         args = ["worktree", "remove"]
         if force:
             args.append("--force")
-        await self._run(*args, "--", str(path), cwd=repo)
+        await self._run(*args, "--", str(path), cwd=repo, timeout_s=timeout_s)
 
-    async def worktree_prune(self, repo: Path) -> None:
+    async def worktree_prune(self, repo: Path, *, timeout_s: float | None = None) -> None:
         """Drop git's records of worktrees whose directory is gone."""
-        await self._run("worktree", "prune", cwd=repo)
+        await self._run("worktree", "prune", cwd=repo, timeout_s=timeout_s)
 
 
 def _check_absolute(path: Path) -> None:

@@ -10,10 +10,13 @@ from __future__ import annotations
 
 import shutil
 import stat
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 import pytest
 
+import gaia.services.git as git_module
+import gaia.services.proc as proc_module
 from gaia.config.settings import Settings
 from gaia.services.git import (
     GITCONFIG_CONTENT,
@@ -26,7 +29,7 @@ from gaia.services.git import (
     UnsafePath,
     _parse_worktree_porcelain,
 )
-from gaia.services.proc import ProcResult
+from gaia.services.proc import DEFAULT_MAX_OUTPUT_BYTES, DEFAULT_TIMEOUT_S, ProcResult
 from tests.git_repo import commit_file, git, resolved
 
 
@@ -82,6 +85,41 @@ def test_construction_creates_the_data_directory(tmp_path: Path) -> None:
     GitService(settings)
 
     assert settings.data_dir.is_dir()
+
+
+# ------------------------------------------------------------------ bounds --
+async def test_a_per_command_timeout_overrides_the_service_default(
+    git_repo: Path, git_settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The right bound is a property of the command, not of the service.
+
+    Doc 15's ``push`` of a large repo needs minutes where a request-path
+    ``status`` wants seconds, so every command method takes ``timeout_s=``.
+    Recorded at the one place it can be honoured - the ``run_proc`` call - and the
+    real command still runs, so this checks the plumbing rather than a mock.
+    """
+    seen: list[float] = []
+    real_run_proc = proc_module.run_proc
+
+    async def recording(
+        argv: Sequence[str],
+        cwd: Path,
+        timeout_s: float = DEFAULT_TIMEOUT_S,
+        env: Mapping[str, str] | None = None,
+        max_output_bytes: int = DEFAULT_MAX_OUTPUT_BYTES,
+    ) -> ProcResult:
+        seen.append(timeout_s)
+        return await real_run_proc(
+            argv, cwd, timeout_s=timeout_s, env=env, max_output_bytes=max_output_bytes
+        )
+
+    monkeypatch.setattr(git_module, "run_proc", recording)
+    service = GitService(git_settings, timeout_s=5.0)
+
+    await service.status_porcelain(git_repo)
+    await service.status_porcelain(git_repo, timeout_s=90.0)
+
+    assert seen == [5.0, 90.0]
 
 
 # ------------------------------------------------------------------ repos --

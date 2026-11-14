@@ -74,7 +74,13 @@ class WorktreeDirty(WorktreeError):
 
 @dataclass(frozen=True)
 class WorktreeItem:
-    """One row of the reconciliation in :meth:`WorktreeService.list`."""
+    """One row of the reconciliation in :meth:`WorktreeService.list`.
+
+    There is no ``dirty`` flag on purpose: it costs one ``git status`` per row,
+    and doc 06's route asks for it per worktree it shows instead
+    (``GitService.is_dirty``), so listing a repository stays a fixed number of git
+    calls rather than one per worktree. Doc 17 shows the result.
+    """
 
     worktree: Worktree
     #: The path is listed by ``git worktree list``.
@@ -224,16 +230,31 @@ class WorktreeService:
         return await self.worktrees.update(worktree.id, status=WorktreeStatus.REMOVED.value)
 
     # ----------------------------------------------------------------- list --
-    async def list(self, repo: Repository) -> WorktreeReport:
+    async def list(self, repo: Repository, *, include_removed: bool = False) -> WorktreeReport:
         """Reconcile this repo's rows against ``git worktree list`` (task 3).
 
         Both sides are reported: a row with no worktree is an *orphan*, and a
         worktree with no row is in ``unknown_paths``. Neither is an error - a
         worktree removed in the owner's terminal is a normal thing to find - so
         the caller decides what to show or clean up.
+
+        ``removed`` rows are left out by default: a removed worktree is history of
+        where a run worked, not something the repository currently has, and doc 06
+        lists a repository's worktrees. Pass ``include_removed=True`` for the audit
+        view; the rows are still in the table either way (:meth:`remove` keeps
+        them, and ``create`` revives one rather than inserting a second).
+
+        Deliberately *not* here: a per-row ``dirty`` flag. It costs one
+        ``git status`` per worktree, and this is called behind one HTTP request
+        (doc 06), so the route asks for it per worktree it actually shows:
+
+        TODO(gaia-06): add ``dirty`` from ``GitService.is_dirty(item.path)`` in
+        the worktree route, not here.
         """
         self._check_workspace(repo)
         rows = await self.worktrees.list(repo_id=repo.id)
+        if not include_removed:
+            rows = [row for row in rows if row.status != WorktreeStatus.REMOVED.value]
         repo_path = await self.git.validate_repo(repo.local_path)
         entries = await self.git.worktree_list(repo_path)
         return _reconcile(rows, entries, repo_path)

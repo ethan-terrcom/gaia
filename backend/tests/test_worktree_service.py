@@ -183,8 +183,11 @@ async def test_remove_deletes_the_worktree_and_keeps_the_row(world: World, git_r
     assert removed.status == WorktreeStatus.REMOVED.value
     assert not on_disk(worktree.path).exists
     assert {entry.branch for entry in await world.git.worktree_list(git_repo)} == {"main"}
-    # The row survives: where a run worked is history (doc 17 shows it as orphaned).
-    report = await world.service.list(world.repository)
+    # The row survives - where a run worked is history - but a removed worktree is
+    # not something the repository has, so the default list leaves it out and the
+    # audit view shows it.
+    assert (await world.service.list(world.repository)).items == ()
+    report = await world.service.list(world.repository, include_removed=True)
     assert [item.worktree.id for item in report.items] == [worktree.id]
     assert report.items[0].orphan
 

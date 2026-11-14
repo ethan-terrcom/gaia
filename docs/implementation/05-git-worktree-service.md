@@ -23,14 +23,15 @@ GitHub API calls (15) and pushing to the remote (15 owns `push`).
   `on_disk()` - the `tmp_path` repository helpers, run with their own git environment.
 - `backend/tests/conftest.py`: the `git_repo`, `git_settings` and `git_service` fixtures.
 
-`gaia/cli.py` was **not** touched; see deviation 9 about `gaia ui --open`.
+`gaia/cli.py` was touched only to re-point one `TODO` at doc 16; see deviation 9 about
+`gaia ui --open`.
 
 ## API (as built)
 
 | Call | Returns |
 |---|---|
 | `await run_proc(argv, cwd, timeout_s=30.0, env=None, max_output_bytes=65536)` | `ProcResult` |
-| `GitService(settings)` | - (writes `<data_dir>/gitconfig` here) |
+| `GitService(settings, timeout_s=30.0)` | - (writes `<data_dir>/gitconfig` here) |
 | `await git.validate_repo(path)` | the repo root as a resolved `Path` |
 | `await git.current_sha(repo, rev="HEAD")` / `current_branch(repo)` / `default_branch(repo)` | `str` / `str \| None` / `str` |
 | `await git.status_porcelain(repo)` / `await git.is_dirty(repo)` | `str` / `bool` |
@@ -45,8 +46,12 @@ GitHub API calls (15) and pushing to the remote (15 owns `push`).
 | `WorktreeService(git=…, session=…, workspace_id=…)` | - (scoped like `ScopedRepo`) |
 | `await service.create(repo, ticket, base_ref=None)` | the `worktree` row, `ready` |
 | `await service.remove(worktree, force=False)` | the row, now `removed` |
-| `await service.list(repo)` | `WorktreeReport` |
+| `await service.list(repo, include_removed=False)` | `WorktreeReport` |
 | `service.open_in_editor(worktree)` | `vscode://file/<path>` |
+
+Every `GitService` command method also takes `timeout_s=` to bound that one call (deviation 12),
+so `git.log(repo, limit=5, timeout_s=5.0)` and `git.diff(repo, base, head, timeout_s=60.0)` both
+work.
 
 `ProcResult` carries `argv`, `cwd`, `pid`, `returncode`, `stdout`, `stderr`, `stdout_truncated`,
 `stderr_truncated`, `duration_s` and `timed_out`, plus the `ok`/`truncated` properties and
@@ -59,19 +64,21 @@ GitHub API calls (15) and pushing to the remote (15 owns `push`).
    chunks and the first `max_output_bytes` kept, so a chatty child never blocks on a full pipe.
    The child env is an allowlist: `PATH`, `HOME`, `LANG`, `GIT_TERMINAL_PROMPT=0`, plus whatever the
    caller passes. A command that ran and failed returns its exit code; only "could not start" raises.
-2. `GitService(settings)`: the hardened env and the git config file as the doc specifies, plus the
-   identity pinned with `-c user.name/-c user.email` and `color.ui=never`/`core.quotepath=false` for
-   parsing (deviations 2 and 3). `validate_repo` returns the repo root and refuses anything under
-   `worktrees_root`; `current_sha`, `current_branch`, `default_branch`, `status_porcelain`,
-   `is_dirty`, `diff`, `log`, `commit`, `branch_name_for`, `validate_ref` (`git check-ref-format
-   --branch`) and `branch_exists`. Every ref is checked for a leading `-` before it becomes an
-   argument, so a revision cannot become an option.
+2. `GitService(settings, timeout_s=30.0)`: the hardened env and the git config file as the doc
+   specifies, plus the identity pinned with `-c user.name/-c user.email` and
+   `color.ui=never`/`core.quotepath=false` for parsing (deviations 2 and 3). `validate_repo` returns
+   the repo root and refuses anything under `worktrees_root`; `current_sha`, `current_branch`,
+   `default_branch`, `status_porcelain`, `is_dirty`, `diff`, `log`, `commit`, `branch_name_for`,
+   `validate_ref` (`git check-ref-format --branch`) and `branch_exists`. Every ref is checked for a
+   leading `-` before it becomes an argument, so a revision cannot become an option, and every method
+   takes `timeout_s=` (deviation 12).
 3. `WorktreeService`: `create(repo, ticket, base_ref=None)` writes the row first (`preparing`), runs
    `git worktree add -b <branch> <root>/<repo_id>/<worktree_id> <base_ref>`, and only then marks it
    `ready` - or `failed` if git said no. `remove(worktree, force=False)` refuses a dirty tree, then
    `git worktree remove` + `git worktree prune`, and marks the row `removed` without deleting it.
-   `list(repo)` reconciles the rows with `git worktree list --porcelain` and reports orphans in both
-   directions. `open_in_editor(worktree)` returns a `vscode://file/...` URL and does nothing else.
+   `list(repo, include_removed=False)` reconciles the rows with `git worktree list --porcelain` and
+   reports orphans in both directions. `open_in_editor(worktree)` returns a `vscode://file/...` URL
+   and does nothing else.
 4. Paths: `resolve_within(root, path)` resolves both sides (symlinks included) and refuses anything
    outside; the worktree path is `worktrees_root` joined with Gaia-generated ids, each checked
    against `^[0-9a-zA-Z-]{1,64}$` before it becomes a directory name.
@@ -96,17 +103,19 @@ GitHub API calls (15) and pushing to the remote (15 owns `push`).
   `::test_commit_ignores_a_repo_that_turns_on_signing`.
 
 Also covered: an unknown base ref leaves no row; a live worktree refuses a second `create`; a
-`removed` row is revived on the same branch; a row whose worktree vanished is an orphan; a worktree
-no row claims lands in `unknown_paths`; a row from another workspace is refused; a row whose `path`
-escaped the root is refused; a git failure is recorded as `failed`; `ProcError` for a missing binary
-and a missing directory; a token in argv or stderr is redacted out of `GitError`.
+`removed` row is revived on the same branch and then hidden from the default `list()`; a row whose
+worktree vanished is an orphan; a worktree no row claims lands in `unknown_paths`; a row from another
+workspace is refused; a row whose `path` escaped the root is refused; a git failure is recorded as
+`failed`; `ProcError` for a missing binary and a missing directory; a token in argv or stderr is
+redacted out of `GitError`; `test_git_service.py::test_a_per_command_timeout_overrides_the_service_default`
+records what reaches `run_proc` for a default call and for `timeout_s=90.0`.
 
 ## Acceptance criteria
 - [x] Every git call goes through `run_proc`. `grep -rn "subprocess" gaia/ | grep -v proc.py` is
       empty. Evidence: `grep -rn --include='*.py' subprocess gaia/ | grep -v services/proc.py`
       prints nothing (the only hit without `--include` is `proc.py`'s own byte code in
       `__pycache__`).
-- [x] `make check` passes: 339 backend tests, 100% line and branch coverage of `gaia/`, mypy strict
+- [x] `make check` passes: 341 backend tests, 100% line and branch coverage of `gaia/`, mypy strict
       clean, gitleaks clean.
 
 ## Decisions and deviations (as built)
@@ -143,11 +152,18 @@ another workspace with doc 03's `WorkspaceMismatch`.
 worktree raises `WorktreeAlreadyExists`, whose `.worktree` is the row to reuse: doc 12's
 `prepare_worktree` decides whether the old tree is worth keeping (it may hold uncommitted work).
 
-**7. `list()` reports both directions.** `WorktreeReport.items` has one `WorktreeItem` per row
-(`in_git`, `exists`, and `.orphan` = `not in_git`), and `unknown_paths` holds worktrees git knows
-that no row claims. The repository's own working tree is dropped from `unknown_paths`: it is in
-`git worktree list`, but it is not a run's worktree. A per-row `dirty` flag is left to doc 06,
-because it costs one `git status` per row.
+**7. `list()` reports both directions, and hides `removed` rows by default.** `WorktreeReport.items`
+has one `WorktreeItem` per row (`in_git`, `exists`, and `.orphan` = `not in_git`), and
+`unknown_paths` holds worktrees git knows that no row claims. The repository's own working tree is
+dropped from `unknown_paths`: it is in `git worktree list`, but it is not a run's worktree. A
+`removed` row is history of where a run worked rather than something the repository has, so
+`list()` leaves it out and `include_removed=True` is the audit view - otherwise every cleaned-up run
+would still be listed by doc 06's route.
+
+A per-row `dirty` flag is deliberately *not* in `list()`: it costs one `git status` per worktree,
+and listing is one HTTP request, so doc 06's worktree route asks `GitService.is_dirty(item.path)`
+for the worktrees it actually shows. `TODO(gaia-06)` sits on `WorktreeService.list`, and doc 17
+shows the result.
 
 **8. `run_proc` returns a result for a command that failed, and raises only when it cannot start
 one.** The exit code is data (`git merge-base` uses 1 as an answer), and `GitError` is where
@@ -156,10 +172,12 @@ one.** The exit code is data (`git merge-base` uses 1 as an answer), and `GitErr
 for log correlation. `GitError` redacts its whole message, argv included, because doc 15 will have a
 token somewhere near a push.
 
-**9. `gaia ui --open` was not implemented, and its `TODO(gaia-05)` in `cli.py` is now stale.**
+**9. `gaia ui --open` was not implemented, and its `TODO(gaia-05)` was re-pointed at doc 16.**
 Opening `http://127.0.0.1:5173/#token=<token>` hands the API token to a child process's argv, where
-`ps` can see it - the very token doc 04 keeps out of URLs for SSE. That belongs to doc 16's login
-flow, not here; see the PR's open questions.
+`ps` can see it - the very token doc 04 keeps out of URLs and SSE. Nothing in `proc.py` makes that
+safer: the process *is* the leak. Doc 16 owns the login flow (a keychain read, or a one-time code
+instead of the token), so `cli.py` says `TODO(gaia-16)` and its docstring now says "printed, not
+opened" for that reason rather than because `run_proc` was missing.
 
 **10. Paths.** Task 4's `security.paths.confine()` arrives with doc 09a, so `git.resolve_within()`
 does the job here (resolve both sides, then `is_relative_to`). It is marked `TODO(gaia-09a)`, and 09a
@@ -169,3 +187,12 @@ should replace it rather than add a second copy.
 need output as it arrives; every caller here wants a buffered result) and `TODO(gaia-15)` in
 `git.py` for `push`, which is the only thing that needs a credential and belongs to the doc that
 owns the remote.
+
+**12. The timeout is per command, not only per service.** `GitService(settings, timeout_s=30.0)` sets
+the default, and every command method takes `timeout_s=` to override it for one call. The right
+bound is a property of the command - a `status` on a request path wants seconds, doc 15's `push` of
+a large repo wants minutes - and threading a constructor argument through the callers would either
+make every push wait 30 s or make every status wait 5 minutes. `_invoke`/`_run` already had the
+parameter; the public methods now take it too, and
+`test_a_per_command_timeout_overrides_the_service_default` records that 5.0 and 90.0 both reach
+`run_proc`.
