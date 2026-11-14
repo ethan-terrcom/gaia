@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
@@ -30,8 +30,10 @@ from gaia.api.auth import AuthProvider, Principal
 from gaia.config.secrets import SecretStore
 from gaia.config.settings import Settings
 from gaia.db.engine import session_scope
-from gaia.db.models import Base
-from gaia.db.repo import ScopedRepo
+from gaia.db.models import AuditLog, Base
+from gaia.db.repo import AuditLogRepo, ScopedRepo
+from gaia.services.git import GitService
+from gaia.services.worktrees import WorktreeService
 
 
 @dataclass(frozen=True)
@@ -44,6 +46,7 @@ class AppServices:
     store: SecretStore
     auth: AuthProvider
     principal: Principal
+    git: GitService
 
 
 def services_of(request: Request) -> AppServices:
@@ -101,7 +104,48 @@ def get_scoped(
     return Scoped(session, principal.workspace_id)
 
 
+def get_worktree_service(
+    services: Annotated[AppServices, Depends(services_of)],
+    scoped: ScopedDep,
+) -> WorktreeService:
+    """Return a workspace-scoped worktree service for this request.
+
+    The service is deliberately per request: it binds the request's session and
+    the authenticated workspace, so a route can never ask for another tenant's
+    worktrees. ``GitService`` itself is process-wide (built in the lifespan).
+    """
+    return WorktreeService(
+        git=services.git, session=scoped.session, workspace_id=scoped.workspace_id
+    )
+
+
+async def append_audit_log(
+    session: AsyncSession,
+    workspace_id: str,
+    *,
+    actor_user_id: str,
+    action: str,
+    target: str | None = None,
+    details: dict[str, Any] | None = None,
+) -> AuditLog:
+    """Append one audit row for a mutating route.
+
+    The actor is ``user:<id>``, not a raw principal: the audit trail has to name
+    who did something, and doc 06 only has human callers so far. ``details`` is
+    a small caller-built dict; never pass a request body verbatim.
+    """
+    trail = AuditLogRepo(session, AuditLog, workspace_id)
+    return await trail.append(
+        actor=f"user:{actor_user_id}",
+        action=action,
+        target=target,
+        details_json=details or {},
+    )
+
+
 #: Annotations a route spells instead of repeating ``Depends(...)``.
 SessionDep = Annotated[AsyncSession, Depends(get_session, scope="function")]
 PrincipalDep = Annotated[Principal, Depends(get_principal)]
 ScopedDep = Annotated[Scoped, Depends(get_scoped)]
+ServicesDep = Annotated[AppServices, Depends(services_of)]
+WorktreeDep = Annotated[WorktreeService, Depends(get_worktree_service)]

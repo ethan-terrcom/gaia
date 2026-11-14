@@ -5,7 +5,7 @@
 > one-page overview in [`backend/README.md`](../../backend/README.md), then read the guide for the
 > area you are about to touch.
 >
-> **Status:** living document, current as of package 05 (2026-11-13).
+> **Status:** living document, current as of package 06 (2026-11-13).
 
 ## How these guides are organised
 
@@ -26,7 +26,7 @@ day. It is the vocabulary for the rest of the guides.
 |---|---|---|
 | [Config & secrets](config-and-secrets.md) | `Settings`, the keychain `SecretStore`, redaction, logging, the `gaia` CLI | 02 |
 | [Database](database.md) | Models, migrations, `ScopedRepo`, status state machines, schemas | 03 |
-| [API](api.md) | The app factory, lifespan, middleware, auth, dependencies, errors | 04 |
+| [API](api.md) | The app factory, lifespan, middleware, auth, dependencies, errors, the domain routes | 04, 06 |
 | [Git & processes](git-and-processes.md) | `run_proc`, `GitService`, `WorktreeService` | 05 |
 | [LLM clients & costs](llm.md) | `AnthropicClient`, `DeepSeekClient`, `FakeLLM`, pricing and usage recording | 07a |
 | [Python concepts](python-concepts.md) | Explainers for the techniques the code relies on | – |

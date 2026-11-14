@@ -30,7 +30,10 @@ from sqlalchemy.exc import IntegrityError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from gaia.api.auth import AuthenticationError
+from gaia.domain.state import IllegalTransition
 from gaia.security.redaction import redact
+from gaia.services.git import InvalidRef, NotARepository, UnsafePath, WorktreeTampered
+from gaia.services.worktrees import WorktreeDirty, WorktreeError
 
 logger = structlog.get_logger(__name__)
 
@@ -77,6 +80,23 @@ GENERIC_MESSAGE: Final = "the request could not be completed"
 
 #: Shown for a database integrity error. Never the SQL or the parameters.
 CONFLICT_MESSAGE: Final = "the request conflicts with an existing row"
+
+#: Shown for an illegal state-machine move.
+ILLEGAL_TRANSITION_MESSAGE: Final = "the requested status change is not allowed"
+
+#: Shown for a path or ref that cannot be used safely.
+INVALID_GIT_INPUT_MESSAGE: Final = "the requested git operation cannot be performed on this input"
+
+#: Shown for a dirty worktree removal without ``force``.
+WORKTREE_DIRTY_MESSAGE: Final = (
+    "the worktree has uncommitted changes; remove it with force to discard them"
+)
+
+#: Shown when a worktree's ``.git`` pointer has been tampered with.
+WORKTREE_TAMPERED_MESSAGE: Final = "the worktree has been tampered with and cannot be used safely"
+
+#: Shown for a refused worktree lifecycle operation.
+WORKTREE_ERROR_MESSAGE: Final = "the worktree operation could not be completed"
 
 #: Shown for anything that escaped the app, whatever it was.
 INTERNAL_MESSAGE: Final = "the server hit an unexpected error"
@@ -194,6 +214,65 @@ async def _handle_integrity_error(request: Request, exc: Exception) -> Response:
     return error_response(request, 409, ErrorCode.CONFLICT, CONFLICT_MESSAGE)
 
 
+async def _handle_illegal_transition(request: Request, exc: Exception) -> Response:
+    """Answer a refused ticket/run/step status move with 409."""
+    logger.warning(
+        "api.illegal_transition",
+        path=request.url.path,
+        method=request.method,
+        exc_info=exc,
+    )
+    return error_response(request, 409, ErrorCode.CONFLICT, ILLEGAL_TRANSITION_MESSAGE)
+
+
+async def _handle_invalid_git_input(request: Request, exc: Exception) -> Response:
+    """Answer a path or ref Gaia refuses to hand to git with 422.
+
+    The exception's own text can contain a local path, so the client gets a
+    stable sentence and the detail goes only to the log.
+    """
+    logger.warning(
+        "api.invalid_git_input",
+        path=request.url.path,
+        method=request.method,
+        exc_info=exc,
+    )
+    return error_response(request, 422, ErrorCode.VALIDATION_ERROR, INVALID_GIT_INPUT_MESSAGE)
+
+
+async def _handle_worktree_dirty(request: Request, exc: Exception) -> Response:
+    """Answer a refused dirty-worktree removal with 409."""
+    logger.warning(
+        "api.worktree_dirty",
+        path=request.url.path,
+        method=request.method,
+        exc_info=exc,
+    )
+    return error_response(request, 409, ErrorCode.CONFLICT, WORKTREE_DIRTY_MESSAGE)
+
+
+async def _handle_worktree_tampered(request: Request, exc: Exception) -> Response:
+    """Answer a tampered worktree with 409 and a clear, safe message."""
+    logger.warning(
+        "api.worktree_tampered",
+        path=request.url.path,
+        method=request.method,
+        exc_info=exc,
+    )
+    return error_response(request, 409, ErrorCode.CONFLICT, WORKTREE_TAMPERED_MESSAGE)
+
+
+async def _handle_worktree_error(request: Request, exc: Exception) -> Response:
+    """Answer a refused worktree lifecycle operation with 409."""
+    logger.warning(
+        "api.worktree_error",
+        path=request.url.path,
+        method=request.method,
+        exc_info=exc,
+    )
+    return error_response(request, 409, ErrorCode.CONFLICT, WORKTREE_ERROR_MESSAGE)
+
+
 async def _handle_unexpected_error(request: Request, exc: Exception) -> Response:
     """Answer a crash with 500 and log it, redacted, on the server side.
 
@@ -216,6 +295,13 @@ def install_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(RequestValidationError, _handle_validation_error)
     app.add_exception_handler(AuthenticationError, _handle_authentication_error)
     app.add_exception_handler(IntegrityError, _handle_integrity_error)
+    app.add_exception_handler(IllegalTransition, _handle_illegal_transition)
+    app.add_exception_handler(NotARepository, _handle_invalid_git_input)
+    app.add_exception_handler(UnsafePath, _handle_invalid_git_input)
+    app.add_exception_handler(InvalidRef, _handle_invalid_git_input)
+    app.add_exception_handler(WorktreeDirty, _handle_worktree_dirty)
+    app.add_exception_handler(WorktreeTampered, _handle_worktree_tampered)
+    app.add_exception_handler(WorktreeError, _handle_worktree_error)
     # `Exception` is the one key Starlette hands to ServerErrorMiddleware, which
     # is what turns a crash into this envelope instead of "Internal Server Error".
     app.add_exception_handler(Exception, _handle_unexpected_error)

@@ -33,6 +33,7 @@ from gaia.services.git import (
     _parse_worktree_porcelain,
     _resolve_from,
     _scan_worktree_admin_dirs,
+    strip_url_credentials,
 )
 from gaia.services.proc import DEFAULT_MAX_OUTPUT_BYTES, DEFAULT_TIMEOUT_S, ProcResult
 from tests.git_repo import commit_file, git, resolved
@@ -625,3 +626,23 @@ def test_git_error_without_stderr_still_explains_itself() -> None:
     )
 
     assert str(GitError(("push",), result)) == "git push failed: git exited with status 1"
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("https://bot:secret-value@example.invalid/r.git", "https://example.invalid/r.git"),
+        ("https://token@example.invalid:8443/r.git", "https://example.invalid:8443/r.git"),
+        ("https://example.invalid/r.git", "https://example.invalid/r.git"),
+        ("git@github.com:org/repo.git", "git@github.com:org/repo.git"),
+        ("/srv/git/repo.git", "/srv/git/repo.git"),
+    ],
+)
+def test_strip_url_credentials(url: str, expected: str) -> None:
+    assert strip_url_credentials(url) == expected
+
+
+async def test_remote_url_is_none_without_that_remote(
+    git_service: GitService, git_repo: Path
+) -> None:
+    assert await git_service.remote_url(git_repo) is None

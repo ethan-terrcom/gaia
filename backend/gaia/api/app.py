@@ -45,12 +45,13 @@ from gaia.api.errors import (
     install_error_handlers,
     new_request_id,
 )
-from gaia.api.routes import health, session
+from gaia.api.routes import agents, health, repositories, session, tickets, worktrees
 from gaia.config.logging import configure_logging
 from gaia.config.secrets import ensure_api_token, get_secret_store
 from gaia.config.settings import Settings, ensure_data_dir, get_settings
 from gaia.db.engine import create_engine_for, create_session_factory, session_scope
 from gaia.db.seed import Seeded, seed_initial_data
+from gaia.services.git import GitService
 
 logger = structlog.get_logger(__name__)
 
@@ -151,7 +152,7 @@ async def _seed(sessions: async_sessionmaker[AsyncSession], settings: Settings) 
     """
     try:
         async with session_scope(sessions) as db_session:
-            return await seed_initial_data(db_session)
+            return await seed_initial_data(db_session, settings)
     except OperationalError as error:
         raise RuntimeError(
             f"the database at {settings.db_url} has no schema yet: run `make migrate` ({error})"
@@ -165,6 +166,7 @@ def _lifespan(settings: Settings) -> Lifespan[FastAPI]:
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         configure_logging()
         ensure_data_dir(settings)
+        git = GitService(settings)
         engine = create_engine_for(settings)
         sessions = create_session_factory(engine)
         try:
@@ -179,6 +181,7 @@ def _lifespan(settings: Settings) -> Lifespan[FastAPI]:
                 store=store,
                 auth=LocalTokenAuth(store, principal),
                 principal=principal,
+                git=git,
             )
             logger.info(
                 "api.startup",
@@ -210,7 +213,10 @@ def api_v1_router() -> APIRouter:
         dependencies=[Depends(get_principal), Security(bearer_scheme)],
     )
     router.include_router(session.router)
-    # TODO(gaia-06): include the repositories, tickets, agents and worktrees routers.
+    router.include_router(repositories.router)
+    router.include_router(tickets.router)
+    router.include_router(agents.router)
+    router.include_router(worktrees.router)
     # TODO(gaia-13): include the event-stream router.
     # TODO(gaia-14): include the runs and approvals routers.
     return router

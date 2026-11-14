@@ -147,8 +147,8 @@ class Repository(UUIDPrimaryKey, WorkspaceScoped, CreatedBy, Timestamps, Base):
     local_path: Mapped[str] = mapped_column(String(PATH))
     remote_url: Mapped[str | None] = mapped_column(String(URL), default=None)
     default_branch: Mapped[str] = mapped_column(String(255), default="main")
-    setup_command: Mapped[str | None] = mapped_column(Text, default=None)
-    test_command: Mapped[str | None] = mapped_column(Text, default=None)
+    setup_command: Mapped[list[str] | None] = mapped_column(JSON, default=None)
+    test_command: Mapped[list[str] | None] = mapped_column(JSON, default=None)
 
 
 class Ticket(UUIDPrimaryKey, WorkspaceScoped, CreatedBy, Timestamps, Base):
