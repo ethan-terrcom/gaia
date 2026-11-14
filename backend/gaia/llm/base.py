@@ -10,9 +10,12 @@ because cache misses are the only prompt tokens billed at that rate) and
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, TypeVar, runtime_checkable
+
+from pydantic import BaseModel
 
 
 @dataclass(frozen=True)
@@ -84,6 +87,20 @@ class LLMResponse:
     reasoning_content: str | None = None
 
 
+ModelT = TypeVar("ModelT", bound=BaseModel)
+
+
+@dataclass(frozen=True)
+class ParsedResponse[ModelT: BaseModel]:
+    """A structured-output provider turn, already priced and recorded."""
+
+    output: ModelT
+    usage: LLMUsage
+    model: str
+    request_id: str | None
+    stop_reason: str
+
+
 class LLMStop(Exception):
     """A provider stopped in a way the caller must not treat as a normal reply.
 
@@ -125,4 +142,21 @@ class UsageRecorder(Protocol):
         price_tier: str | None = None,
     ) -> None:
         """Write one ``llm_usage`` row."""
+        ...
+
+
+@runtime_checkable
+class StructuredLLM(Protocol):
+    """The structured-output seam doc 11's lead engineer depends on."""
+
+    async def parse(
+        self,
+        *,
+        system: str,
+        messages: Sequence[LLMMessage],
+        output_model: type[ModelT],
+        max_tokens: int = 16000,
+        enable_fallback: bool = False,
+    ) -> ParsedResponse[ModelT]:
+        """Return one parsed structured output, recording usage first."""
         ...

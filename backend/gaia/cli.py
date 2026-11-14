@@ -10,20 +10,28 @@ Every command runs :func:`gaia.config.settings.ensure_data_dir` first, so
 from __future__ import annotations
 
 import argparse
+import asyncio
 import getpass
+import io
+import json
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from decimal import Decimal
+from pathlib import Path
+from typing import TextIO, cast
 
 from pydantic import ValidationError
 
 import gaia
 from gaia.config.secrets import (
+    MissingSecretError,
     SecretName,
     SecretStore,
     ensure_api_token,
     get_secret_store,
 )
 from gaia.config.settings import ensure_data_dir, get_settings
+from gaia.llm.base import LLMStop, StructuredLLM, UsageRecorder
 
 PROG = "gaia"
 
@@ -107,6 +115,16 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     fake_run.add_argument("--events", type=int, default=3, help="number of agent.message events")
     fake_run.add_argument("--interval", type=float, default=0.2, help="seconds between events")
+
+    plan = dev_commands.add_parser(
+        "plan",
+        help="plan a ticket with the lead model and print the JSON plan",
+        description=(
+            "Loads the ticket and repository from GAIA_DATA_DIR, builds a read-only "
+            "repository context, and calls the lead model once with structured outputs."
+        ),
+    )
+    plan.add_argument("ticket_id", help="ticket id in the local workspace")
 
     return parser
 
@@ -236,9 +254,151 @@ def _dev_fake_run(args: argparse.Namespace) -> int:
     return 0
 
 
+async def _make_client(
+    settings: object,
+    store: SecretStore,
+    recorder: UsageRecorder,
+) -> StructuredLLM:
+    """Build the real Anthropic client for ``gaia dev plan``.
+
+    Imported lazily so the other CLI commands do not pay for the Anthropic SDK.
+    ``settings`` is typed as ``object`` so tests can monkeypatch it with a fake
+    settings object; the real function only reads ``lead_model``.
+    """
+    from gaia.llm.anthropic_client import AnthropicClient
+    from gaia.services.costs import load_price_table
+
+    settings_model = getattr(settings, "lead_model", None)
+    if settings_model is None:
+        raise ValueError("settings.lead_model is required for gaia dev plan")
+    return AnthropicClient(
+        api_key=store.require(SecretName.ANTHROPIC_API_KEY),
+        model=str(settings_model),
+        recorder=recorder,
+        price_table=load_price_table(),
+    )
+
+
+def _dev_plan(args: argparse.Namespace) -> int:
+    """Plan a ticket with the lead model, then leave the run cancelled."""
+    return asyncio.run(_dev_plan_async(args))
+
+
+class _CurrentStderr(io.TextIOBase):
+    """A stream that writes to whatever ``sys.stderr`` is *now*.
+
+    Binding ``sys.stderr`` itself would pin the object of the moment; under a
+    test runner that is a capture stream that is closed after the test.
+    """
+
+    def write(self, text: str) -> int:
+        return sys.stderr.write(text)
+
+    def flush(self) -> None:
+        sys.stderr.flush()
+
+
+async def _dev_plan_async(args: argparse.Namespace) -> int:
+    """Async body of ``gaia dev plan``."""
+    from gaia.config.logging import configure_logging
+    from gaia.db.engine import create_engine_for, create_session_factory, session_scope
+    from gaia.db.models import Agent, Repository, Run, Ticket
+    from gaia.db.models import LlmUsage as LlmUsageRow
+    from gaia.db.repo import ScopedRepo
+    from gaia.db.seed import seed_initial_data
+    from gaia.domain.enums import RunStatus
+    from gaia.domain.plans import TicketInput
+    from gaia.domain.state import transition
+    from gaia.orchestrator.lead import LeadEngineer, LeadEscalation, PlanRejected
+    from gaia.orchestrator.repo_context import build_repo_context
+    from gaia.security.commands import CommandPolicy
+    from gaia.services.costs import DbUsageRecorder
+
+    # stdout carries the plan JSON (pipe it to jq); logs go to stderr.
+    # A TextIOBase subclass is a text stream at runtime; typing only knows the
+    # TextIO protocol, hence the cast.
+    configure_logging(stream=cast("TextIO", _CurrentStderr()))
+    settings = get_settings()
+    store = get_secret_store()
+    engine = create_engine_for(settings)
+    sessions = create_session_factory(engine)
+    try:
+        async with session_scope(sessions) as session:
+            seeded = await seed_initial_data(session, settings)
+            workspace_id = seeded.workspace.id
+
+            tickets = ScopedRepo(session, Ticket, workspace_id)
+            ticket_row = await tickets.get(args.ticket_id)
+            if ticket_row is None:
+                print(
+                    f"error: no ticket {args.ticket_id!r} in workspace {seeded.workspace.slug!r}",
+                    file=sys.stderr,
+                )
+                return 1
+
+            repositories = ScopedRepo(session, Repository, workspace_id)
+            repository = await repositories.get(ticket_row.repo_id)
+            if repository is None:
+                print(
+                    f"error: ticket {ticket_row.id!r} has no repository {ticket_row.repo_id!r}",
+                    file=sys.stderr,
+                )
+                return 1
+
+            agents = ScopedRepo(session, Agent, workspace_id)
+            lead_agents = await agents.list(display_name="lead")
+            if not lead_agents:
+                print("error: the seeded lead agent is missing", file=sys.stderr)
+                return 1
+            lead_agent = lead_agents[0]
+
+            runs = ScopedRepo(session, Run, workspace_id)
+            run = await runs.create(
+                ticket_id=ticket_row.id,
+                repo_id=repository.id,
+                budget_usd=Decimal(str(settings.run_budget_usd)),
+            )
+            transition(run, RunStatus.PLANNING)
+
+            ticket = TicketInput(id=ticket_row.id, title=ticket_row.title, body=ticket_row.body)
+            repo_context = await build_repo_context(Path(repository.local_path), ticket)
+            recorder = DbUsageRecorder(session, workspace_id, run.id, agent_id=lead_agent.id)
+            client = await _make_client(settings, store, recorder)
+            policy = CommandPolicy.from_default()
+            extra_allow: Sequence[Sequence[str]] = ()
+            if repository.test_command:
+                extra_allow = (repository.test_command,)
+
+            plan = await LeadEngineer(client, policy).plan_ticket(
+                ticket,
+                repo_context,
+                extra_allow=extra_allow,
+            )
+
+            usage_rows = await ScopedRepo(session, LlmUsageRow, workspace_id).list(run_id=run.id)
+            # Every prompt token: uncached, written to the cache, and read from it.
+            input_tokens = sum(
+                row.input_tokens + row.cache_creation_tokens + row.cache_read_tokens
+                for row in usage_rows
+            )
+            output_tokens = sum(row.output_tokens for row in usage_rows)
+            cost_usd = sum((row.cost_usd for row in usage_rows), Decimal(0))
+            print(json.dumps(plan.model_dump(mode="json"), indent=2))
+            print(f"cost: ${cost_usd:.4f} ({input_tokens} prompt / {output_tokens} output tokens)")
+            transition(run, RunStatus.CANCELLED)
+            return 0
+    except (LeadEscalation, PlanRejected, MissingSecretError, LLMStop) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    finally:
+        await engine.dispose()
+
+
 def _dev(args: argparse.Namespace) -> int:
     if args.dev_command == "fake-run":
         return _dev_fake_run(args)
+    if args.dev_command == "plan":
+        return _dev_plan(args)
     return 2
 
 

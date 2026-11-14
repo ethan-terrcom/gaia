@@ -29,7 +29,7 @@ come next, in the order given in [`docs/implementation/00-README.md`](../docs/im
 │ api/        FastAPI app: auth, middleware, error envelope, routes             │
 │             (every /api/v1 route requires the token; scoped to a workspace)   │
 ├──────────────────────────────────────────────────────────────────────────────┤
-│ orchestrator/  LangGraph workflow: plan → approve → implement → review → PR   │  planned (12)
+│ orchestrator/  LangGraph workflow: plan → approve → implement → review → PR   │  12 planned · 11 lead built
 │ runtimes/      the agents themselves (Claude lead, DeepSeek juniors)          │  planned (10)
 │ llm/           provider clients, cost accounting, LLM gateway (all built)     │  07a / 07b
 │ tools/         sandboxed file/shell tools for agents                          │  planned (09b; 09a policy built)
@@ -65,8 +65,9 @@ never imports FastAPI. `db/` knows nothing about HTTP or git.
 | 07b | `llm/{gateway,run_tokens,metering}.py`, migration `0004` | Provider-key-free agents: per-run tokens, an allowlisted streaming proxy, metering, and budget hard-stop (403) | [gateway](../docs/backend/gateway.md) |
 | 09a | `security/{paths,commands,sandbox}.py` | Path confinement, the command policy (a tripwire), and the `srt` sandbox profile (the boundary), proved live | [security core](../docs/backend/security.md) |
 | 13 | `services/events.py`, `api/routes/stream.py` | Durable event log plus live SSE stream with single-use tickets, replay and gap healing | [events](../docs/backend/events.md) |
+| 11 | `orchestrator/{lead,repo_context}.py`, `domain/plans.py` | The lead's plan and review calls: streamed structured outputs, policy-checked test commands, refusals escalate | [lead](../docs/backend/lead.md) |
 
-The whole suite (903 tests, 100% line and branch coverage) runs with `make check`, which is also what CI runs.
+The whole suite (973 tests, 100% line and branch coverage) runs with `make check`, which is also what CI runs.
 
 ## Five design rules that explain most of the code
 
