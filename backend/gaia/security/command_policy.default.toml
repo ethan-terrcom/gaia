@@ -1,0 +1,85 @@
+# Gaia's default command allowlist (doc 09a).
+# This file is loaded through Pydantic with extra="forbid": an unknown key is a
+# load-time error, never silently ignored. Deny and ask rules are in
+# gaia/security/commands.py, not here, so a repo can never edit them.
+
+[[allow]]
+cmd = "pytest"
+
+[[allow]]
+cmd = "ruff"
+
+[[allow]]
+cmd = "mypy"
+
+[[allow]]
+cmd = "black"
+
+[[allow]]
+cmd = "isort"
+
+[[allow]]
+cmd = "eslint"
+
+[[allow]]
+cmd = "prettier"
+
+[[allow]]
+cmd = "tsc"
+
+[[allow]]
+cmd = "vitest"
+
+[[allow]]
+cmd = "jest"
+
+[[allow]]
+cmd = "cargo"
+subcommands = ["test", "check", "build", "fmt", "clippy"]
+
+[[allow]]
+cmd = "go"
+subcommands = ["test"]
+
+[[allow]]
+cmd = "ls"
+
+[[allow]]
+cmd = "cat"
+
+[[allow]]
+cmd = "head"
+
+[[allow]]
+cmd = "tail"
+
+[[allow]]
+cmd = "wc"
+
+[[allow]]
+cmd = "grep"
+
+[[allow]]
+cmd = "rg"
+# --pre runs an arbitrary program on every file searched.
+deny_flags = ["--pre"]
+
+[[allow]]
+cmd = "find"
+# -exec/-ok run programs, -delete removes files, -fprint*/-fls write files.
+deny_flags = ["-exec", "-execdir", "-delete", "-ok", "-okdir", "-fprint", "-fprint0", "-fprintf", "-fls"]
+
+[[allow]]
+cmd = "diff"
+
+[[allow]]
+cmd = "echo"
+
+[[allow]]
+cmd = "pwd"
+
+[[allow]]
+cmd = "true"
+
+[[allow]]
+cmd = "false"

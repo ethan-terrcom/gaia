@@ -114,6 +114,39 @@ def test_default_budgets_are_positive() -> None:
     assert settings.daily_budget_usd == 20.0
 
 
+def test_srt_path_defaults_to_none() -> None:
+    assert Settings().srt_path is None
+
+
+def test_srt_path_expands_the_home_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    settings = Settings(srt_path=Path("~/bin/srt"))
+
+    assert settings.srt_path == tmp_path / "bin" / "srt"
+
+
+def test_sandbox_toolchain_read_defaults_expand_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    settings = Settings()
+
+    assert settings.sandbox_toolchain_read[0] == tmp_path / ".cache" / "uv"
+    assert settings.sandbox_toolchain_read[-1] == tmp_path / ".pyenv"
+
+
+def test_sandbox_toolchain_read_can_be_overridden(tmp_path: Path) -> None:
+    toolchain = (tmp_path / "one", tmp_path / "two")
+
+    settings = Settings(sandbox_toolchain_read=toolchain)
+
+    assert settings.sandbox_toolchain_read == toolchain
+
+
 @pytest.mark.parametrize(
     "host",
     [ALL_INTERFACES, "::", "localhost", "192.168.1.10", "10.0.0.5", "example.com", ""],
