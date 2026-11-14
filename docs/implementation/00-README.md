@@ -21,14 +21,15 @@ accepted as recommended on 2026-11-13.
 | 06 | Repositories & tickets API | 04, 05 | 07b, 08, 09a, 10a, 11, 13 | junior |
 | 07a | LLM clients & cost accounting | 03 | 04, 05, 12a | junior |
 | 07b | LLM gateway **(D2)** | 04, 07a | 06, 08, 09a, 10a, 11, 13 | junior · lead review |
-| 08 | Runtime spike → ADR-001 (decision gate) | 05, 07a | 06, 07b, 09a, 10a, 11, 13 | **lead** · owner signs ADR · [ADR-001](../decisions/ADR-001-agent-runtimes.md) proposed: native DeepSeek for juniors, Agent SDK for lead work, Cline disqualified |
+| 08 | Runtime spike → ADR-001 (decision gate) | 05, 07a | 06, 07b, 09a, 10a, 11, 13 | **lead** · done (PR #18) · [ADR-001](../decisions/ADR-001-agent-runtimes.md) **accepted** 2026-11-14 with the portability condition (P1–P6) |
 | 09a | Path guard, command policy, sandbox profile **(D1)** | 05 | 06, 07b, 08, 10a, 11, 13 | junior · **architect review** |
 | 09b | Sandboxed tools, registry, audit | 09a | 10b, 11, 15a | junior · architect review |
 | 10a | Runtime base types, contract suite, fake runtime | 05 | 06–09, 11, 13 | junior |
-| 10b… | One PR per runtime chosen in ADR-001 | 08 (signed), 09b, 10a, 07b | each other, 15a | junior |
+| 10b | Native runtime (provider-neutral tool loop; DeepSeek first) + `DeepSeekClient.parse` (P6) + vendor-boundary test (P1) | 08, 09b, 10a, 07b | 10c, 15a | junior |
+| 10c | Claude Agent SDK runtime, Gaia tools only (P3, P4) | 08, 09b, 10a, 07b | 10b, 15a | junior · lead review |
 | 11 | Lead planning & review | 07a | 06–10, 13 | junior code · **lead writes prompts** |
 | 12a | Orchestrator skeleton on fakes | 03 | 04–11, 13 | **lead** (or pair-reviewed) |
-| 12b | Real nodes wired to services | 10b, 11, 12a | 13, 15a | junior |
+| 12b | Real nodes wired to services; role → runtime/model settings (P2); swap drill (P5) | 10b, 10c, 11, 12a | 13, 15a | junior |
 | 13 | Event bus & SSE | 04 | 05–12 | junior |
 | 14 | Runs & approvals API | 12b, 13 | 15b, 16 | junior |
 | 15a | GitHub: push, open PR, merge | 05, 06 | 09b, 10b, 12b, 13 | junior |
@@ -43,7 +44,7 @@ accepted as recommended on 2026-11-13.
 2. **03**
 3. **04**, **05**, **07a**, **12a** (the riskiest component starts early, on fakes)
 4. **06**, **07b**, **08**, **09a**, **10a**, **11**, **13**
-5. After ADR-001 is signed: **09b**, **10b…**, **15a**
+5. After ADR-001 (accepted 2026-11-14): **09b**, **15a**, **16**, then **10b**, **10c**
 6. **12b**, **15b**
 7. **14**, **15c**
 8. **17a–f**, **18a–d**
