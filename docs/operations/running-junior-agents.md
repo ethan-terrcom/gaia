@@ -200,6 +200,10 @@ and the Alembic revision chain. Rerun `make check`, then push with `--force-with
 | A missing `frontend/node_modules` makes the pre-commit hook fail silently. | Run `npm ci` in every worktree. |
 | Context caching makes long sessions cheap: about 99% of prompt tokens are cache hits. | Prefer one thorough session per package over many short ones. |
 | Destructive defaults (cascading deletes) pass every test. | Ask "what disappears with this row?" in every review. |
+| Cleanup in `finally` on a streaming path is cancelled along with the stream (07b: a client disconnect made a model call free). | Shield cleanup (`anyio.CancelScope(shield=True)`), and reproduce with an ASGI `http.disconnect` test. |
+| Juniors default "missing" to zero and "no cursor" to everything (07b's $0 usage, 13's full-log replay). | In the lead notes, say what happens when data is absent. In review, grep for `limit=None` and module-level registries. |
+| A package with about 15 modules and 8 integration tests (12a) runs out of turns. | Split up front, or dispatch a "part 2" handoff listing the failing tests, missed lines and missing files. |
+| New dependencies pull in transitive packages released days ago. | `[tool.uv] exclude-newer-package` per package; check every new `uv.lock` entry's upload date. |
 
 ## 6. When something goes wrong
 
