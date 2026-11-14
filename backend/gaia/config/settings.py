@@ -24,6 +24,19 @@ DEFAULT_DATA_DIR = Path("~/.gaia")
 #: Permissions enforced on the data directory: owner read/write/execute only.
 DATA_DIR_MODE = 0o700
 
+#: Toolchain directories the sandbox may read, in addition to the worktree and
+#: the per-task temp dir. ``build_srt_settings`` keeps only the ones that exist.
+DEFAULT_SANDBOX_TOOLCHAIN_READ: tuple[Path, ...] = (
+    Path("~/.cache/uv"),
+    Path("~/.local/share/uv"),
+    Path("~/.local/bin"),
+    Path("~/.cargo"),
+    Path("~/.rustup"),
+    Path("~/.npm"),
+    Path("~/.nvm"),
+    Path("~/.pyenv"),
+)
+
 # The three helpers below derive a path from ``data_dir``. pydantic hands a
 # ``default_factory`` that takes one positional argument the already-validated
 # model data (signature inspection, see pydantic's ``takes_validated_data_argument``),
@@ -74,11 +87,34 @@ class Settings(BaseSettings):
     run_budget_usd: float = Field(default=5.0, gt=0)
     daily_budget_usd: float = Field(default=20.0, gt=0)
 
+    #: Path to the sandbox-runtime ``srt`` binary. ``None`` uses the pinned copy
+    #: installed by ``make sandbox-install`` under ``data_dir``.
+    srt_path: Path | None = None
+
+    #: Toolchain directories the sandbox may read (doc 09a). The defaults are
+    #: package-manager caches and toolchain homes; entries that do not exist are
+    #: ignored when the sandbox settings are built.
+    sandbox_toolchain_read: tuple[Path, ...] = Field(
+        default_factory=lambda: DEFAULT_SANDBOX_TOOLCHAIN_READ
+    )
+
     @field_validator("data_dir", "checkpoint_path", "worktrees_root")
     @classmethod
     def _expand_path(cls, value: Path) -> Path:
         """Expand ``~`` so the default ``~/.gaia`` is usable as it stands."""
         return value.expanduser()
+
+    @field_validator("srt_path")
+    @classmethod
+    def _expand_optional_path(cls, value: Path | None) -> Path | None:
+        """Expand ``~`` when the owner supplies a custom ``srt`` path."""
+        return value.expanduser() if value is not None else None
+
+    @field_validator("sandbox_toolchain_read")
+    @classmethod
+    def _expand_toolchain_paths(cls, value: tuple[Path, ...]) -> tuple[Path, ...]:
+        """Expand ``~`` in every toolchain path."""
+        return tuple(path.expanduser() for path in value)
 
     @model_validator(mode="after")
     def _check_host_is_local(self) -> Self:

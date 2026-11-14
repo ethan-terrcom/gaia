@@ -39,6 +39,7 @@ from urllib.parse import urlsplit, urlunsplit
 import structlog
 
 from gaia.config.settings import Settings
+from gaia.security.paths import UnsafePath as UnsafePath
 from gaia.security.redaction import redact
 from gaia.services.proc import DEFAULT_MAX_OUTPUT_BYTES, DEFAULT_TIMEOUT_S, ProcResult, run_proc
 
@@ -152,10 +153,6 @@ class NotARepository(ValueError):
 
 class InvalidRef(ValueError):
     """A branch or revision name Gaia refuses to hand to git."""
-
-
-class UnsafePath(ValueError):
-    """A path resolved outside the roots Gaia allows (doc 05 task 4)."""
 
 
 class WorktreeTampered(UnsafePath):

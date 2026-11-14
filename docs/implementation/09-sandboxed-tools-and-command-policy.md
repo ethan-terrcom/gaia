@@ -67,3 +67,107 @@ Container isolation (18).
 
 ## Acceptance criteria
 - [ ] Reviewed by the architect, since this is security-critical code.
+
+## Decisions and deviations (as built)
+
+- **`UnsafePath` now lives in `gaia/security/paths.py`** and is re-exported from
+  `gaia/services/git.py` (`from ... import UnsafePath as UnsafePath`). Existing imports keep
+  working. `PathDenied(UnsafePath)` is raised for every path denied by `confine()`.
+- **`Decision` lives in `gaia/security/decision.py`** so `paths.py` and `commands.py` share one
+  frozen `action: Literal["allow","deny","ask"]` / `reason: str` type without one importing the
+  other.
+- **`git` is denied as a whole command**, not only for the doc's example deny list. Reason:
+  `use the git tools (09b), which run through GitService's hardened environment`. This is a
+  deliberate tightening from the doc's example: running `git` directly would skip
+  `HARDENED_CONFIG` and the `WorktreeLocation` pin from 05b.
+- **`~/.gaia/worktrees` itself is refused as an allowRead/allowWrite entry.** A worktree under
+  `~/.gaia/worktrees/<...>` is allowed; the parent directory is not, because allowing it would
+  expose every worktree at once.
+- **Specific lockfile patterns are checked before `**/*.lock`** so the audit reason names
+  `yarn.lock`, `uv.lock` or `poetry.lock` rather than the generic glob.
+- **The live sandbox test is opt-in** (`GAIA_SRT_PATH`), because the test harness already runs
+  inside `sandbox-exec` and macOS refuses to nest it. All non-live code reaches 100% coverage
+  without it.
+
+### Path rules (`gaia/security/paths.py`)
+
+| Input | Decision | Reason |
+|---|---|---|
+| empty string, NUL byte | deny | `path is empty` / `path contains a NUL byte` |
+| `/x`, `~`, `~root`, `C:`, `\\server` | deny | `absolute, home-relative or Windows paths are not allowed` |
+| any component `.git` (case-insensitive) | deny | `the .git directory is reserved` |
+| result not under `root.resolve()` | deny | `path resolves outside the root` |
+| existing symlink component resolves outside root | deny | `path component is a symlink outside the root` |
+| any other confined path | allow | returned resolved path |
+
+`classify_write()` returns `ask` for `.github/workflows/**`, `**/*.lock`,
+`**/package-lock.json`, `**/pnpm-lock.yaml`, `**/yarn.lock`, `**/uv.lock`,
+`**/poetry.lock`, `.env` and `.env.*` at any depth, `.gaia/**`, `.claude/**`, `.cline/**`,
+`.clinerules`, `.mcp.json`, `.vscode/**` and `.idea/**`; everything else is `allow`. Matching is
+case-insensitive on the confined relative POSIX path.
+
+### Command rules (`gaia/security/commands.py`)
+
+Evaluation order (after the lead review): validate argv → unwrap wrappers (repeatedly, up to 4) →
+deny → slashed-program ask → `extra_allow` → package-manager ask → shell/interpreter ask → TOML
+allow rules → ask.
+
+| Rule | Decision |
+|---|---|
+| argv empty / not a list of str / >256 items / item >4096 chars / NUL / newline in `argv[0]` | deny |
+| `git` (any invocation, even `/usr/bin/git status`) | deny, use the git tools (09b) |
+| `sudo su doas` / `curl wget ssh scp sftp rsync nc ncat netcat telnet ftp socat` / `rm rmdir dd mkfs shred diskutil` / `open osascript security launchctl defaults pbcopy pbpaste screencapture` / `crontab at` / `chown` / `chmod +s` or `u+s` / `kill pkill killall` | deny |
+| `argv[0]` contains `/` | ask (never allow) |
+| `uv`, `npm`, `npx`, `pip` outside the safe wrappers | ask |
+| `bash sh zsh fish dash ksh env xargs exec eval nohup timeout nice time` | ask |
+| `python script.py`, `python -c`, `node -e`, `perl`, `ruby`, `php`, `deno`, `bun` | ask |
+| `uv run [--frozen|--offline|--no-sync|--quiet|-q] <cmd>` | evaluate `<cmd>` |
+| `python -m <module>` / `python3 -m <module>` | evaluate `<module>` |
+| `npx --no-install <cmd>` | evaluate `<cmd>` |
+| TOML allow rule with no matching subcommand / with a `deny_flags` match | ask |
+| TOML allow rule (see `command_policy.default.toml`) | allow |
+| `extra_allow` starts-with match, element by element | allow only if the current decision is `ask` |
+| anything else | ask |
+
+The default TOML allow rules are: `pytest`, `ruff`, `mypy`, `black`, `isort`, `eslint`,
+`prettier`, `tsc`, `vitest`, `jest`, `cargo` with subcommands
+`test/check/build/fmt/clippy`, `go test`, `ls`, `cat`, `head`, `tail`, `wc`, `grep`, `rg`,
+`find` with `-exec`, `-execdir`, `-delete`, `-ok` denied as flags, `diff`, `echo`, `pwd`,
+`true`, `false`.
+
+### Sandbox profile (`gaia/security/sandbox.py`)
+
+- `denyRead`: the whole `home`, plus each sensitive path under it (`.ssh`, `.aws`, `.config`,
+  `.gnupg`, `Library/Keychains`, `.gaia`, `.claude`, `.cline`, `.netrc`, `.git-credentials`,
+  `.docker`, `.kube`, `.npmrc`, `.pypirc`, and the shell profiles).
+- `allowRead`: worktree, `tmp_dir`, and existing `toolchain_read` paths only.
+- `allowWrite`: worktree, `tmp_dir`, and `extra_write` only.
+- `denyWrite`: `{worktree}/.git` (`literal: true`), `{worktree}/.github/workflows`,
+  `{worktree}/.gaia`, `{worktree}/.claude`, `{worktree}/.cline`, `{worktree}/**/.env`,
+  `{worktree}/**/.env.*`.
+- Network: `allowedDomains` = repo allowlist plus `gateway`; entries may not have a scheme, path,
+  whitespace, or be the bare `*`. `deniedDomains` is empty; local binding and unix sockets are off.
+- Escape hatches `allowPty`, `allowAppleEvents`, `enableWeakerNestedSandbox` and
+  `enableWeakerNetworkIsolation` are all explicitly `false`.
+- `find_srt` uses `Settings.srt_path` if set, otherwise the pinned copy under
+  `{data_dir}/tools/node_modules/.bin/srt`. It never searches `PATH`.
+
+### Lead review changes (2026-11-14, [`review-09a`](../reviews/2026-11-14-review-09a.md))
+- **S1:** `confine()` also refuses a path whose *resolved* location is inside `.git`. A symlink
+  `alias -> .git` inside the worktree otherwise passed every check.
+- **S2:** `extra_allow` (the owner-registered test command) is checked after the deny and slash
+  rules but **before** the package-manager and shell tripwires, and its entries are unwrapped like
+  the command. A bare `bash`/`python`/`npm` entry is ignored. The rule-table row above that says
+  "allow only if the current decision is `ask`" is superseded by this.
+- **S3:** `rg` denies `--pre`. A long deny flag also matches `--flag=value`. `find` also denies
+  `-okdir`, `-fprint`, `-fprint0`, `-fprintf` and `-fls`.
+- **S4:** wrappers unwrap repeatedly (`uv run python -m pytest` → `pytest`). Numeric setuid modes
+  (`chmod 4755`, `02755`) are denied. `sudoedit` and `pkexec` are denied.
+- **S5:** `SandboxSpec.data_dir` (Gaia's data dir, wherever it lives) is read-denied, and
+  `data_dir/worktrees` itself cannot be allowed.
+- **S6:** `.envrc`, `.pre-commit-config.yaml` and `.husky/**` writes are `ask`; `.envrc` is also
+  write-denied in the sandbox.
+- The live tests (`GAIA_SRT_PATH=… pytest tests/test_sandbox_live.py`) pass against `srt` 0.0.81:
+  5 cases, including the `data_dir` read and a rewrite of a worktree's `.git` *file*.
+- Acceptance ("reviewed by the architect") is pending the owner's review of the findings and
+  decisions D-a and D-b in the review.

@@ -5,7 +5,7 @@ BACKEND := backend
 FRONTEND := frontend
 
 .DEFAULT_GOAL := help
-.PHONY: help setup migrate dev-backend dev-frontend fmt lint typecheck test secrets smoke-llm openapi check
+.PHONY: help setup migrate dev-backend dev-frontend fmt lint typecheck test secrets smoke-llm openapi sandbox-install check
 
 help: ## List the available targets
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-14s %s\n", $$1, $$2}'
@@ -14,6 +14,9 @@ setup: ## Install backend and frontend dependencies and the git hooks
 	cd $(BACKEND) && uv sync --locked
 	cd $(FRONTEND) && npm ci
 	cd $(BACKEND) && uv run pre-commit install
+
+sandbox-install: ## Install the pinned sandbox-runtime (srt) binary under GAIA_DATA_DIR
+	npm install --prefix "$${GAIA_DATA_DIR:-$$HOME/.gaia}/tools" --save-exact --ignore-scripts @anthropic-ai/sandbox-runtime@0.0.81
 
 migrate: ## Create or upgrade the database schema in ~/.gaia/gaia.sqlite
 	cd $(BACKEND) && uv run alembic upgrade head
