@@ -5,7 +5,7 @@
 > [`docs/backend/`](../docs/backend/README.md) take each part further, with explainers for the
 > Python techniques it uses.
 >
-> **Status:** living document, current as of implementation package 05 (2026-11-13). Update it
+> **Status:** living document, current as of implementation package 07a (2026-11-13). Update it
 > whenever a package lands (see "Keeping this current" at the end).
 
 ## What the backend is
@@ -31,7 +31,7 @@ come next, in the order given in [`docs/implementation/00-README.md`](../docs/im
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ orchestrator/  LangGraph workflow: plan → approve → implement → review → PR   │  planned (12)
 │ runtimes/      the agents themselves (Claude lead, DeepSeek juniors)          │  planned (10)
-│ llm/           provider clients, LLM gateway, cost accounting                 │  planned (07)
+│ llm/           provider clients + cost accounting (built), LLM gateway        │  07a / 07b
 │ tools/         sandboxed file/shell tools for agents                          │  planned (09)
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ services/   git & worktrees (built) · tickets, GitHub, events, costs (planned)│
@@ -59,8 +59,9 @@ never imports FastAPI. `db/` knows nothing about HTTP or git.
 | 03 | `db/`, `domain/`, `alembic/` | 13 tables, migrations, workspace-scoped data access, status state machines | [database](../docs/backend/database.md) |
 | 04 | `api/` | Localhost-only FastAPI app, bearer-token auth, uniform error envelope, `gaia serve` / `gaia ui` | [API](../docs/backend/api.md) |
 | 05 | `services/proc.py`, `git.py`, `worktrees.py` | Safe process runner, hardened git, one git worktree per ticket | [git & processes](../docs/backend/git-and-processes.md) |
+| 07a | `llm/`, `services/costs.py` | Claude and DeepSeek clients, priced and recorded in `llm_usage`; `FakeLLM` for tests | [LLM clients](../docs/backend/llm.md) |
 
-The whole suite (342 tests, 100% line and branch coverage) runs with `make check`, which is also what CI runs.
+The whole suite (404 tests, 100% line and branch coverage) runs with `make check`, which is also what CI runs.
 
 ## Five design rules that explain most of the code
 

@@ -6,9 +6,11 @@ requires-python = "==3.12.*"
 dependencies = [
     "aiosqlite>=0.22.1",
     "alembic>=1.20.1",
+    "anthropic>=2.8.0,<3",
     "fastapi>=0.162.5",
     "httpx>=0.28.1",
     "keyring>=25.7.0",
+    "openai>=3.51.0,<4",
     "pydantic>=2.14",
     "pydantic-settings>=2.16.2",
     "sqlalchemy[asyncio]>=2.1",
