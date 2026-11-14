@@ -114,6 +114,29 @@ def test_sensitive_paths_are_denied_explicitly(home: Path, worktree: Path, tmp_d
         assert str((home / relative).resolve()) in deny_read
 
 
+def test_opt_homebrew_toolchain_read_builds(
+    home: Path,
+    worktree: Path,
+    tmp_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Apple-silicon Homebrew is outside home, so allowing it is valid.
+
+    ``/opt/homebrew`` may not exist on the machine running the tests, so only
+    the existence check is stubbed; the validation sees the real path.
+    """
+    homebrew = Path("/opt/homebrew")
+    real_exists = Path.exists
+
+    def exists(path: Path) -> bool:
+        return True if path == homebrew else real_exists(path)
+
+    monkeypatch.setattr(Path, "exists", exists)
+    settings = build_srt_settings(spec(worktree, tmp_dir, home, toolchain_read=(homebrew,)))
+
+    assert str(homebrew) in settings["filesystem"]["allowRead"]
+
+
 def test_toolchain_read_keeps_only_existing_paths(
     home: Path, worktree: Path, tmp_dir: Path
 ) -> None:
@@ -295,6 +318,11 @@ def test_wrap_argv() -> None:
         "--settings",
         "/tmp/settings.json",
         "--",
+        "/usr/bin/env",
+        "-u",
+        "NO_PROXY",
+        "-u",
+        "no_proxy",
         "pytest",
         "-q",
         "tests",

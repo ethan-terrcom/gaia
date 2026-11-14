@@ -37,6 +37,19 @@ DEFAULT_SANDBOX_TOOLCHAIN_READ: tuple[Path, ...] = (
     Path("~/.pyenv"),
 )
 
+#: The PATH every agent and sandboxed command gets. It includes the Apple-silicon
+#: Homebrew prefix and the user uv directory, which the old hard-coded system
+#: PATH omitted; entries are expanded and validated by :class:`Settings`.
+DEFAULT_AGENT_PATH: tuple[str, ...] = (
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    "~/.local/bin",
+    "/usr/bin",
+    "/bin",
+    "/usr/sbin",
+    "/sbin",
+)
+
 # The three helpers below derive a path from ``data_dir``. pydantic hands a
 # ``default_factory`` that takes one positional argument the already-validated
 # model data (signature inspection, see pydantic's ``takes_validated_data_argument``),
@@ -96,6 +109,16 @@ class Settings(BaseSettings):
     #: installed by ``make sandbox-install`` under ``data_dir``.
     srt_path: Path | None = None
 
+    #: Path to ripgrep. ``None`` asks :func:`gaia.tools.fs.find_rg` to look it up
+    #: on :attr:`agent_path`; when it is not found there either, the search tool
+    #: uses its fixed-string Python fallback.
+    rg_path: Path | None = None
+
+    #: The PATH given to agent processes and sandboxed commands. Entries must be
+    #: absolute after ``~`` expansion, so a relative entry cannot be resolved
+    #: against whatever directory a command happens to start in.
+    agent_path: tuple[str, ...] = Field(default_factory=lambda: DEFAULT_AGENT_PATH)
+
     #: Toolchain directories the sandbox may read (doc 09a). The defaults are
     #: package-manager caches and toolchain homes; entries that do not exist are
     #: ignored when the sandbox settings are built.
@@ -112,11 +135,21 @@ class Settings(BaseSettings):
         """Expand ``~`` so the default ``~/.gaia`` is usable as it stands."""
         return value.expanduser()
 
-    @field_validator("srt_path")
+    @field_validator("srt_path", "rg_path")
     @classmethod
     def _expand_optional_path(cls, value: Path | None) -> Path | None:
-        """Expand ``~`` when the owner supplies a custom ``srt`` path."""
+        """Expand ``~`` when the owner supplies a custom executable path."""
         return value.expanduser() if value is not None else None
+
+    @field_validator("agent_path")
+    @classmethod
+    def _expand_and_check_agent_path(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        """Expand ``~`` and require every PATH entry to be absolute afterwards."""
+        expanded = tuple(str(Path(entry).expanduser()) for entry in value)
+        for entry in expanded:
+            if not Path(entry).is_absolute():
+                raise ValueError(f"agent_path entry {entry!r} is not absolute")
+        return expanded
 
     @field_validator("sandbox_toolchain_read")
     @classmethod

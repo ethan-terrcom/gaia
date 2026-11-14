@@ -152,8 +152,24 @@ def write_srt_settings(spec: SandboxSpec, directory: Path) -> Path:
 
 
 def wrap_argv(srt_path: Path, settings_path: Path, argv: Sequence[str]) -> list[str]:
-    """Return the argv that runs ``argv`` through ``srt``."""
-    return [str(srt_path), "--settings", str(settings_path), "--", *argv]
+    """Return the argv that runs ``argv`` through ``srt``.
+
+    ``env -u NO_PROXY -u no_proxy`` strips the loopback proxy bypass srt sets
+    for its own process, so clients go through srt's proxy instead of connecting
+    directly and being refused by Seatbelt (ADR-001 consequence 1).
+    """
+    return [
+        str(srt_path),
+        "--settings",
+        str(settings_path),
+        "--",
+        "/usr/bin/env",
+        "-u",
+        "NO_PROXY",
+        "-u",
+        "no_proxy",
+        *argv,
+    ]
 
 
 def find_srt(settings: Settings) -> Path:

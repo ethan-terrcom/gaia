@@ -128,6 +128,51 @@ def test_srt_path_expands_the_home_directory(
     assert settings.srt_path == tmp_path / "bin" / "srt"
 
 
+def test_rg_path_defaults_to_none() -> None:
+    assert Settings().rg_path is None
+
+
+def test_rg_path_expands_the_home_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    settings = Settings(rg_path=Path("~/bin/rg"))
+
+    assert settings.rg_path == tmp_path / "bin" / "rg"
+
+
+def test_agent_path_defaults_include_homebrew_and_user_local(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    settings = Settings()
+
+    assert settings.agent_path == (
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        str(tmp_path / ".local" / "bin"),
+        "/usr/bin",
+        "/bin",
+        "/usr/sbin",
+        "/sbin",
+    )
+
+
+def test_agent_path_can_be_overridden(tmp_path: Path) -> None:
+    agent_path = (str(tmp_path / "one"), "/usr/bin")
+
+    settings = Settings(agent_path=agent_path)
+
+    assert settings.agent_path == agent_path
+
+
+def test_agent_path_rejects_relative_entries() -> None:
+    with pytest.raises(ValidationError, match="agent_path"):
+        Settings(agent_path=("relative/bin", "/usr/bin"))
+
+
 def test_sandbox_toolchain_read_defaults_expand_home(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

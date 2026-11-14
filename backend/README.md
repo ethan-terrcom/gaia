@@ -32,7 +32,7 @@ come next, in the order given in [`docs/implementation/00-README.md`](../docs/im
 │ orchestrator/  LangGraph workflow: plan → approve → implement → review → PR   │  11 + 12a built · 12b next
 │ runtimes/      the agents themselves (Claude lead, DeepSeek juniors)          │  10a base built · 10b/c next
 │ llm/           provider clients, cost accounting, LLM gateway (all built)     │  07a / 07b
-│ tools/         sandboxed file/shell tools for agents                          │  planned (09b; 09a policy built)
+│ tools/         sandboxed file/shell/git tools, registry, audit                │  built (09a, 09b)
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ services/   git, worktrees, tickets, costs, events (built) · GitHub (planned) │
 │             └─ proc.py: the ONLY place a process is ever started              │
@@ -64,12 +64,13 @@ never imports FastAPI. `db/` knows nothing about HTTP or git.
 | 07a | `llm/`, `services/costs.py` | Claude and DeepSeek clients, priced and recorded in `llm_usage`; `FakeLLM` for tests | [LLM clients](../docs/backend/llm.md) |
 | 07b | `llm/{gateway,run_tokens,metering}.py`, migration `0004` | Provider-key-free agents: per-run tokens, an allowlisted streaming proxy, metering, and budget hard-stop (403) | [gateway](../docs/backend/gateway.md) |
 | 09a | `security/{paths,commands,sandbox}.py` | Path confinement, the command policy (a tripwire), and the `srt` sandbox profile (the boundary), proved live | [security core](../docs/backend/security.md) |
+| 09b | `tools/`, `security/audit.py` | The one tool layer every runtime uses: confined file tools, two-mode search, `run_command` through policy → in-turn approval → `srt`, git tools, an audit row and events per call | [tools](../docs/backend/tools.md) |
 | 13 | `services/events.py`, `api/routes/stream.py` | Durable event log plus live SSE stream with single-use tickets, replay and gap healing | [events](../docs/backend/events.md) |
 | 11 | `orchestrator/{lead,repo_context}.py`, `domain/plans.py` | The lead's plan and review calls: streamed structured outputs, policy-checked test commands, refusals escalate | [lead](../docs/backend/lead.md) |
 | 10a | `runtimes/`, `services/proc.py` (`stream_proc`) | The runtime seam: limits, scrubbed env, git-computed `files_changed`, in-turn approvals, orphan reaping, fake runtimes and a contract suite | [runtimes](../docs/backend/runtimes.md) |
 | 12a | `orchestrator/{graph,guard,runner,approvals}.py`, `nodes/` | The durable LangGraph ticket-run workflow on interfaces: idempotent human gates, budget guard, crash recovery, concurrency limit ([diagram](../docs/graph.md)) | [orchestrator](../docs/backend/orchestrator.md) |
 
-The whole suite (1138 tests, 100% line and branch coverage) runs with `make check`, which is also what CI runs.
+The whole suite (1255 tests, 100% line and branch coverage) runs with `make check`, which is also what CI runs.
 
 ## Five design rules that explain most of the code
 

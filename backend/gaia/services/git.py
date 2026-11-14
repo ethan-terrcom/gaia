@@ -183,6 +183,22 @@ class WorktreeLocation:
 
 
 @dataclass(frozen=True)
+class GitAuthor:
+    """A git author/committer identity for one commit (doc 09b).
+
+    Both fields are validated so a model-supplied message or agent name cannot
+    inject a newline, an option-like value or another header into git.
+    """
+
+    name: str
+    email: str
+
+    def __post_init__(self) -> None:
+        _validate_author_field("name", self.name)
+        _validate_author_field("email", self.email)
+
+
+@dataclass(frozen=True)
 class Commit:
     """One entry of ``git log``."""
 
@@ -607,6 +623,31 @@ class GitService:
         )
         return result.stdout
 
+    async def diff_worktree(
+        self,
+        location: WorktreeLocation,
+        *,
+        path: Path | None = None,
+        staged: bool = False,
+        timeout_s: float | None = None,
+        max_output_bytes: int = DEFAULT_MAX_OUTPUT_BYTES,
+    ) -> ProcResult:
+        """The uncommitted diff of a worktree, for the agent's ``git_diff`` tool (09b).
+
+        Returns the raw result, failed or not, so the tool can report git's own
+        message and the truncation flag. ``path`` must already be confined by the
+        caller; it is passed after ``--`` so it can never be read as an option.
+        """
+        cwd, env = self._command_context(location)
+        args = ["diff", "--no-ext-diff", "--no-textconv"]
+        if staged:
+            args.append("--cached")
+        if path is not None:
+            args.extend(("--", str(path)))
+        return await self._invoke(
+            *args, cwd=cwd, env=env, timeout_s=timeout_s, max_output_bytes=max_output_bytes
+        )
+
     async def changed_paths(
         self,
         location: WorktreeLocation,
@@ -680,6 +721,7 @@ class GitService:
         message: str,
         *,
         add_all: bool = True,
+        author: GitAuthor | None = None,
         timeout_s: float | None = None,
     ) -> str:
         """Stage (optionally) and commit; return the new SHA.
@@ -687,7 +729,8 @@ class GitService:
         ``--no-verify`` is the belt to ``core.hooksPath=/dev/null``'s braces: a
         repo hook is code the agent may have written, and Gaia does not run agent
         code it did not ask for (the doc's hook test, ARCHITECTURE 6.11). Doc
-        09b's ``git_commit`` tool is the caller.
+        09b's ``git_commit`` tool is the caller and passes ``author`` so a commit
+        is attributed to the agent that made it.
 
         TODO(gaia-15): ``push_branch`` belongs beside this, with the token in the
         child's environment rather than in argv; doc 15 owns the remote. It will
@@ -696,6 +739,14 @@ class GitService:
         if not message.strip():
             raise ValueError("a commit message cannot be empty")
         cwd, env = self._command_context(repo)
+        if author is not None:
+            author_env = {
+                "GIT_AUTHOR_NAME": author.name,
+                "GIT_AUTHOR_EMAIL": author.email,
+                "GIT_COMMITTER_NAME": author.name,
+                "GIT_COMMITTER_EMAIL": author.email,
+            }
+            env = {**(env or {}), **author_env}
         if add_all:
             await self._run("add", "--all", cwd=cwd, env=env, timeout_s=timeout_s)
         await self._run(
@@ -804,6 +855,16 @@ def _first_line(result: ProcResult) -> str:
     """The first line of stderr, redacted: git's own explanation, in one line."""
     lines = result.stderr.strip().splitlines()
     return redact(lines[0]) if lines else ""
+
+
+def _validate_author_field(field: str, value: str) -> None:
+    """Refuse a git author value that could smuggle a header or option."""
+    if not isinstance(value, str):
+        raise ValueError(f"GitAuthor {field} must be a str")
+    if len(value) > 100:
+        raise ValueError(f"GitAuthor {field} is longer than 100 characters")
+    if any(character in value for character in ("\n", "\r", "<", ">", "\x00")):
+        raise ValueError(f"GitAuthor {field} contains a forbidden character")
 
 
 def _parse_worktree_porcelain(output: str) -> list[GitWorktree]:

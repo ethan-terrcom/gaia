@@ -171,3 +171,66 @@ The default TOML allow rules are: `pytest`, `ruff`, `mypy`, `black`, `isort`, `e
   5 cases, including the `data_dir` read and a rewrite of a worktree's `.git` *file*.
 - Acceptance ("reviewed by the architect") is pending the owner's review of the findings and
   decisions D-a and D-b in the review.
+
+## Decisions and deviations (as built) — 09b
+
+- **`approve(ctx, payload, reason, *, tool)` takes the tool name as a keyword.** The lead
+  handoff's §2.2 call spelling omitted it, but §2.4 requires the tool name to come from a
+  parameter rather than from the payload; the keyword form keeps it out of model-controlled data.
+- **No `NeedsApproval` tool result and no graph interrupt.** Doc 09 task 3's last bullet predates
+  doc 10 requirement 8 and is superseded: approvals are awaited inside the turn by the 10a broker.
+- **`GitAuthor` is validated and `GitService.commit(author=)` passes the four `GIT_*` identity
+  variables** through the pinned worktree environment; that is the only `git.py` change.
+- ~~`git_diff` uses `GitService._command_context` and `_invoke` directly.~~ Superseded in lead
+  review (R4): `GitService.diff_worktree(location, *, path, staged)` is now the public verb.
+- **`Settings.agent_path` is the PATH for agents and sandboxed commands.** `build_agent_env`
+  gains a `path=` keyword so existing callers keep the old hard-coded default; `command_env`
+  passes `os.pathsep.join(settings.agent_path)`. The default includes `/opt/homebrew/bin` and
+  `~/.local/bin` for Apple-silicon Macs and user uv installs.
+- **`wrap_argv` now strips `NO_PROXY`/`no_proxy` inside the sandbox** with
+  `-- /usr/bin/env -u NO_PROXY -u no_proxy <argv>`, so gateway traffic goes through srt's proxy
+  instead of being refused by Seatbelt (ADR-001 consequence 1).
+- **`/opt/homebrew` was not added to `DEFAULT_SANDBOX_TOOLCHAIN_READ`.** It is outside `home`, so
+  it is readable already; a test asserts a spec containing it builds without weakening validation.
+- **`SrtCommandRunner` is the only production runner and gives commands no network in 09b**
+  (`allowed_domains=()`, `gateway=None`). Per-repo domains are a later setting.
+- **Search has two modes.** With `rg_path` it runs the exact fixed rg argv from the handoff; with
+  no `rg_path` it uses a fixed-string Python fallback (never `re` on a model pattern). The mode is
+  written into the tool description so the model is told whether its pattern is a regex or literal.
+- **`edit_file` reads the whole file, not the first 200 KB.** The 200 KB cap belongs to
+  `read_file`; `edit_file` must be able to replace text anywhere in a file. Lead review (F2) caps
+  it at `MAX_SCAN_BYTES` (20 MB).
+- **Live tool tests** were added in `tests/test_tools_live.py`, skipped unless `GAIA_SRT_PATH` is
+  set, mirroring `tests/test_sandbox_live.py`.
+
+### Tool set (as built)
+| Tool | Mutates | Junior | Notes |
+|---|---|---|---|
+| `read_file` | no | ✓ | 200 KB cap. A line range scans up to 20 MB, so it can reach past the cap |
+| `list_dir` | no | ✓ | depth 1–3, symlinks shown but never followed, 2,000 entries |
+| `search` | no | ✓ | ripgrep (regex) when `rg_path` resolves; otherwise a literal-substring Python fallback. The description says which |
+| `write_file`, `edit_file`, `delete_file` | yes | ✓ | `classify_write` → `ask` for CI, lockfiles, `.env*`, agent config |
+| `run_command` | yes | ✓ | `CommandPolicy.evaluate` → deny / ask (in-turn approval) / allow → `SrtCommandRunner` |
+| `git_status`, `git_diff` | no | ✓ | through `GitService` and the pinned `WorktreeLocation` |
+| `git_commit` | yes | — | lead only; the graph commits accepted junior steps (`git_commit_step`) |
+
+### Lead review changes — 09b (2026-11-14, [`review-09b`](../reviews/2026-11-14-review-09b.md))
+- **R1:** the registry's audit write and `agent.tool_result` event run **shielded** from
+  cancellation, bounded at 10 s. Under the Agent SDK (10c) tool handlers run inside an anyio task
+  group, where cancellation is level-triggered, and the audit row was lost. Reproduced by
+  `test_audit_survives_a_level_triggered_cancel_scope`.
+- **R2:** non-mapping arguments are refused as "arguments must be a JSON object", instead of
+  raising out of the registry's `finally`.
+- **S1:** `SrtCommandRunner` writes each command's srt settings to a fresh 0700 directory under
+  `{data_dir}/sandbox/`, removed after the command. It used to write them inside the task dir,
+  which the sandboxed command can write, so a process left behind by one command could rewrite
+  the next command's sandbox rules.
+- **F1:** a `read_file` line range now reaches past the first 200 KB, which the truncation note
+  promised; output stays capped at 200 KB. **F2:** `edit_file` and ranged reads refuse files over
+  20 MB. **F3:** file-tool errors no longer show the model absolute host paths.
+- **R4:** `GitService.diff_worktree` replaces the tool's use of two private `GitService` methods.
+- Verified live against srt 0.0.81: `tests/test_tools_live.py` and `tests/test_sandbox_live.py`
+  (7 passed). Through `SrtCommandRunner`, `uv run --offline pytest --version` exits 0, which shows
+  that `agent_path` finds the toolchain; an HTTPS request is refused by srt's proxy; and
+  `cat ~/.zshrc` is denied.
+- [ ] Architect review (security-critical): the tool layer above, plus 09a's open D-a/D-b.
