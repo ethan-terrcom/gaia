@@ -56,13 +56,22 @@ async def _main() -> None:
         async with session_scope(sessions) as session:
             seeded = await seed_initial_data(session, settings)
             repositories = ScopedRepo(session, Repository, seeded.workspace.id)
-            repository = await repositories.create(
-                name=f"scratch-{uuid7()[:8]}",
-                local_path=str(repo_path),
-                remote_url=None,
-                setup_command=None,
-                test_command=None,
-                created_by=seeded.user.id,
+            # Reuse the scratch row for this path: running the script twice must
+            # not trip the unique (workspace, name) constraint. The name takes the
+            # uuid7's random tail; its first 8 hex digits are a timestamp, which
+            # collided for two runs within about a minute (spike 08 finding).
+            existing = await repositories.list(local_path=str(repo_path), limit=1)
+            repository = (
+                existing[0]
+                if existing
+                else await repositories.create(
+                    name=f"scratch-{uuid7()[-12:]}",
+                    local_path=str(repo_path),
+                    remote_url=None,
+                    setup_command=None,
+                    test_command=None,
+                    created_by=seeded.user.id,
+                )
             )
             tickets = ScopedRepo(session, Ticket, seeded.workspace.id)
             ticket = await tickets.create(

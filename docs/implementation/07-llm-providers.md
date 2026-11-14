@@ -141,8 +141,9 @@ this "proxy pattern" for agents.
 ### Acceptance criteria
 - [x] The native DeepSeek client runs through the gateway with no provider key in its environment
       (lead, live, 2026-11-14).
-- [ ] In the spike, the Claude Agent SDK runs through the gateway with no provider key in its
-      environment (doc 08).
+- [x] In the spike, the Claude Agent SDK runs through the gateway with no provider key in its
+      environment (doc 08, 2026-11-14: env held only `ANTHROPIC_BASE_URL` and a `gaia_rt_` token; only
+      `v1/messages` reached the gateway; also verified under `srt`).
 
 ### Decisions and deviations (as built)
 - **DeepSeek stream options are set on the OpenAI-compatible routes only.** The doc says to add

@@ -66,4 +66,17 @@ scores better on control and observability), and **native Anthropic SDK structur
 planning and review**.
 
 ## Acceptance criteria
-- [ ] The ADR is merged, and the owner signs off before doc 10 starts.
+- [x] The ADR is merged: [`ADR-001`](../decisions/ADR-001-agent-runtimes.md), status *Proposed* (2026-11-14).
+- [ ] The owner signs off before 10b starts. (10a does not wait: its runtime-agnostic base was built in parallel.)
+
+## As run (2026-11-14)
+- **Candidates run:** the native DeepSeek loop; the Agent SDK with Claude; the Agent SDK driving
+  DeepSeek through the Anthropic-compatible endpoint (under `srt`); and Cline 3.0.74 (live hook test
+  only).
+- **Not run:** Aider and OpenHands (optional).
+- **Sample ticket:** a `--lines` flag for a small word-count CLI; the same ticket for every candidate.
+- **Planning comparison:** the same ticket, static against agentic.
+- **Prototypes:** `backend/spikes/runtime_spike/` and `backend/spikes/native_deepseek_loop/`.
+- **Spend:** about $0.75 in total, gateway-metered, across every spike call.
+- **Side fix:** `scripts/dev_run_token.py` reuses the scratch repository row for a path. Its
+  timestamp-prefixed name collided for two runs within about a minute.
