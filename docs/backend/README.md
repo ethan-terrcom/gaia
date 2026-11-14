@@ -5,7 +5,7 @@
 > one-page overview in [`backend/README.md`](../../backend/README.md), then read the guide for the
 > area you are about to touch.
 >
-> **Status:** living document, current as of packages 09a and 13 (2026-11-14).
+> **Status:** living document, current as of packages 07b, 09a and 13 (2026-11-14).
 
 ## How these guides are organised
 
@@ -29,11 +29,12 @@ day. It is the vocabulary for the rest of the guides.
 | [API](api.md) | The app factory, lifespan, middleware, auth, dependencies, errors, the domain and event routes | 04, 06, 13 |
 | [Git & processes](git-and-processes.md) | `run_proc`, `GitService`, `WorktreeService` | 05 |
 | [LLM clients & costs](llm.md) | `AnthropicClient`, `DeepSeekClient`, `FakeLLM`, pricing and usage recording | 07a |
+| [LLM gateway](gateway.md) | Run tokens, the streaming proxy, metering, budgets: why agents never hold a provider key | 07b |
 | [Security core](security.md) | `confine`, the command policy, the `srt` sandbox profile: tripwire versus boundary | 09a |
 | [Events & live stream](events.md) | `EventBus`, `EventSink`, stream tickets, SSE replay and gap healing | 13 |
 | [Python concepts](python-concepts.md) | Explainers for the techniques the code relies on | – |
 
-Guides for the gateway (07b), `runtimes/`, `tools/`, `orchestrator/` and the event stream will be added as
+Guides for `runtimes/`, `tools/`, `orchestrator/` and the event stream will be added as
 those packages land (07b–15).
 
 ## Tooling and conventions

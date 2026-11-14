@@ -82,6 +82,9 @@ class Settings(BaseSettings):
 
     lead_model: str = "claude-opus-5-5"
     junior_model: str = "deepseek-v4-pro"
+    #: Base URL the gateway forwards Anthropic calls to (doc 07b). Tests and the
+    #: doc 08 spike can point this at a local fake without touching real DNS.
+    anthropic_base_url: str = "https://api.anthropic.com"
     junior_base_url: str = "https://api.deepseek.com"
 
     run_budget_usd: float = Field(default=5.0, gt=0)

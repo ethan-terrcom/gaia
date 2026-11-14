@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -9,16 +10,19 @@ from pathlib import Path
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from gaia.config.settings import Settings
 from gaia.db.models import LlmUsage as LlmUsageRow
 from gaia.db.models import Run
 from gaia.db.repo import ScopedRepo
 from gaia.llm.base import LLMUsage
 from gaia.services.costs import (
+    BudgetExceeded,
     DbUsageRecorder,
     ModelPrice,
     PriceQuote,
     PriceRates,
     PriceTable,
+    ensure_budget,
     load_price_table,
     remaining_budget,
 )
@@ -226,3 +230,147 @@ def test_naive_datetime_is_treated_as_utc() -> None:
     naive_midnight = datetime(2026, 1, 1, 0, 0)
     assert table.quote(usage, at=naive_midnight).price_tier == "off-peak"
     assert table.quote(usage, at=naive_midnight + timedelta(hours=12)).price_tier == "peak"
+
+
+async def test_recorder_adds_cost_to_the_run_atomically(session: AsyncSession) -> None:
+    """The usage row and ``run.cost_usd = run.cost_usd + :c`` commit together."""
+    chain = await make_chain(session, slug="recorder-cost")
+    runs = ScopedRepo(session, Run, chain.workspace.id)
+    await runs.update(chain.run.id, budget_usd=Decimal("5.0"))
+
+    recorder = DbUsageRecorder(
+        session,
+        chain.workspace.id,
+        chain.run.id,
+        run_step_id=chain.step.id,
+        agent_id=chain.agent.id,
+    )
+    await recorder.record(
+        LLMUsage(
+            provider="deepseek",
+            model="deepseek-v4-pro",
+            input_tokens=10,
+            output_tokens=20,
+            request_id="req_cost",
+        ),
+        cost_usd=Decimal("0.000040"),
+        price_tier="peak",
+    )
+    session.expunge_all()
+
+    run = await runs.get(chain.run.id)
+    assert run is not None
+    assert run.cost_usd == Decimal("0.000040")
+    rows = await ScopedRepo(session, LlmUsageRow, chain.workspace.id).list()
+    assert rows[0].run_step_id == chain.step.id
+    assert rows[0].agent_id == chain.agent.id
+
+
+async def test_ensure_budget_raises_for_a_spent_run(session: AsyncSession) -> None:
+    chain = await make_chain(session, slug="budget-run")
+    runs = ScopedRepo(session, Run, chain.workspace.id)
+    run = await runs.update(chain.run.id, budget_usd=Decimal("5.0"), cost_usd=Decimal("5.0"))
+    settings = Settings(data_dir=Path("/tmp/gaia-budget"), db_url="sqlite+aiosqlite:///:memory:")
+
+    with pytest.raises(BudgetExceeded) as excinfo:
+        await ensure_budget(session, run, settings, now=UTC_NOON)
+
+    assert excinfo.value.kind == "run"
+    assert excinfo.value.limit_usd == Decimal("5.0")
+    assert excinfo.value.spent_usd == Decimal("5.0")
+
+
+async def test_ensure_budget_raises_for_a_spent_utc_day(session: AsyncSession) -> None:
+    chain = await make_chain(session, slug="budget-daily")
+    runs = ScopedRepo(session, Run, chain.workspace.id)
+    run = await runs.update(chain.run.id, budget_usd=Decimal("100.0"))
+    usage_repo = ScopedRepo(session, LlmUsageRow, chain.workspace.id)
+    await usage_repo.create(
+        run_id=chain.run.id,
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        cost_usd=Decimal("20.0"),
+    )
+    settings = Settings(
+        data_dir=Path("/tmp/gaia-budget"),
+        db_url="sqlite+aiosqlite:///:memory:",
+        daily_budget_usd=20.0,
+    )
+
+    with pytest.raises(BudgetExceeded) as excinfo:
+        await ensure_budget(session, run, settings, now=datetime.now(UTC))
+
+    assert excinfo.value.kind == "daily"
+    assert excinfo.value.limit_usd == Decimal("20.0")
+    assert excinfo.value.spent_usd == Decimal("20.0")
+
+
+async def test_ensure_budget_allows_an_open_budget(session: AsyncSession) -> None:
+    chain = await make_chain(session, slug="budget-open")
+    runs = ScopedRepo(session, Run, chain.workspace.id)
+    run = await runs.update(chain.run.id, budget_usd=Decimal("5.0"))
+    settings = Settings(
+        data_dir=Path("/tmp/gaia-budget"),
+        db_url="sqlite+aiosqlite:///:memory:",
+        daily_budget_usd=20.0,
+    )
+
+    await ensure_budget(session, run, settings, now=UTC_NOON)
+
+
+def _windowed_table() -> PriceTable:
+    return PriceTable(
+        {
+            "ds": ModelPrice(
+                rates=PriceRates(input=Decimal("1.32"), output=Decimal("3.96")),
+                off_peak=PriceRates(input=Decimal("0.66"), output=Decimal("1.98")),
+                peak_windows_utc=((1, 4), (6, 10)),
+                peak_weekdays_only=True,
+            )
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    ("at", "tier"),
+    [
+        (datetime(2026, 11, 16, 1, 0, tzinfo=UTC), "peak"),  # Monday 01:00
+        (datetime(2026, 11, 16, 3, 59, tzinfo=UTC), "peak"),
+        (datetime(2026, 11, 16, 4, 0, tzinfo=UTC), "off-peak"),  # gap between windows
+        (datetime(2026, 11, 16, 9, 30, tzinfo=UTC), "peak"),
+        (datetime(2026, 11, 16, 10, 0, tzinfo=UTC), "off-peak"),
+        (datetime(2026, 11, 16, 0, 59, tzinfo=UTC), "off-peak"),
+        (datetime(2026, 11, 14, 2, 0, tzinfo=UTC), "off-peak"),  # Saturday
+    ],
+)
+def test_peak_windows_price_deepseeks_published_schedule(at: datetime, tier: str) -> None:
+    """Lead review 07b (G6): DeepSeek peak is two weekday windows, off-peak is half."""
+    usage = LLMUsage(provider="deepseek", model="ds", input_tokens=1_000_000)
+
+    quote = _windowed_table().quote(usage, at=at)
+
+    assert quote.price_tier == tier
+    assert quote.cost_usd == (Decimal("1.32") if tier == "peak" else Decimal("0.66"))
+
+
+@pytest.mark.parametrize("bad", [[[4, 1]], [[1]], [[1, 25]], ["1-4"]])
+def test_peak_windows_are_validated(tmp_path: Path, bad: object) -> None:
+    path = tmp_path / "prices.toml"
+    path.write_text(
+        f"[models.ds]\ninput = 1\noutput = 1\npeak_windows_utc = {json.dumps(bad)}\n"
+        "[models.ds.off_peak]\ninput = 1\noutput = 1\n"
+    )
+
+    with pytest.raises(ValueError, match="peak_windows_utc"):
+        load_price_table(path)
+
+
+def test_the_shipped_price_table_has_verified_deepseek_rates() -> None:
+    table = load_price_table()
+    usage = LLMUsage(provider="deepseek", model="deepseek-v4-pro", cache_read_tokens=1_000_000)
+
+    weekday_peak = table.quote(usage, at=datetime(2026, 11, 16, 2, 0, tzinfo=UTC))
+    weekend = table.quote(usage, at=datetime(2026, 11, 15, 2, 0, tzinfo=UTC))
+
+    assert weekday_peak.cost_usd == Decimal("0.044")
+    assert weekend.cost_usd == Decimal("0.022")

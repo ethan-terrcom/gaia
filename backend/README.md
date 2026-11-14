@@ -31,7 +31,7 @@ come next, in the order given in [`docs/implementation/00-README.md`](../docs/im
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ orchestrator/  LangGraph workflow: plan → approve → implement → review → PR   │  planned (12)
 │ runtimes/      the agents themselves (Claude lead, DeepSeek juniors)          │  planned (10)
-│ llm/           provider clients + cost accounting (built), LLM gateway        │  07a / 07b
+│ llm/           provider clients, cost accounting, LLM gateway (all built)     │  07a / 07b
 │ tools/         sandboxed file/shell tools for agents                          │  planned (09b; 09a policy built)
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ services/   git, worktrees, tickets, costs, events (built) · GitHub (planned) │
@@ -62,10 +62,11 @@ never imports FastAPI. `db/` knows nothing about HTTP or git.
 | 05b | `services/{git,proc,worktrees}.py`, migration `0002` | Worktree git pinned to the trusted admin dir (F1), bounded reap of escaped processes (F2), approval idempotency key (F4), commit-before-response (F6) | [git & processes](../docs/backend/git-and-processes.md) |
 | 06 | `api/routes/`, `services/tickets.py`, migration `0003` | Repositories, tickets, agents and worktrees API with pagination, audit rows and `make openapi` | [API](../docs/backend/api.md) |
 | 07a | `llm/`, `services/costs.py` | Claude and DeepSeek clients, priced and recorded in `llm_usage`; `FakeLLM` for tests | [LLM clients](../docs/backend/llm.md) |
+| 07b | `llm/{gateway,run_tokens,metering}.py`, migration `0004` | Provider-key-free agents: per-run tokens, an allowlisted streaming proxy, metering, and budget hard-stop (403) | [gateway](../docs/backend/gateway.md) |
 | 09a | `security/{paths,commands,sandbox}.py` | Path confinement, the command policy (a tripwire), and the `srt` sandbox profile (the boundary), proved live | [security core](../docs/backend/security.md) |
 | 13 | `services/events.py`, `api/routes/stream.py` | Durable event log plus live SSE stream with single-use tickets, replay and gap healing | [events](../docs/backend/events.md) |
 
-The whole suite (814 tests, 100% line and branch coverage) runs with `make check`, which is also what CI runs.
+The whole suite (903 tests, 100% line and branch coverage) runs with `make check`, which is also what CI runs.
 
 ## Five design rules that explain most of the code
 

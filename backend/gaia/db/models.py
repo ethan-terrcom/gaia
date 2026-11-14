@@ -324,6 +324,32 @@ class Event(Base):
     updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow, onupdate=utcnow)
 
 
+class RunToken(UUIDPrimaryKey, WorkspaceScoped, Timestamps, Base):
+    """A short-lived token that lets one runtime reach the LLM gateway (doc 07b).
+
+    The plaintext is shown once at mint time and only its SHA-256 hash is stored,
+    so a database leak does not hand out working credentials. The token row is
+    still workspace-scoped like every other tenant row, but resolution looks it
+    up by hash first: the token itself is what proves the workspace.
+    """
+
+    __tablename__ = "run_token"
+
+    run_id: Mapped[str] = mapped_column(ForeignKey("run.id", ondelete="CASCADE"), index=True)
+    run_step_id: Mapped[str | None] = mapped_column(
+        ForeignKey("run_step.id", ondelete="SET NULL"), default=None
+    )
+    agent_id: Mapped[str | None] = mapped_column(
+        ForeignKey("agent.id", ondelete="SET NULL"), default=None
+    )
+    provider: Mapped[str] = mapped_column(String(16))
+    #: SHA-256 hex digest of the plaintext token. 256 bits of entropy means a
+    #: fast hash is the right primitive; the threat is a leaked DB, not brute force.
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    expires_at: Mapped[datetime] = mapped_column(UtcDateTime)
+    revoked_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
+
+
 class LlmUsage(UUIDPrimaryKey, WorkspaceScoped, Timestamps, Base):
     """One LLM call's token counts and cost (doc 07 writes these rows)."""
 

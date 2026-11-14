@@ -26,6 +26,7 @@ from gaia.llm.base import (
     ToolCall,
     UsageRecorder,
 )
+from gaia.llm.metering import deepseek_token_buckets
 from gaia.services.costs import PriceTable
 
 logger = structlog.get_logger(__name__)
@@ -220,18 +221,19 @@ class DeepSeekClient:
         completion_tokens = _field(usage_obj, "completion_tokens")
         cache_hit_tokens = _field(usage_obj, "prompt_cache_hit_tokens")
         cache_miss_tokens = _field(usage_obj, "prompt_cache_miss_tokens")
-        if cache_miss_tokens == 0 and cache_hit_tokens:
-            cache_miss_tokens = max(0, prompt_tokens - cache_hit_tokens)
-        elif cache_hit_tokens == 0 and cache_miss_tokens == 0:
-            cache_miss_tokens = prompt_tokens
+        input_tokens, cache_read_tokens = deepseek_token_buckets(
+            prompt_tokens=prompt_tokens,
+            cache_hit_tokens=cache_hit_tokens,
+            cache_miss_tokens=cache_miss_tokens,
+        )
 
         request_id = _request_id(completion)
         usage = LLMUsage(
             provider="deepseek",
             model=getattr(completion, "model", None) or self._model,
-            input_tokens=cache_miss_tokens,
+            input_tokens=input_tokens,
             output_tokens=completion_tokens,
-            cache_read_tokens=cache_hit_tokens,
+            cache_read_tokens=cache_read_tokens,
             cache_creation_tokens=0,
             request_id=request_id,
         )

@@ -20,7 +20,7 @@ scripted replies without spending money.
 | `gaia/llm/deepseek_client.py` | `DeepSeekClient` (OpenAI-compatible endpoint) |
 | `gaia/llm/fake.py` | `FakeLLM`, scripted responses for tests |
 | `gaia/llm/untrusted.py` | `wrap_untrusted(text, source)`, which marks repo or ticket text as data |
-| `gaia/llm/prices.toml` | USD per 1M tokens, per model (DeepSeek values still to be verified) |
+| `gaia/llm/prices.toml` | USD per 1M tokens, per model (DeepSeek verified 2026-11-14; peak windows) |
 | `gaia/services/costs.py` | `PriceTable`, `load_price_table()`, `DbUsageRecorder`, `remaining_budget()` |
 | `backend/scripts/smoke_llm.py` | `make smoke-llm`: one real call per provider, run by hand |
 
@@ -42,7 +42,7 @@ reply = await client.complete(system=PLAN_PROMPT, messages=[LLMMessage("user", t
    request streams.
 2. The response's token counts become an `LLMUsage` in four buckets: base input, output, cache read and
    cache write. For DeepSeek, "base input" is the cache-*miss* count.
-3. `PriceTable` turns that into a `Decimal` cost, picking DeepSeek's off-peak tier when enabled. The
+3. `PriceTable` turns that into a `Decimal` cost, picking DeepSeek's off-peak tier outside its weekday peak windows. The
    recorder writes the `llm_usage` row, scoped to the workspace.
 4. **Only then** does the client check the stop reason. Refusal, `max_tokens`/`length`, `pause_turn` or a
    content filter raises `LLMStop`, never an empty reply. The call is billed either way, so it is always
@@ -68,3 +68,6 @@ reply = await client.complete(system=PLAN_PROMPT, messages=[LLMMessage("user", t
   `tests/test_anthropic_client.py`). They never use the network and never read the shipped price file.
 - **Real calls:** `make smoke-llm` needs `ANTHROPIC_API_KEY` and `DEEPSEEK_API_KEY` in the keychain
   (`gaia secrets set …`).
+
+Agents never call providers directly: they go through the [LLM gateway](gateway.md) (07b), which
+reuses this module's metering and pricing.

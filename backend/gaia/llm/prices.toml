@@ -10,39 +10,37 @@ output = 20.0
 cache_read = 0.20
 cache_write = 5.0
 
+# DeepSeek: read 2026-11-14 from https://api-docs.deepseek.com/quick_start/pricing
+# (lead review 07b). Peak is 01:00-04:00 and 06:00-10:00 UTC, Monday to Friday;
+# every other hour is off-peak at half price. DeepSeek also treats Chinese
+# public holidays as off-peak; Gaia prices them at peak (it over-counts slightly,
+# which is the safe direction for a budget). DeepSeek has no cache-write charge.
+# `input` is the cache-miss rate and `cache_read` the cache-hit rate.
+
 [models.deepseek-v4-pro]
-# VERIFY: https://api-docs.deepseek.com/quick_start/pricing
-input = 0.50
-output = 1.50
-cache_read = 0.05
+input = 1.32
+output = 3.96
+cache_read = 0.044
 cache_write = 0.0
-# VERIFY: the real peak/off-peak window before enabling off-peak pricing.
-# start == end deliberately disables off-peak selection in PriceTable.
-off_peak_start_utc = 0
-off_peak_end_utc = 0
+peak_windows_utc = [[1, 4], [6, 10]]
+peak_weekdays_only = true
 
 [models.deepseek-v4-pro.off_peak]
-# VERIFY: https://api-docs.deepseek.com/quick_start/pricing (off-peak is half
-# of the peak rate in the lead's notes; confirm current numbers).
-input = 0.25
-output = 0.75
-cache_read = 0.025
+input = 0.66
+output = 1.98
+cache_read = 0.022
 cache_write = 0.0
 
 [models.deepseek-flash]
-# VERIFY: https://api-docs.deepseek.com/quick_start/pricing
-input = 0.10
-output = 0.40
-cache_read = 0.01
+input = 0.30
+output = 1.20
+cache_read = 0.006
 cache_write = 0.0
-# VERIFY: the real peak/off-peak window before enabling off-peak pricing.
-# start == end deliberately disables off-peak selection in PriceTable.
-off_peak_start_utc = 0
-off_peak_end_utc = 0
+peak_windows_utc = [[1, 4], [6, 10]]
+peak_weekdays_only = true
 
 [models.deepseek-flash.off_peak]
-# VERIFY: https://api-docs.deepseek.com/quick_start/pricing
-input = 0.05
-output = 0.20
-cache_read = 0.005
+input = 0.15
+output = 0.60
+cache_read = 0.003
 cache_write = 0.0

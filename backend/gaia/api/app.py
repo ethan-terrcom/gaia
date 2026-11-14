@@ -29,6 +29,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from typing import Final
 
+import httpx
 import structlog
 from fastapi import APIRouter, Depends, FastAPI, Security
 from sqlalchemy.exc import OperationalError
@@ -52,6 +53,8 @@ from gaia.config.secrets import ensure_api_token, get_secret_store
 from gaia.config.settings import Settings, ensure_data_dir, get_settings
 from gaia.db.engine import create_engine_for, create_session_factory, session_scope
 from gaia.db.seed import Seeded, seed_initial_data
+from gaia.llm.gateway import router as llm_router
+from gaia.services.costs import load_price_table
 from gaia.services.events import EventBus
 from gaia.services.git import GitService
 from gaia.services.stream_tickets import StreamTickets
@@ -162,8 +165,10 @@ async def _seed(sessions: async_sessionmaker[AsyncSession], settings: Settings) 
         ) from error
 
 
-def _lifespan(settings: Settings) -> Lifespan[FastAPI]:
-    """Build the lifespan that opens the database, seeds it and loads the token."""
+def _lifespan(
+    settings: Settings, llm_transport: httpx.AsyncBaseTransport | None
+) -> Lifespan[FastAPI]:
+    """Build the lifespan that opens the database, the LLM client and the token."""
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -172,6 +177,11 @@ def _lifespan(settings: Settings) -> Lifespan[FastAPI]:
         git = GitService(settings)
         engine = create_engine_for(settings)
         sessions = create_session_factory(engine)
+        prices = load_price_table()
+        llm_http = httpx.AsyncClient(
+            timeout=httpx.Timeout(connect=10, read=600, write=60, pool=10),
+            transport=llm_transport,
+        )
         try:
             seeded = await _seed(sessions, settings)
             principal = Principal(workspace_id=seeded.workspace.id, user_id=seeded.user.id)
@@ -189,6 +199,8 @@ def _lifespan(settings: Settings) -> Lifespan[FastAPI]:
                 git=git,
                 events=events,
                 stream_tickets=stream_tickets,
+                llm_http=llm_http,
+                prices=prices,
             )
             logger.info(
                 "api.startup",
@@ -207,6 +219,7 @@ def _lifespan(settings: Settings) -> Lifespan[FastAPI]:
                 for task in tasks:
                     with suppress(asyncio.CancelledError):
                         await task
+            await llm_http.aclose()
             # Closes the pool, so a second app in the same process (a test, or a
             # reload) does not inherit stale connections to the same file.
             await engine.dispose()
@@ -239,20 +252,27 @@ def api_v1_router(*, dev_routes: bool = False) -> APIRouter:
     return router
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    *,
+    llm_transport: httpx.AsyncBaseTransport | None = None,
+) -> FastAPI:
     """Build the ASGI app.
 
     There is no interactive documentation route: ``/docs`` and ``/openapi.json``
     would be the only unauthenticated API routes besides ``/api/health``, and
     task 5 says there are none. The schema is exported offline instead
     (``create_app().openapi()``, doc 06).
+
+    ``llm_transport`` is a test seam: production passes ``None`` and gets a real
+    network client, while gateway tests pass ``httpx.MockTransport``.
     """
     resolved = settings if settings is not None else get_settings()
     app = FastAPI(
         title="Gaia",
         summary="Local-first control plane for a hierarchy of AI coding agents.",
         version=gaia.__version__,
-        lifespan=_lifespan(resolved),
+        lifespan=_lifespan(resolved, llm_transport),
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
@@ -269,4 +289,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # the single-use ticket in the query string instead.
     app.include_router(stream.public_router)
     app.include_router(api_v1_router(dev_routes=resolved.dev_routes))
+    # The gateway has its own run-token auth and therefore sits outside /api/v1.
+    app.include_router(llm_router)
     return app
