@@ -109,11 +109,11 @@ reverses it.
   envelope, and no SQL in the body.
 
 ## Acceptance criteria
-- [ ] Both F1 attack variants are regression tests that pass, and no marker file is ever created.
-- [ ] No `GitService` call can run in a worktree without a `WorktreeLocation`.
-- [ ] The F2 test passes in bounded time with no warnings.
-- [ ] Migration `0002` upgrades and downgrades cleanly, and `alembic check` shows no drift.
-- [ ] `uv run pytest`, `uv run mypy` and `uv run ruff check . && uv run ruff format --check .` pass,
+- [x] Both F1 attack variants are regression tests that pass, and no marker file is ever created.
+- [x] No `GitService` call can run in a worktree without a `WorktreeLocation`.
+- [x] The F2 test passes in bounded time with no warnings.
+- [x] Migration `0002` upgrades and downgrades cleanly, and `alembic check` shows no drift.
+- [x] `uv run pytest`, `uv run mypy` and `uv run ruff check . && uv run ruff format --check .` pass,
       with 100% coverage of `gaia/`.
 
 ## Decisions and deviations (as built)
@@ -152,3 +152,10 @@ reverses it.
 8. **No event/audit row was added for `WorktreeTampered`.** The task text says only
    to raise; event publishing is out of scope (doc 13), and a service layer raise is
    what the tests and doc 09b can observe.
+9. **Lead review fixes (2026-11-13, [`../reviews/2026-11-13-review-05b.md`](../reviews/2026-11-13-review-05b.md)).**
+   The cancellation path of `run_proc` uses the same bounded `_reap_after_kill` as the timeout path.
+   `WorktreeService.remove()` calls the new `GitService.verify_location()` before `git worktree remove`,
+   even with `force=True`, because that verb checks the tree through the worktree's own `.git` file.
+   The integrity-error handler logs the path, not the SQL. New tests: the pin alone stops planted config
+   (tamper check disabled), force-remove refuses a tampered worktree, and a cancelled call with an
+   escaped grandchild returns in bounded time. Escape tests clean up their sleeper in `finally`.

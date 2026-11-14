@@ -59,9 +59,10 @@ never imports FastAPI. `db/` knows nothing about HTTP or git.
 | 03 | `db/`, `domain/`, `alembic/` | 13 tables, migrations, workspace-scoped data access, status state machines | [database](../docs/backend/database.md) |
 | 04 | `api/` | Localhost-only FastAPI app, bearer-token auth, uniform error envelope, `gaia serve` / `gaia ui` | [API](../docs/backend/api.md) |
 | 05 | `services/proc.py`, `git.py`, `worktrees.py` | Safe process runner, hardened git, one git worktree per ticket | [git & processes](../docs/backend/git-and-processes.md) |
+| 05b | `services/{git,proc,worktrees}.py`, migration `0002` | Worktree git pinned to the trusted admin dir (F1), bounded reap of escaped processes (F2), approval idempotency key (F4), commit-before-response (F6) | [git & processes](../docs/backend/git-and-processes.md) |
 | 07a | `llm/`, `services/costs.py` | Claude and DeepSeek clients, priced and recorded in `llm_usage`; `FakeLLM` for tests | [LLM clients](../docs/backend/llm.md) |
 
-The whole suite (404 tests, 100% line and branch coverage) runs with `make check`, which is also what CI runs.
+The whole suite (424 tests, 100% line and branch coverage) runs with `make check`, which is also what CI runs.
 
 ## Five design rules that explain most of the code
 
@@ -95,9 +96,10 @@ The whole suite (404 tests, 100% line and branch coverage) runs with `make check
 ## Known risks and open decisions
 
 The 2026-11-13 code review ([`docs/reviews/2026-11-13-code-review-01-05.md`](../docs/reviews/2026-11-13-code-review-01-05.md))
-found one **blocking** security issue: a planted `.git` file can make Gaia's own git execute code.
-It must be fixed before agents write to worktrees. The review also lists five design decisions to
-settle before docs 06 and 12. Architecture-level decisions are recorded in
+found a **blocking** security issue (a planted `.git` file could make Gaia's own git execute code)
+and the related F2, F4 and F6 issues. All four were fixed in package 05b
+([review](../docs/reviews/2026-11-13-review-05b.md)). Still open: run-status transitions for doc 12 (F3),
+cross-workspace foreign keys (F5), and the low-priority items. Architecture-level decisions are recorded in
 [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) and the plan review.
 
 ## Running it

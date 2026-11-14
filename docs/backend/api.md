@@ -108,9 +108,9 @@ server-side with the traceback, and the client only sees "the server hit an unex
 
 ## Changing it safely
 
-- **Commit timing.** `get_session` currently commits **after** the response is sent, so a failed
-  commit can't change a status code that has already left. Until review finding F6 is fixed, a route
-  whose write must succeed before it answers has to commit inside the handler.
+- **Commit timing.** `SessionDep` and `ScopedDep` use `Depends(get_session, scope="function")`, so the
+  commit runs **before** the response is sent. A failed commit becomes an error response, and a unique
+  violation (`IntegrityError`) becomes `409 conflict` with no SQL in the body (05b, review F6).
 - **Mutating routes** must write an `audit_log` row (doc 06 onward).
 - **Tests** use `httpx.AsyncClient` over `ASGITransport` and enter the lifespan explicitly; use the
   `api` fixture in `tests/conftest.py` (see `tests/test_api_app.py` for examples). A test asserting
