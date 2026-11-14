@@ -61,6 +61,13 @@ If the pre-commit hooks modify files, re-add the files and commit again. Never u
 - Then `git -C <repo> pull --ff-only` on main, `git worktree prune`, and delete the scratch worktree.
 - When the next package depends on this one, cut its branch from the **updated** `main`.
 
+## 4b. Live checks that need a provider key
+Never put a real key in an agent's environment or in the Keychain on the owner's behalf. For lead-run
+live checks, start the server (or call the CLI) through a small launcher. The launcher reads the key
+with `zsh -ic` and loads it into an `InMemorySecretStore` inside that trusted process, then patches
+`get_secret_store`. The agent side gets only the gateway URL and a `gaia_rt_` run token, and runs
+under `env -i`. Afterwards, `grep -c` the server log for the key and the token: both must be 0.
+
 ## 5. After a parallel batch
 Merge one PR at a time. Rebase the next branch on `main` (`git rebase main` with the pinned
 `GIT_DIR`), resolve the conflicts (`AppServices`, `app.py` routers, migration revision chain), rerun

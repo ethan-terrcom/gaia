@@ -53,6 +53,13 @@ existing handoffs in that folder are worked examples.
 ## Sizing and parallel dispatch
 - One handoff is one PR. About 15–20M prompt tokens (about 99% cache hits) and 80–100K output
   tokens is normal. More than 220 turns means the package is too big: split it.
+- **Signs a package is too big:** more than about 12 new modules, or more than 8 required
+  integration tests. 12a (graph, 15 nodes, guard, runner, 8 graph tests) hit 240 turns
+  unfinished. When that happens, measure what exists (`pytest`, `--cov`), then dispatch a
+  **part 2** handoff that lists the exact failing tests, missed lines and missing files, with
+  "finish it, don't redesign it". The 12a part-2 session finished in 79 turns.
+- Parallel runs make each run slower (two-hour wall times with four at once); tests that spawn
+  processes slow down most.
 - Packages dispatched together must not both add a migration with the same revision. Give each a
   distinct `--rev-id` in order, and expect to rebase the later one onto `0004 → 0005`.
 - Expect conflicts in `api/app.py`, `api/deps.py` (`AppServices`) and `db/repo.py`. They are small,
@@ -62,7 +69,10 @@ existing handoffs in that folder are worked examples.
 - [ ] The worktree is cut from the current `main`, and `uv sync` plus `npm ci` have run there. The
       sandbox has no network.
 - [ ] Every new dependency is added by the lead before dispatch, pinned to a version at least two
-      weeks old.
+      weeks old. **Check the transitive ones too:** diff `uv.lock` and look up each new package's
+      upload date. Hold back any that are too new with `[tool.uv] exclude-newer-package = { pkg =
+      "<date>" }` (12a needed 9 of these for langgraph). A global `--exclude-newer` also downgrades
+      your existing pins.
 - [ ] The handoff is copied into the worktree, and the `run` allowlist covers every command it
       names.
 - [ ] Each acceptance criterion maps to either a named test or a named lead step.
