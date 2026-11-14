@@ -19,8 +19,9 @@ been told.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Annotated, Any
 
 from fastapi import Depends, Request
@@ -32,7 +33,9 @@ from gaia.config.settings import Settings
 from gaia.db.engine import session_scope
 from gaia.db.models import AuditLog, Base
 from gaia.db.repo import AuditLogRepo, ScopedRepo
+from gaia.services.events import EventBus
 from gaia.services.git import GitService
+from gaia.services.stream_tickets import StreamTickets
 from gaia.services.worktrees import WorktreeService
 
 
@@ -47,6 +50,9 @@ class AppServices:
     auth: AuthProvider
     principal: Principal
     git: GitService
+    events: EventBus
+    stream_tickets: StreamTickets
+    background_tasks: set[asyncio.Task[None]] = field(default_factory=set)
 
 
 def services_of(request: Request) -> AppServices:
