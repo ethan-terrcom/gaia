@@ -91,6 +91,23 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    dev = commands.add_parser(
+        "dev",
+        help="development helpers that are only available when the server enables them",
+    )
+    dev_commands = dev.add_subparsers(dest="dev_command", required=True, metavar="ACTION")
+    fake_run = dev_commands.add_parser(
+        "fake-run",
+        help="ask a running Gaia server to publish a scripted run",
+        description=(
+            "The server must be started with GAIA_DEV_ROUTES=true. This command "
+            "reads the API token from the keychain and posts with it; it never "
+            "prints the token."
+        ),
+    )
+    fake_run.add_argument("--events", type=int, default=3, help="number of agent.message events")
+    fake_run.add_argument("--interval", type=float, default=0.2, help="seconds between events")
+
     return parser
 
 
@@ -190,10 +207,46 @@ def _serve(args: argparse.Namespace) -> int:
     return 0
 
 
+def _dev_fake_run(args: argparse.Namespace) -> int:
+    """Ask a running Gaia server to publish a scripted fake run (doc 13)."""
+    # Imported here so the other CLI commands do not pay for httpx.
+    import httpx
+
+    settings = get_settings()
+    token = ensure_api_token(get_secret_store())
+    url = f"http://{settings.host}:{settings.port}/api/v1/dev/fake-run"
+    try:
+        response = httpx.post(
+            url,
+            json={"events": args.events, "interval_s": args.interval},
+            headers={"Authorization": f"Bearer {token.get_secret_value()}"},
+        )
+    except httpx.HTTPError as error:
+        print(f"error: could not reach Gaia at {url}: {error}", file=sys.stderr)
+        return 1
+    if response.status_code != 200:
+        print(f"error: Gaia answered {response.status_code}", file=sys.stderr)
+        return 1
+    try:
+        body = response.json()
+    except ValueError:
+        print("error: Gaia answered with a non-JSON body.", file=sys.stderr)
+        return 1
+    print(body["run_id"])
+    return 0
+
+
+def _dev(args: argparse.Namespace) -> int:
+    if args.dev_command == "fake-run":
+        return _dev_fake_run(args)
+    return 2
+
+
 _COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "secrets": _secrets,
     "serve": _serve,
     "ui": _ui,
+    "dev": _dev,
 }
 
 

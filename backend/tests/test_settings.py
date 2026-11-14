@@ -147,6 +147,12 @@ def test_sandbox_toolchain_read_can_be_overridden(tmp_path: Path) -> None:
     assert settings.sandbox_toolchain_read == toolchain
 
 
+def test_dev_routes_are_off_by_default() -> None:
+    settings = Settings()
+
+    assert settings.dev_routes is False
+
+
 @pytest.mark.parametrize(
     "host",
     [ALL_INTERFACES, "::", "localhost", "192.168.1.10", "10.0.0.5", "example.com", ""],

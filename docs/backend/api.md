@@ -111,6 +111,18 @@ Service errors map to status codes in `api/errors.py`: `IllegalTransition`, `Wor
 `InvalidRef` → 422. Every mutating route calls `append_audit_log(...)`. `make openapi` regenerates
 `frontend/src/api/openapi.json`.
 
+### The event routes (doc 13)
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| POST | `/api/v1/stream/ticket` | bearer | `{ticket, expires_in}`: single use, 60 s |
+| GET | `/api/v1/stream?ticket=&run_id=&last_event_id=` | **ticket only** | `text/event-stream`, live from now, or resumed after `Last-Event-ID` / `last_event_id` |
+| GET | `/api/v1/runs/{id}/events?after=&limit=` | bearer | `{items, next_after}`, oldest first, `limit` ≤ 500 |
+| POST | `/api/v1/dev/fake-run` | bearer | only with `GAIA_DEV_ROUTES=true`; publishes a scripted run |
+
+`GET /api/v1/stream` is the one `/api/v1` path mounted outside `api_v1_router()`, because a
+browser's `EventSource` cannot send a bearer header. The details are in [events](events.md).
+
 ## Why it's built this way
 
 - **No `/docs` or `/openapi.json`.** They would be unauthenticated pages. The schema is still

@@ -66,7 +66,7 @@ def redact(text: str) -> str:
     return text
 
 
-def _redact_value(value: Any) -> Any:
+def redact_value(value: Any) -> Any:
     """Recursively redact strings inside dicts, lists and tuples.
 
     ``Any`` is right here: structlog event values are untyped by design, and
@@ -75,19 +75,24 @@ def _redact_value(value: Any) -> Any:
     if isinstance(value, str):
         return redact(value)
     if isinstance(value, Mapping):
-        return {key: _redact_value(item) for key, item in value.items()}
+        return {key: redact_value(item) for key, item in value.items()}
     if isinstance(value, list):
-        return [_redact_value(item) for item in value]
+        return [redact_value(item) for item in value]
     if isinstance(value, tuple):
-        return tuple(_redact_value(item) for item in value)
+        return tuple(redact_value(item) for item in value)
     return value
+
+
+#: Private name kept for callers that predate doc 13; new code imports
+#: :func:`redact_value`.
+_redact_value = redact_value
 
 
 def redaction_processor(
     logger: WrappedLogger, method_name: str, event_dict: EventDict
 ) -> EventDict:
     """structlog processor: redact every string in the event dict, recursively."""
-    return cast("EventDict", _redact_value(dict(event_dict)))
+    return cast("EventDict", redact_value(dict(event_dict)))
 
 
 def _reset_for_tests() -> None:

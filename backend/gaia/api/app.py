@@ -24,8 +24,9 @@ is bound before the host is checked, so that 400 is traceable too.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import Final
 
 import structlog
@@ -45,13 +46,15 @@ from gaia.api.errors import (
     install_error_handlers,
     new_request_id,
 )
-from gaia.api.routes import agents, health, repositories, session, tickets, worktrees
+from gaia.api.routes import agents, dev, health, repositories, session, stream, tickets, worktrees
 from gaia.config.logging import configure_logging
 from gaia.config.secrets import ensure_api_token, get_secret_store
 from gaia.config.settings import Settings, ensure_data_dir, get_settings
 from gaia.db.engine import create_engine_for, create_session_factory, session_scope
 from gaia.db.seed import Seeded, seed_initial_data
+from gaia.services.events import EventBus
 from gaia.services.git import GitService
+from gaia.services.stream_tickets import StreamTickets
 
 logger = structlog.get_logger(__name__)
 
@@ -174,6 +177,8 @@ def _lifespan(settings: Settings) -> Lifespan[FastAPI]:
             principal = Principal(workspace_id=seeded.workspace.id, user_id=seeded.user.id)
             store = get_secret_store()
             ensure_api_token(store)
+            events = EventBus(sessions)
+            stream_tickets = StreamTickets()
             app.state.services = AppServices(
                 settings=settings,
                 engine=engine,
@@ -182,6 +187,8 @@ def _lifespan(settings: Settings) -> Lifespan[FastAPI]:
                 auth=LocalTokenAuth(store, principal),
                 principal=principal,
                 git=git,
+                events=events,
+                stream_tickets=stream_tickets,
             )
             logger.info(
                 "api.startup",
@@ -192,6 +199,14 @@ def _lifespan(settings: Settings) -> Lifespan[FastAPI]:
             )
             yield
         finally:
+            services: AppServices | None = getattr(app.state, "services", None)
+            if services is not None:
+                tasks = list(services.background_tasks)
+                for task in tasks:
+                    task.cancel()
+                for task in tasks:
+                    with suppress(asyncio.CancelledError):
+                        await task
             # Closes the pool, so a second app in the same process (a test, or a
             # reload) does not inherit stale connections to the same file.
             await engine.dispose()
@@ -199,7 +214,7 @@ def _lifespan(settings: Settings) -> Lifespan[FastAPI]:
     return lifespan
 
 
-def api_v1_router() -> APIRouter:
+def api_v1_router(*, dev_routes: bool = False) -> APIRouter:
     """Everything under ``/api/v1``: authenticated by default, not by memory.
 
     The auth dependency sits on the router, so a route added by doc 06 or 14 is
@@ -217,7 +232,9 @@ def api_v1_router() -> APIRouter:
     router.include_router(tickets.router)
     router.include_router(agents.router)
     router.include_router(worktrees.router)
-    # TODO(gaia-13): include the event-stream router.
+    router.include_router(stream.router)
+    if dev_routes:
+        router.include_router(dev.router)
     # TODO(gaia-14): include the runs and approvals routers.
     return router
 
@@ -247,5 +264,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(SecurityHeadersMiddleware)
     install_error_handlers(app)
     app.include_router(health.router, prefix=API_PREFIX)
-    app.include_router(api_v1_router())
+    # The SSE endpoint is mounted outside ``api_v1_router()`` on purpose:
+    # ``EventSource`` cannot send a bearer header, so the route authenticates by
+    # the single-use ticket in the query string instead.
+    app.include_router(stream.public_router)
+    app.include_router(api_v1_router(dev_routes=resolved.dev_routes))
     return app

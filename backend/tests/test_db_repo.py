@@ -238,3 +238,15 @@ async def test_the_audit_trail_is_ordered_by_time(session: AsyncSession) -> None
     earlier = await trail.append(actor="system", action="first", ts=now - timedelta(minutes=5))
 
     assert [entry.id for entry in await trail.list()] == [earlier.id, later.id]
+
+
+async def test_event_replay_can_span_the_whole_workspace(session: AsyncSession) -> None:
+    """The SSE reconnect path uses ``run_id=None``, so that cursor is tested too."""
+    chain = await make_chain(session, slug="workspace-replay")
+    events = EventRepo(session, Event, chain.workspace.id)
+    first = await events.append(type="run.created", run_id=chain.run.id)
+    second = await events.append(type="step.started", run_id=None)
+
+    rows = await events.list_after(after_seq=0)
+
+    assert [row.seq for row in rows] == [first.seq, second.seq]

@@ -98,6 +98,9 @@ class Settings(BaseSettings):
         default_factory=lambda: DEFAULT_SANDBOX_TOOLCHAIN_READ
     )
 
+    #: Register the dev-only fake-run publisher (doc 13 acceptance criterion).
+    dev_routes: bool = False
+
     @field_validator("data_dir", "checkpoint_path", "worktrees_root")
     @classmethod
     def _expand_path(cls, value: Path) -> Path:

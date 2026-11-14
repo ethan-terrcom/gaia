@@ -7,6 +7,7 @@ or the macOS Keychain.
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import httpx
@@ -110,6 +111,16 @@ async def test_a_second_start_reuses_the_token(api: Api) -> None:
         pass
 
     assert api.token == first
+
+
+async def test_lifespan_cancels_and_awaits_background_tasks(api: Api) -> None:
+    """Shutdown must not leave a dev fake-run publisher running."""
+    app = create_app(api.settings)
+    async with app.router.lifespan_context(app):
+        task = asyncio.create_task(asyncio.sleep(60))
+        app.state.services.background_tasks.add(task)
+
+    assert task.cancelled()
 
 
 async def test_startup_says_what_to_run_on_an_unmigrated_database(tmp_path: Path) -> None:

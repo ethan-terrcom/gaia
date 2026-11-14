@@ -34,7 +34,7 @@ come next, in the order given in [`docs/implementation/00-README.md`](../docs/im
 │ llm/           provider clients + cost accounting (built), LLM gateway        │  07a / 07b
 │ tools/         sandboxed file/shell tools for agents                          │  planned (09b; 09a policy built)
 ├──────────────────────────────────────────────────────────────────────────────┤
-│ services/   git, worktrees, tickets, costs (built) · GitHub, events (planned) │
+│ services/   git, worktrees, tickets, costs, events (built) · GitHub (planned) │
 │             └─ proc.py: the ONLY place a process is ever started              │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ db/ + domain/   SQLAlchemy models, migrations, workspace-scoped repositories, │
@@ -63,8 +63,9 @@ never imports FastAPI. `db/` knows nothing about HTTP or git.
 | 06 | `api/routes/`, `services/tickets.py`, migration `0003` | Repositories, tickets, agents and worktrees API with pagination, audit rows and `make openapi` | [API](../docs/backend/api.md) |
 | 07a | `llm/`, `services/costs.py` | Claude and DeepSeek clients, priced and recorded in `llm_usage`; `FakeLLM` for tests | [LLM clients](../docs/backend/llm.md) |
 | 09a | `security/{paths,commands,sandbox}.py` | Path confinement, the command policy (a tripwire), and the `srt` sandbox profile (the boundary), proved live | [security core](../docs/backend/security.md) |
+| 13 | `services/events.py`, `api/routes/stream.py` | Durable event log plus live SSE stream with single-use tickets, replay and gap healing | [events](../docs/backend/events.md) |
 
-The whole suite (759 tests, 100% line and branch coverage) runs with `make check`, which is also what CI runs.
+The whole suite (814 tests, 100% line and branch coverage) runs with `make check`, which is also what CI runs.
 
 ## Five design rules that explain most of the code
 

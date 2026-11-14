@@ -143,3 +143,40 @@ class CiStatus(StrEnum):
     PENDING = "pending"
     PASSED = "passed"
     FAILED = "failed"
+
+
+class EventType(StrEnum):
+    """Every event the bus can carry (doc 13).
+
+    ``stream.gap`` is transport-only: the bus inserts it into a subscriber's
+    queue when that subscriber overflowed, but it is never written to the
+    ``event`` table.
+    """
+
+    RUN_CREATED = "run.created"
+    RUN_STATUS_CHANGED = "run.status_changed"
+    RUN_NODE_STARTED = "run.node_started"
+    RUN_NODE_FINISHED = "run.node_finished"
+    RUN_BUDGET_EXCEEDED = "run.budget_exceeded"
+    RUN_FAILED = "run.failed"
+
+    STEP_STARTED = "step.started"
+    STEP_FINISHED = "step.finished"
+
+    AGENT_MESSAGE = "agent.message"
+    AGENT_TOOL_CALL = "agent.tool_call"
+    AGENT_TOOL_RESULT = "agent.tool_result"
+    AGENT_USAGE = "agent.usage"
+
+    APPROVAL_REQUESTED = "approval.requested"
+    APPROVAL_DECIDED = "approval.decided"
+
+    PR_OPENED = "pr.opened"
+    PR_UPDATED = "pr.updated"
+    PR_MERGED = "pr.merged"
+    CI_STATUS = "ci.status"
+
+    WORKTREE_CREATED = "worktree.created"
+    WORKTREE_REMOVED = "worktree.removed"
+
+    STREAM_GAP = "stream.gap"

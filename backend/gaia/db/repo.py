@@ -187,14 +187,31 @@ class EventRepo(AppendOnlyRepo[Event]):
 
     order_by = "seq"
 
+    async def list_after(
+        self,
+        *,
+        after_seq: int = 0,
+        limit: int | None = None,
+        run_id: str | None = None,
+    ) -> list[Event]:
+        """Events in this workspace with ``seq`` above ``after_seq``, oldest first.
+
+        ``run_id`` optionally narrows the replay to one run. Both the SSE
+        reconnect path (no run filter) and the per-run history endpoint use this
+        cursor, so the ordering and the ``>`` comparison live in exactly one
+        method.
+        """
+        statement = self._select() if run_id is None else self._select(run_id=run_id)
+        statement = statement.where(self._table.seq > after_seq)
+        if limit is not None:
+            statement = statement.limit(limit)
+        return list((await self.session.scalars(statement)).all())
+
     async def list_for_run(
         self, run_id: str, *, after_seq: int = 0, limit: int | None = None
     ) -> list[Event]:
         """Events of one run with ``seq`` above ``after_seq``, oldest first."""
-        statement = self._select(run_id=run_id).where(self._table.seq > after_seq)
-        if limit is not None:
-            statement = statement.limit(limit)
-        return list((await self.session.scalars(statement)).all())
+        return await self.list_after(after_seq=after_seq, limit=limit, run_id=run_id)
 
 
 class TicketRepo(ScopedRepo[Ticket]):

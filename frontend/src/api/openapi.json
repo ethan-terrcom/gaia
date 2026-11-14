@@ -75,6 +75,141 @@
         "title": "AgentStatus",
         "type": "string"
       },
+      "EventHistory": {
+        "description": "One page of a run's event history.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/EventRecord"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_after": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next After"
+          }
+        },
+        "required": [
+          "items",
+          "next_after"
+        ],
+        "title": "EventHistory",
+        "type": "object"
+      },
+      "EventRecord": {
+        "description": "The wire format of one event, and what the bus hands subscribers.\n\nPersisted events always have an integer ``seq`` and an ``id``. A\n``stream.gap`` marker is transport-only: it has ``seq=None`` and ``id=None``\nand is never written to the database.",
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "seq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seq"
+          },
+          "ts": {
+            "format": "date-time",
+            "title": "Ts",
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/components/schemas/EventType"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "seq",
+          "id",
+          "workspace_id",
+          "run_id",
+          "agent_id",
+          "type",
+          "payload",
+          "ts"
+        ],
+        "title": "EventRecord",
+        "type": "object"
+      },
+      "EventType": {
+        "description": "Every event the bus can carry (doc 13).\n\n``stream.gap`` is transport-only: the bus inserts it into a subscriber's\nqueue when that subscriber overflowed, but it is never written to the\n``event`` table.",
+        "enum": [
+          "run.created",
+          "run.status_changed",
+          "run.node_started",
+          "run.node_finished",
+          "run.budget_exceeded",
+          "run.failed",
+          "step.started",
+          "step.finished",
+          "agent.message",
+          "agent.tool_call",
+          "agent.tool_result",
+          "agent.usage",
+          "approval.requested",
+          "approval.decided",
+          "pr.opened",
+          "pr.updated",
+          "pr.merged",
+          "ci.status",
+          "worktree.created",
+          "worktree.removed",
+          "stream.gap"
+        ],
+        "title": "EventType",
+        "type": "string"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -400,6 +535,25 @@
         ],
         "title": "RuntimeKind",
         "type": "string"
+      },
+      "StreamTicket": {
+        "description": "The short-lived credential the UI puts in the SSE query string.",
+        "properties": {
+          "expires_in": {
+            "title": "Expires In",
+            "type": "number"
+          },
+          "ticket": {
+            "title": "Ticket",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket",
+          "expires_in"
+        ],
+        "title": "StreamTicket",
+        "type": "object"
       },
       "TicketCreate": {
         "additionalProperties": false,
@@ -1103,6 +1257,203 @@
         "summary": "Get one repository",
         "tags": [
           "repositories"
+        ]
+      }
+    },
+    "/api/v1/runs/{run_id}/events": {
+      "get": {
+        "description": "Return events after ``after`` for one run, oldest first.\n\nThe run is loaded through ``ScopedRepo``, so a run in another workspace is\nexactly the same 404 as a missing one.",
+        "operationId": "list_run_events_api_v1_runs__run_id__events_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "After",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventHistory"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List a run's events",
+        "tags": [
+          "stream"
+        ]
+      }
+    },
+    "/api/v1/stream": {
+      "get": {
+        "description": "Stream events with ``text/event-stream``.\n\nA missing, used or expired ticket is the same 401 envelope; the route never\ndistinguishes them to a client. The ``Last-Event-ID`` header wins over the\n``last_event_id`` query parameter (see the module docstring for why both\nexist).",
+        "operationId": "stream_events_api_v1_stream_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "ticket",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ticket"
+            }
+          },
+          {
+            "in": "query",
+            "name": "run_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 36,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Run Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "last_event_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Last Event Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Last-Event-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Last-Event-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Server-sent event stream",
+        "tags": [
+          "stream"
+        ]
+      }
+    },
+    "/api/v1/stream/ticket": {
+      "post": {
+        "description": "Exchange the bearer token for a short-lived SSE ticket.",
+        "operationId": "create_stream_ticket_api_v1_stream_ticket_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StreamTicket"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Issue a single-use stream ticket",
+        "tags": [
+          "stream"
         ]
       }
     },
