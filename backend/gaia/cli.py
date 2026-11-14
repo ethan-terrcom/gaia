@@ -156,13 +156,15 @@ def _ui(args: argparse.Namespace) -> int:
     The token is generated here if the server has not run yet, so the order of
     ``make dev-frontend``, ``make dev-backend`` and ``gaia ui`` does not matter.
 
-    Printed, not opened: only ``gaia/services/proc.py`` may spawn a process, and
-    it does not exist until doc 05.
+    Printed, not opened. Opening it would mean handing the token to a browser
+    process's argv, where ``ps`` can read it - the same token doc 04 keeps out of
+    URLs and SSE. Doc 16 owns the login flow that decides how the UI gets it.
     """
     settings = get_settings()
     token = ensure_api_token(get_secret_store())
     print(f"{settings.ui_origin.rstrip('/')}/#token={token.get_secret_value()}")
-    # TODO(gaia-05): add --open, launching the browser through run_proc.
+    # TODO(gaia-16): add --open once the login flow says how a token may reach a
+    # browser; a one-time code in the URL would keep it out of argv (doc 16).
     return 0
 
 
