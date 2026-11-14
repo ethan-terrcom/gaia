@@ -20,6 +20,11 @@ in-memory secret store, entered through its own lifespan. It uses
 because ``starlette.testclient`` imports a deprecated ``httpx`` shim (a warning,
 which this project turns into an error) and because doc 06 tests the API the same
 way.
+
+Doc 05 adds :func:`git_repo`, :func:`git_settings` and :func:`git_service`: a real
+repository in ``tmp_path`` and the real :class:`~gaia.services.git.GitService`
+pointed at a ``data_dir`` of its own. Every git test runs against those, so no
+test reads the owner's ``~/.gitconfig`` or writes under ``~/.gaia``.
 """
 
 from __future__ import annotations
@@ -44,6 +49,8 @@ from gaia.config.settings import Settings, get_settings
 from gaia.db.engine import create_engine, create_session_factory
 from gaia.db.models import Base
 from gaia.security import redaction
+from gaia.services.git import GitService
+from tests.git_repo import make_repo
 
 
 class MemoryKeyringBackend(KeyringBackend):
@@ -179,3 +186,21 @@ async def api(
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url=API_BASE_URL) as client:
             yield Api(client=client, app=app, settings=settings, store=store)
+
+
+@pytest.fixture
+def git_repo(tmp_path: Path) -> Path:
+    """A repository with one commit on ``main`` (doc 05)."""
+    return make_repo(tmp_path / "repo")
+
+
+@pytest.fixture
+def git_settings(tmp_path: Path) -> Settings:
+    """Settings whose data dir, database and worktrees root are in ``tmp_path``."""
+    return Settings(data_dir=tmp_path / "gaia-data")
+
+
+@pytest.fixture
+def git_service(git_settings: Settings) -> GitService:
+    """The real :class:`GitService`, with its gitconfig written under ``tmp_path``."""
+    return GitService(git_settings)
