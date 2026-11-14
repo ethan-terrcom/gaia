@@ -197,6 +197,10 @@ class Worktree(UUIDPrimaryKey, WorkspaceScoped, Timestamps, Base):
     branch: Mapped[str] = mapped_column(String(255))
     #: The commit the worktree started from, so a diff can be taken from it.
     base_sha: Mapped[str | None] = mapped_column(String(64), default=None)
+    #: The trusted admin dir (``<repo>/.git/worktrees/<id>``) recorded at creation.
+    #: Git commands run in the worktree with ``GIT_DIR`` set to this value, never
+    #: through the worktree's own rewritable ``.git`` file (review finding F1).
+    git_dir: Mapped[str | None] = mapped_column(String(PATH), default=None)
     status: Mapped[str] = mapped_column(String(32), default=WorktreeStatus.PREPARING.value)
 
 
@@ -248,11 +252,20 @@ class RunStep(UUIDPrimaryKey, WorkspaceScoped, Timestamps, Base):
 
 
 class Approval(UUIDPrimaryKey, WorkspaceScoped, Timestamps, Base):
-    """A question for the human. Every irreversible step waits on one."""
+    """A question for the human. Every irreversible step waits on one.
+
+    ``idempotency_key`` makes a resumed node upsert the same approval instead of
+    inserting a duplicate request. Graph gates use ``"<node>:<step_index>:<attempt>"``;
+    in-turn command approvals use ``"command:<tool_call_id>"``. The unique
+    constraint is ``(run_id, idempotency_key)`` so the same key on a different
+    run is a fresh request.
+    """
 
     __tablename__ = "approval"
+    __table_args__ = (UniqueConstraint("run_id", "idempotency_key"),)
 
     run_id: Mapped[str] = mapped_column(ForeignKey("run.id", ondelete="CASCADE"), index=True)
+    idempotency_key: Mapped[str] = mapped_column(String(200))
     kind: Mapped[str] = mapped_column(String(16), default=ApprovalKind.PLAN.value)
     payload_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     status: Mapped[str] = mapped_column(String(16), default=ApprovalStatus.PENDING.value)

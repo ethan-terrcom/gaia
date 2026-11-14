@@ -72,6 +72,11 @@ ENV_FALLBACKS: dict[str, str] = {
     "LANG": "C.UTF-8",
 }
 
+#: Seconds to wait after ``SIGKILL`` for the leader and both pipe readers to
+#: finish. A grandchild that called ``setsid()`` is no longer in the killed
+#: group and can keep a pipe open forever, so the reap is bounded.
+KILL_GRACE_S = 5.0
+
 #: How much of the program name goes into a log line. Never the whole argv: a
 #: caller will eventually put a token in an argument by mistake.
 _MAX_LOGGED_ARG = 200
@@ -105,6 +110,7 @@ class ProcResult:
     stderr_truncated: bool
     duration_s: float
     timed_out: bool
+    escaped: bool = False
 
     @property
     def ok(self) -> bool:
@@ -188,27 +194,32 @@ async def run_proc(
     stderr_task = asyncio.create_task(_read_capped(stderr_stream, max_output_bytes))
 
     timed_out = False
+    escaped = False
     try:
         returncode = await asyncio.wait_for(process.wait(), timeout_s)
     except TimeoutError:
         timed_out = True
         _kill_process_group(process.pid)
-        # Reap it: an unreaped child is a zombie, and the pipes stay open until
-        # the process is gone, so this also ends the two readers below.
-        returncode = await process.wait()
+        (
+            returncode,
+            (stdout, stdout_truncated),
+            (stderr, stderr_truncated),
+            escaped,
+        ) = await _reap_after_kill(process, stdout_stream, stderr_stream, stdout_task, stderr_task)
     except BaseException:
         # The caller was cancelled (doc 14 cancels runs). A command must not
         # outlive the call that started it, and its two readers must not be left
         # pending, so kill, reap and re-raise.
         _kill_process_group(process.pid)
-        await process.wait()
-        stdout_task.cancel()
-        stderr_task.cancel()
+        # Bounded like the timeout path: an escaped grandchild must not hang
+        # a cancelled run either (review F2, lead review of 05b).
+        await _reap_after_kill(process, stdout_stream, stderr_stream, stdout_task, stderr_task)
         raise
+    else:
+        (stdout, stdout_truncated), (stderr, stderr_truncated) = await asyncio.gather(
+            stdout_task, stderr_task
+        )
 
-    (stdout, stdout_truncated), (stderr, stderr_truncated) = await asyncio.gather(
-        stdout_task, stderr_task
-    )
     result = ProcResult(
         argv=tuple(argv),
         cwd=directory,
@@ -220,7 +231,12 @@ async def run_proc(
         stderr_truncated=stderr_truncated,
         duration_s=time.monotonic() - started,
         timed_out=timed_out,
+        escaped=escaped,
     )
+    if escaped:
+        # Only the program and pid: a warning is a log line like any other, and
+        # argv can hold a token.
+        logger.warning("proc.escaped", program=argv[0][:_MAX_LOGGED_ARG], pid=process.pid)
     # Only the program and the argument count: an argv can hold a token.
     logger.debug(
         "proc.finished",
@@ -228,6 +244,7 @@ async def run_proc(
         argc=len(argv),
         returncode=result.returncode,
         timed_out=result.timed_out,
+        escaped=result.escaped,
         truncated=result.truncated,
         duration_s=round(result.duration_s, 3),
     )
@@ -281,6 +298,53 @@ def _kill_process_group(pid: int) -> None:
         pass
 
 
+async def _reap_after_kill(
+    process: asyncio.subprocess.Process,
+    stdout_stream: asyncio.StreamReader,
+    stderr_stream: asyncio.StreamReader,
+    stdout_task: asyncio.Task[tuple[str, bool]],
+    stderr_task: asyncio.Task[tuple[str, bool]],
+) -> tuple[int, tuple[str, bool], tuple[str, bool], bool]:
+    """Reap a killed leader and both readers, bounded by :data:`KILL_GRACE_S`.
+
+    Returns ``(returncode, stdout, stderr, escaped)``. When the grace period
+    runs out, a grandchild that left the process group is keeping a pipe open;
+    the only safe move is to close our end of the pipes, cancel the readers and
+    keep the output read so far.
+    """
+    try:
+        returncode, (stdout, stdout_truncated), (stderr, stderr_truncated) = await asyncio.wait_for(
+            asyncio.gather(process.wait(), stdout_task, stderr_task),
+            timeout=KILL_GRACE_S,
+        )
+        return returncode, (stdout, stdout_truncated), (stderr, stderr_truncated), False
+    except TimeoutError:
+        # ``process.returncode`` is set as soon as the leader is reaped, even
+        # while a grandchild still holds the pipes open.
+        returncode = process.returncode if process.returncode is not None else -9
+        _close_stream_reader(stdout_stream)
+        _close_stream_reader(stderr_stream)
+        stdout_task.cancel()
+        stderr_task.cancel()
+        (stdout, stdout_truncated), (stderr, stderr_truncated) = await asyncio.gather(
+            stdout_task, stderr_task
+        )
+        return returncode, (stdout, stdout_truncated), (stderr, stderr_truncated), True
+
+
+def _close_stream_reader(stream: asyncio.StreamReader) -> None:
+    """Close the transport behind ``stream``.
+
+    ``asyncio`` does not expose the transport on ``StreamReader``; the private
+    ``_transport`` attribute is the narrowest way to close our end of a pipe a
+    grandchild is still holding open. Closing it makes the reader's ``read()``
+    see EOF, which is how the output read so far is kept rather than lost.
+    """
+    transport = getattr(stream, "_transport", None)
+    if transport is not None:
+        transport.close()
+
+
 async def _read_capped(stream: asyncio.StreamReader, max_bytes: int) -> tuple[str, bool]:
     """Read ``stream`` to EOF, keeping at most ``max_bytes``.
 
@@ -288,13 +352,20 @@ async def _read_capped(stream: asyncio.StreamReader, max_bytes: int) -> tuple[st
     pipe; only the first ``max_bytes`` are kept. Decoding replaces bad bytes
     instead of raising: a cap can cut a multi-byte character in half, and a log
     line is not worth a crash.
+
+    A cancellation is caught and the partial output is returned: ``run_proc``
+    cancels a reader when an escaped grandchild keeps the pipe open past the
+    kill grace period, and the bytes already read are still useful.
     """
     kept = bytearray()
     truncated = False
-    while chunk := await stream.read(READ_CHUNK_BYTES):
-        room = max_bytes - len(kept)
-        if room > 0:
-            kept += chunk[:room]
-        if len(chunk) > max(room, 0):
-            truncated = True
+    try:
+        while chunk := await stream.read(READ_CHUNK_BYTES):
+            room = max_bytes - len(kept)
+            if room > 0:
+                kept += chunk[:room]
+            if len(chunk) > max(room, 0):
+                truncated = True
+    except asyncio.CancelledError:
+        pass
     return kept.decode("utf-8", "replace"), truncated

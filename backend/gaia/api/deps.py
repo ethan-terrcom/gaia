@@ -10,10 +10,11 @@ builds them itself:
   table. It carries the workspace from the authenticated principal, so no route
   can accidentally query "everything" (ARCHITECTURE section 7, doc 03 task 5).
 
-One property of FastAPI 0.106+ that matters to doc 06: a dependency's teardown
-runs *after* the response is sent, so the commit inside :func:`get_session`
-cannot change a status code that already left. A route that must not answer
-before its write is durable (or can fail) commits inside the handler.
+``get_session`` is used with ``Depends(..., scope="function")`` so FastAPI closes
+the dependency's exit stack *before* the response is sent. The commit therefore
+runs first, and a failed commit (a unique-constraint violation, a locked
+database) becomes an error response rather than a lie the client has already
+been told.
 """
 
 from __future__ import annotations
@@ -58,8 +59,10 @@ def services_of(request: Request) -> AppServices:
 async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
     """Open one session for the request and commit it when the route succeeds.
 
-    A failure rolls back (``session_scope`` re-raises), so a half-written row
-    never survives a 4xx or a crash.
+    Used as ``Depends(get_session, scope="function")``: the commit runs in the
+    dependency teardown before the response is sent. A failure rolls back
+    (``session_scope`` re-raises), so a half-written row never survives a 4xx or
+    a crash.
     """
     async with session_scope(services_of(request).sessions) as session:
         yield session
@@ -91,7 +94,7 @@ class Scoped:
 
 
 def get_scoped(
-    session: Annotated[AsyncSession, Depends(get_session)],
+    session: Annotated[AsyncSession, Depends(get_session, scope="function")],
     principal: Annotated[Principal, Depends(get_principal)],
 ) -> Scoped:
     """Return this request's scoped repositories."""
@@ -99,6 +102,6 @@ def get_scoped(
 
 
 #: Annotations a route spells instead of repeating ``Depends(...)``.
-SessionDep = Annotated[AsyncSession, Depends(get_session)]
+SessionDep = Annotated[AsyncSession, Depends(get_session, scope="function")]
 PrincipalDep = Annotated[Principal, Depends(get_principal)]
 ScopedDep = Annotated[Scoped, Depends(get_scoped)]

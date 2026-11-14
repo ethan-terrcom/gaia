@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gaia.api.app import create_app
 from gaia.api.deps import Scoped, ScopedDep
-from gaia.db.models import Agent, Ticket
+from gaia.db.models import Agent, Ticket, User
 from gaia.domain.enums import AgentRole, RuntimeKind
 from tests.conftest import API_BASE_URL, Api, Database
 from tests.db_builders import make_chain
@@ -67,3 +67,37 @@ async def test_a_scoped_write_lands_in_the_principals_workspace(
 
     assert agent is not None
     assert agent.display_name == "junior-under-test"
+
+
+async def test_a_failed_commit_before_the_response_is_a_409(api: Api) -> None:
+    """F6: the dependency commit now runs before the response is sent.
+
+    The route adds a duplicate user but never flushes; the unique violation
+    happens when ``get_session`` commits in teardown. The client must receive
+    the conflict, not a 2xx that would already have left.
+    """
+
+    async def duplicate_user(scoped: ScopedDep) -> None:
+        # Deliberately no flush: the failure is the commit in the dependency
+        # teardown, which is exactly what F6 changed to run before the response.
+        scoped.session.add(
+            User(
+                workspace_id=scoped.workspace_id,
+                email="owner@localhost",
+                display_name="duplicate",
+            )
+        )
+
+    app = create_app(api.settings)
+    app.add_api_route("/api/v1/_duplicate-user", duplicate_user, methods=["POST"])
+    transport = httpx.ASGITransport(app=app)
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=transport, base_url=API_BASE_URL) as client:
+            response = await client.post("/api/v1/_duplicate-user", headers=api.auth)
+
+    assert response.status_code == 409
+    error = response.json()["error"]
+    assert error["code"] == "conflict"
+    assert "owner@localhost" not in response.text
+    assert "INSERT" not in response.text
+    assert "UNIQUE" not in response.text

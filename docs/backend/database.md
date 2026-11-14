@@ -111,6 +111,8 @@ unmigrated database fails at startup with "run `make migrate`".
   `tests/test_domain_state.py`.
 - **New tenant table:** use the `UUIDPrimaryKey, WorkspaceScoped, Timestamps` mixins, and reach it
   only through `ScopedRepo`.
-- **Known gaps** (review 2026-11-13): approvals lack an idempotency key (F4), and nothing yet stops
-  a child row from pointing at a parent in another workspace (F5). Until F5 is fixed, **load the parent
-  through `ScopedRepo.get` before you create a child**.
+- **Approvals are idempotent** by `(run_id, idempotency_key)`: `"<node>:<step_index>:<attempt>"` for graph
+  gates, `"command:<tool_call_id>"` for in-turn command approvals (05b). A resumed node must look the row
+  up by its key before inserting.
+- **Known gap** (review 2026-11-13, F5): nothing yet stops a child row from pointing at a parent in another
+  workspace. Until that is fixed, **load the parent through `ScopedRepo.get` before you create a child**.

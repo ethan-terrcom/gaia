@@ -26,6 +26,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from gaia.api.auth import AuthenticationError
@@ -73,6 +74,9 @@ _CODES_BY_STATUS: Final[dict[int, ErrorCode]] = {
 
 #: Shown instead of an exception's own text when the status is not one we name.
 GENERIC_MESSAGE: Final = "the request could not be completed"
+
+#: Shown for a database integrity error. Never the SQL or the parameters.
+CONFLICT_MESSAGE: Final = "the request conflicts with an existing row"
 
 #: Shown for anything that escaped the app, whatever it was.
 INTERNAL_MESSAGE: Final = "the server hit an unexpected error"
@@ -179,6 +183,17 @@ async def _handle_authentication_error(request: Request, exc: Exception) -> Resp
     )
 
 
+async def _handle_integrity_error(request: Request, exc: Exception) -> Response:
+    """Answer a database integrity error with 409 and no internals.
+
+    The exception carries the SQL statement and parameters; neither may reach a
+    client, and neither is logged (parameters can hold user data). The log line
+    names the path, which is enough to find the constraint.
+    """
+    logger.warning("api.integrity_error", path=request.url.path, method=request.method)
+    return error_response(request, 409, ErrorCode.CONFLICT, CONFLICT_MESSAGE)
+
+
 async def _handle_unexpected_error(request: Request, exc: Exception) -> Response:
     """Answer a crash with 500 and log it, redacted, on the server side.
 
@@ -200,6 +215,7 @@ def install_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(StarletteHTTPException, _handle_http_error)
     app.add_exception_handler(RequestValidationError, _handle_validation_error)
     app.add_exception_handler(AuthenticationError, _handle_authentication_error)
+    app.add_exception_handler(IntegrityError, _handle_integrity_error)
     # `Exception` is the one key Starlette hands to ServerErrorMiddleware, which
     # is what turns a crash into this envelope instead of "Internal Server Error".
     app.add_exception_handler(Exception, _handle_unexpected_error)

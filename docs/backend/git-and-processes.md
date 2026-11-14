@@ -1,6 +1,6 @@
 # Git & processes
 
-> Package 05 · Source of truth: [`docs/implementation/05-git-worktree-service.md`](../implementation/05-git-worktree-service.md)
+> Packages 05, 05b · Source of truth: [`05-git-worktree-service.md`](../implementation/05-git-worktree-service.md), [`05b-git-hardening.md`](../implementation/05b-git-hardening.md)
 > · Concepts used: [async and await](python-concepts.md#async-and-await),
 > [process groups and signals](python-concepts.md#process-groups-and-signals),
 > [git worktrees](python-concepts.md#git-worktrees), [dataclasses](python-concepts.md#dataclasses-and-frozen-objects)
@@ -46,6 +46,10 @@ if not result.ok:
   draining the rest, so a chatty child never blocks; `stdout_truncated` says whether anything was cut.
 - **Failure is data.** A command that ran and exited non-zero returns a result. Only "couldn't start
   it" raises `ProcError`.
+- **Bounded even against escapees.** A child that leaves the process group (`setsid()`) survives the
+  kill and keeps the pipes open. After the kill, `run_proc` waits at most `KILL_GRACE_S` (5 s), then
+  closes the pipes, keeps the output it has read, and reports `escaped=True`. This applies on timeout
+  and on cancellation.
 
 ### `GitService`: hardened git
 
@@ -63,6 +67,21 @@ The `-c` flags, which beat any config file:
 Every ref is checked by `check_ref_argument()` (no leading `-`, so it can't become an option, and no
 whitespace or control characters). Branch names are validated by `git check-ref-format`, and paths
 come after `--`. `GitError` messages are redacted.
+
+**Inside a worktree, git never trusts the worktree's `.git` file.** That file sits in the worktree,
+so an agent can rewrite it to point at a planted git directory whose config runs commands. Every
+verb that works on a checkout (`current_sha`, `current_branch`, `status_porcelain`, `is_dirty`,
+`diff`, `log`, `commit`) therefore takes a `WorktreeLocation`:
+
+```python
+location = await worktree_service.location(worktree_row)   # git_dir from the trusted repo side
+dirty = await git.is_dirty(location)   # runs with GIT_DIR / GIT_WORK_TREE pinned
+```
+
+Passing a bare path inside `worktrees_root` raises `UnsafePath`. If the `.git` file no longer matches
+the recorded admin directory, `WorktreeTampered` is raised before git runs. Even without that check,
+the pin alone stops the attack, and a test proves it. `-c core.fsmonitor=false` and
+`diff --no-ext-diff --no-textconv` are extra layers.
 
 The main methods are `validate_repo`, `current_sha`, `default_branch`, `status_porcelain`,
 `is_dirty`, `diff`, `log`, `commit`, `branch_name_for`, `validate_ref`, `branch_exists` and the
@@ -104,12 +123,9 @@ url = service.open_in_editor(wt)               # "vscode://file/..." (a string, 
   hardening.
 - **Need to run something that isn't git?** Use `run_proc`. If you need output as it streams, that's
   `stream_proc`, planned for doc 10. Add it to `proc.py` and nowhere else.
-- **Open security findings (review 2026-11-13):**
-  - **F1, blocking.** Git commands run *inside a worktree* still discover the git directory through the
-    worktree's own `.git` file, which an agent can overwrite. That lets planted config execute
-    commands. The fix pins `GIT_DIR`/`GIT_WORK_TREE` from the trusted repository side, and must land
-    before agents write to worktrees.
-  - **F2.** A child that calls `setsid()` escapes the process-group kill and the timeout. Fix it before
-    agent commands use `run_proc` (09b).
+- **Working in a worktree?** Get a `WorktreeLocation` from `WorktreeService.location()` and pass that.
+  Never pass the path, never read the worktree's `.git` file, and call `git.verify_location()` before
+  handing a worktree path to a repository-side verb such as `worktree remove`. (Review findings F1 and
+  F2 were fixed in 05b.)
 - **Tests** build real throwaway repos with `tests/git_repo.py` (`make_repo()`, `commit_file()`),
   isolated from your own git config. Reach for those rather than mocking git.

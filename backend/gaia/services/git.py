@@ -57,6 +57,8 @@ HARDENED_CONFIG: tuple[str, ...] = (
     "-c",
     "core.hooksPath=/dev/null",
     "-c",
+    "core.fsmonitor=false",
+    "-c",
     "commit.gpgsign=false",
     "-c",
     "core.pager=cat",
@@ -155,6 +157,33 @@ class UnsafePath(ValueError):
     """A path resolved outside the roots Gaia allows (doc 05 task 4)."""
 
 
+class WorktreeTampered(UnsafePath):
+    """A worktree's ``.git`` file no longer matches its recorded admin dir.
+
+    Raised before a git command runs with a :class:`WorktreeLocation`: the pin is
+    what stops a planted ``gitdir:`` file from pointing Gaia at attacker config
+    (review finding F1).
+    """
+
+
+@dataclass(frozen=True)
+class WorktreeLocation:
+    """Where a git command inside a worktree is allowed to run.
+
+    Both paths are resolved. ``work_tree`` is the checkout and ``git_dir`` is the
+    administrative directory under the trusted repository's ``.git/worktrees``.
+    A caller must pass this object rather than a bare path once a path is inside
+    ``worktrees_root``, so a worktree call can never forget the F1 pin.
+    """
+
+    work_tree: Path
+    git_dir: Path
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "work_tree", _resolved(self.work_tree))
+        object.__setattr__(self, "git_dir", _resolved(self.git_dir))
+
+
 @dataclass(frozen=True)
 class Commit:
     """One entry of ``git log``."""
@@ -244,6 +273,60 @@ def check_ref_argument(name: str, *, what: str = "ref") -> str:
     if _REF_FORBIDDEN.search(name):
         raise InvalidRef(f"{name!r} contains whitespace or a control character")
     return name
+
+
+def _check_worktree_location(location: WorktreeLocation) -> None:
+    """Refuse a worktree whose ``.git`` file has been tampered with.
+
+    The whole F1 defence is that git never reads this file; the check is here so
+    a tampered worktree fails loudly before a command runs instead of silently
+    running against the trusted admin dir while the worktree points elsewhere.
+    """
+    git_file = location.work_tree / ".git"
+    if git_file.is_symlink() or not git_file.is_file():
+        raise WorktreeTampered(
+            f"worktree .git entry {str(git_file)!r} is not a regular file; refusing to run git"
+        )
+    expected = f"gitdir: {location.git_dir}"
+    content = git_file.read_text()
+    if content != expected and content != f"{expected}\n":
+        raise WorktreeTampered(
+            f"worktree .git entry {str(git_file)!r} does not point at "
+            f"{str(location.git_dir)!r}; refusing to run git"
+        )
+
+
+def _resolve_from(base: Path, value: str) -> Path:
+    """Resolve a git-reported path, relative to ``base`` when it is relative."""
+    candidate = Path(value)
+    if not candidate.is_absolute():
+        candidate = base / candidate
+    return _resolved(candidate)
+
+
+def _scan_worktree_admin_dirs(common_dir: Path, expected_git_file: Path) -> Path | None:
+    """Return the admin dir whose ``gitdir`` entry resolves to ``expected_git_file``.
+
+    Only the repository side is read. The worktree's own ``.git`` file is
+    deliberately never consulted here (F1): an agent can rewrite it, but it
+    cannot rewrite the trusted repository's ``.git/worktrees/*/gitdir`` entries.
+    """
+    worktrees_dir = common_dir / "worktrees"
+    if not worktrees_dir.is_dir():
+        return None
+    for gitdir_file in sorted(worktrees_dir.glob("*/gitdir")):
+        try:
+            raw = gitdir_file.read_text().strip()
+        except OSError:
+            continue
+        candidate = Path(raw)
+        if not candidate.is_absolute():
+            # git writes an absolute path today; resolve a future relative value
+            # from the admin directory that contains the gitdir file.
+            candidate = gitdir_file.parent / candidate
+        if _resolved(candidate) == expected_git_file:
+            return gitdir_file.parent
+    return None
 
 
 class GitService:
@@ -352,20 +435,76 @@ class GitService:
                 f"{str(path)!r} is inside the worktrees root; register the repository itself"
             )
 
+    def _command_context(self, repo: Path | WorktreeLocation) -> tuple[Path, dict[str, str] | None]:
+        """Return the ``cwd`` and env for a git command from ``repo``.
+
+        A bare path inside ``worktrees_root`` is refused: the caller must pass a
+        :class:`WorktreeLocation` so the F1 pin cannot be forgotten. A worktree
+        location is checked before every command and then run with ``GIT_DIR``
+        and ``GIT_WORK_TREE`` set from the trusted repository side.
+        """
+        if isinstance(repo, WorktreeLocation):
+            _check_worktree_location(repo)
+            return repo.work_tree, {
+                "GIT_DIR": str(repo.git_dir),
+                "GIT_WORK_TREE": str(repo.work_tree),
+            }
+        path = _resolved(repo)
+        if path.is_relative_to(self.worktrees_root.resolve()):
+            raise UnsafePath(f"{str(path)!r} is inside the worktrees root; pass a WorktreeLocation")
+        return path, None
+
+    def verify_location(self, location: WorktreeLocation) -> None:
+        """Raise :class:`WorktreeTampered` unless ``location``'s ``.git`` file is intact.
+
+        For callers that hand a worktree path to a git verb that runs on the
+        repository (``git worktree remove``), where no pinned env applies.
+        """
+        _check_worktree_location(location)
+
+    async def worktree_admin_dir(
+        self, repo: Path, work_tree: Path, *, timeout_s: float | None = None
+    ) -> Path:
+        """Return the trusted admin dir for ``work_tree`` under ``repo``.
+
+        Asks the **repository** (which Gaia registered and trusts) for its
+        ``git-common-dir``, then scans ``<common>/worktrees/*/gitdir`` for the
+        entry that resolves to ``<work_tree>/.git``. The worktree's own ``.git``
+        file is never read here: an agent can rewrite it (F1).
+        """
+        repo_path = _resolved(repo)
+        self._refuse_worktree_path(repo_path)
+        work_tree_path = _resolved(work_tree)
+        result = await self._run(
+            "rev-parse", "--git-common-dir", cwd=repo_path, timeout_s=timeout_s
+        )
+        common_dir = _resolve_from(repo_path, result.stdout.strip())
+        admin_dir = _scan_worktree_admin_dirs(common_dir, work_tree_path / ".git")
+        if admin_dir is None:
+            raise UnsafePath(
+                f"no worktree admin dir under {str(common_dir)!r} points at "
+                f"{str(work_tree_path / '.git')!r}"
+            )
+        return admin_dir
+
     async def current_sha(
-        self, repo: Path, rev: str = "HEAD", *, timeout_s: float | None = None
+        self, repo: Path | WorktreeLocation, rev: str = "HEAD", *, timeout_s: float | None = None
     ) -> str:
         """The commit ``rev`` points at, as a full SHA."""
         check_ref_argument(rev, what="revision")
+        cwd, env = self._command_context(repo)
         result = await self._run(
-            "rev-parse", "--verify", f"{rev}^{{commit}}", cwd=repo, timeout_s=timeout_s
+            "rev-parse", "--verify", f"{rev}^{{commit}}", cwd=cwd, env=env, timeout_s=timeout_s
         )
         return result.stdout.strip()
 
-    async def current_branch(self, repo: Path, *, timeout_s: float | None = None) -> str | None:
+    async def current_branch(
+        self, repo: Path | WorktreeLocation, *, timeout_s: float | None = None
+    ) -> str | None:
         """The checked-out branch, or ``None`` for a detached HEAD."""
+        cwd, env = self._command_context(repo)
         result = await self._invoke(
-            "symbolic-ref", "--quiet", "--short", "HEAD", cwd=repo, timeout_s=timeout_s
+            "symbolic-ref", "--quiet", "--short", "HEAD", cwd=cwd, env=env, timeout_s=timeout_s
         )
         return result.stdout.strip() or None
 
@@ -389,18 +528,23 @@ class GitService:
             return remote_head.stdout.strip().removeprefix("origin/")
         return await self.current_branch(repo, timeout_s=timeout_s) or "main"
 
-    async def status_porcelain(self, repo: Path, *, timeout_s: float | None = None) -> str:
+    async def status_porcelain(
+        self, repo: Path | WorktreeLocation, *, timeout_s: float | None = None
+    ) -> str:
         """``git status --porcelain`` verbatim: empty when the tree is clean."""
-        result = await self._run("status", "--porcelain", cwd=repo, timeout_s=timeout_s)
+        cwd, env = self._command_context(repo)
+        result = await self._run("status", "--porcelain", cwd=cwd, env=env, timeout_s=timeout_s)
         return result.stdout
 
-    async def is_dirty(self, repo: Path, *, timeout_s: float | None = None) -> bool:
+    async def is_dirty(
+        self, repo: Path | WorktreeLocation, *, timeout_s: float | None = None
+    ) -> bool:
         """True when the tree has staged, unstaged or untracked changes."""
         return bool((await self.status_porcelain(repo, timeout_s=timeout_s)).strip())
 
     async def diff(
         self,
-        repo: Path,
+        repo: Path | WorktreeLocation,
         base: str,
         head: str,
         *,
@@ -412,17 +556,30 @@ class GitService:
         Two-dot: the literal difference between the two commits, which is what a
         review of a finished branch wants. A merge-base diff is one call away
         (``diff(repo, base, f"{base}...{head}")``) and doc 14 decides which.
+
+        ``--no-ext-diff --no-textconv`` are defence in depth: external diff and
+        textconv drivers are other exec-capable config keys, and Gaia's own diff
+        output must never run a repo's helper.
         """
         check_ref_argument(base, what="revision")
         check_ref_argument(head, what="revision")
+        cwd, env = self._command_context(repo)
         result = await self._run(
-            "diff", base, head, cwd=repo, timeout_s=timeout_s, max_output_bytes=max_output_bytes
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            base,
+            head,
+            cwd=cwd,
+            env=env,
+            timeout_s=timeout_s,
+            max_output_bytes=max_output_bytes,
         )
         return result.stdout
 
     async def log(
         self,
-        repo: Path,
+        repo: Path | WorktreeLocation,
         *,
         limit: int = 20,
         rev: str = "HEAD",
@@ -432,12 +589,14 @@ class GitService:
         if limit <= 0:
             raise ValueError(f"limit must be positive, not {limit!r}")
         check_ref_argument(rev, what="revision")
+        cwd, env = self._command_context(repo)
         result = await self._run(
             "log",
             f"--max-count={limit}",
             "--pretty=format:%H%x1f%s%x1e",
             rev,
-            cwd=repo,
+            cwd=cwd,
+            env=env,
             timeout_s=timeout_s,
         )
         commits = []
@@ -449,7 +608,7 @@ class GitService:
 
     async def commit(
         self,
-        repo: Path,
+        repo: Path | WorktreeLocation,
         message: str,
         *,
         add_all: bool = True,
@@ -468,10 +627,11 @@ class GitService:
         """
         if not message.strip():
             raise ValueError("a commit message cannot be empty")
+        cwd, env = self._command_context(repo)
         if add_all:
-            await self._run("add", "--all", cwd=repo, timeout_s=timeout_s)
+            await self._run("add", "--all", cwd=cwd, env=env, timeout_s=timeout_s)
         await self._run(
-            "commit", "--no-verify", "--message", message, cwd=repo, timeout_s=timeout_s
+            "commit", "--no-verify", "--message", message, cwd=cwd, env=env, timeout_s=timeout_s
         )
         return await self.current_sha(repo, timeout_s=timeout_s)
 

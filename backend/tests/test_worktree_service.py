@@ -18,7 +18,7 @@ from gaia.config.settings import Settings
 from gaia.db.models import Repository, Ticket, Workspace, Worktree
 from gaia.db.repo import ScopedRepo, WorkspaceMismatch
 from gaia.domain.enums import WorktreeStatus
-from gaia.services.git import GitError, GitService, UnsafePath, resolve_within
+from gaia.services.git import GitError, GitService, UnsafePath, WorktreeTampered, resolve_within
 from gaia.services.proc import ProcResult
 from gaia.services.worktrees import (
     WorktreeAlreadyExists,
@@ -99,7 +99,8 @@ async def test_create_makes_a_worktree_on_a_gaia_branch_under_the_root(
     assert on_disk(path).is_dir
     assert path == resolve_within(world.settings.worktrees_root, path)
     assert path.parent == (world.settings.worktrees_root / world.repository.id).resolve()
-    assert await world.git.current_branch(path) == worktree.branch
+    location = await world.service.location(worktree)
+    assert await world.git.current_branch(location) == worktree.branch
     assert {entry.branch for entry in await world.git.worktree_list(git_repo)} == {
         "main",
         worktree.branch,
@@ -160,6 +161,147 @@ async def test_create_marks_the_row_failed_when_git_fails(
 
     report = await world.service.list(world.repository)
     assert [item.worktree.status for item in report.items] == [WorktreeStatus.FAILED.value]
+
+
+def _plant_gitdir(
+    worktree: Worktree,
+    repo_path: Path,
+    marker: Path,
+    *,
+    use_filter: bool,
+) -> Path:
+    """Replace a worktree's ``.git`` file with an agent-planted copy.
+
+    The planted copy is a full copy of the trusted repository's ``.git``, with
+    one exec-capable config key added. This is exactly the F1 attack: a worktree
+    ``.git`` file is writable by the agent, and the repo side is not.
+    """
+    planted = Path(worktree.path).parent / ("planted-filter" if use_filter else "planted-fsmonitor")
+    shutil.copytree(resolved(repo_path) / ".git", planted)
+    with (planted / "config").open("a") as config:
+        if use_filter:
+            config.write(f'\n[filter "x"]\n\tclean = "touch {marker}"\n')
+        else:
+            config.write(f'\n[core]\n\tfsmonitor = "touch {marker}"\n')
+    (Path(worktree.path) / ".git").write_text(f"gitdir: {planted}\n")
+    return planted
+
+
+async def test_create_stores_git_dir_and_location_derives_legacy(
+    world: World, git_repo: Path
+) -> None:
+    """``create`` pins the admin dir; ``location`` re-derives a pre-0002 row."""
+    worktree = await world.service.create(world.repository, world.ticket)
+
+    assert worktree.git_dir is not None
+    git_dir = resolved(Path(worktree.git_dir))
+    assert git_dir == await world.git.worktree_admin_dir(git_repo, Path(worktree.path))
+
+    await world.service.worktrees.update(worktree.id, git_dir=None)
+    location = await world.service.location(worktree)
+
+    assert location.work_tree == resolved(Path(worktree.path))
+    assert location.git_dir == git_dir
+
+
+@pytest.mark.parametrize("use_filter", [False, True])
+async def test_a_planted_gitdir_is_refused_before_anything_runs(
+    world: World, git_repo: Path, use_filter: bool
+) -> None:
+    """F1: a worktree ``.git`` file rewritten by an agent never runs config."""
+    worktree = await world.service.create(world.repository, world.ticket)
+    location = await world.service.location(worktree)
+    marker = world.settings.data_dir / ("marker-filter" if use_filter else "marker-fsmonitor")
+    _plant_gitdir(worktree, git_repo, marker, use_filter=use_filter)
+    if use_filter:
+        (Path(worktree.path) / ".gitattributes").write_text("* filter=x\n")
+
+    with pytest.raises(WorktreeTampered):
+        await world.git.is_dirty(location)
+    with pytest.raises(WorktreeTampered):
+        await world.git.commit(location, "must not run")
+
+    assert not marker.exists()
+
+
+async def test_the_pin_alone_stops_planted_config(
+    world: World, git_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F1 (lead review): with the tamper check switched off, the GIT_DIR pin still holds."""
+    worktree = await world.service.create(world.repository, world.ticket)
+    location = await world.service.location(worktree)
+    marker = world.settings.data_dir / "marker-pin-only"
+    _plant_gitdir(worktree, git_repo, marker, use_filter=False)
+    monkeypatch.setattr("gaia.services.git._check_worktree_location", lambda _location: None)
+
+    await world.git.is_dirty(location)
+
+    assert not marker.exists()
+
+
+async def test_remove_with_force_refuses_a_tampered_worktree(world: World, git_repo: Path) -> None:
+    """F1 (lead review): force skips the dirty check, never the tamper check."""
+    worktree = await world.service.create(world.repository, world.ticket)
+    marker = world.settings.data_dir / "marker-force-remove"
+    _plant_gitdir(worktree, git_repo, marker, use_filter=False)
+
+    with pytest.raises(WorktreeTampered):
+        await world.service.remove(worktree, force=True)
+
+    assert not marker.exists()
+    assert on_disk(worktree.path).exists
+
+
+async def test_a_worktree_with_an_undefined_filter_still_works(world: World) -> None:
+    """A worktree-local ``.gitattributes`` cannot make git run a driver."""
+    worktree = await world.service.create(world.repository, world.ticket)
+    location = await world.service.location(worktree)
+    marker = world.settings.data_dir / "marker-undefined-filter"
+    (Path(worktree.path) / ".gitattributes").write_text("* filter=x\n")
+    (Path(worktree.path) / "new.txt").write_text("new\n")
+
+    sha = await world.git.commit(location, "commit with an undefined filter")
+
+    assert not marker.exists()
+    assert sha == await world.git.current_sha(location)
+
+
+async def test_a_bare_worktree_path_is_refused(world: World) -> None:
+    """No git call may run in a worktree without the F1 pin."""
+    inside = world.settings.worktrees_root / "repo-id" / "worktree-id"
+
+    with pytest.raises(UnsafePath, match="pass a WorktreeLocation"):
+        await world.git.is_dirty(inside)
+
+
+async def test_worktree_admin_dir_finds_the_right_dir_and_refuses_unknown(
+    world: World, git_repo: Path
+) -> None:
+    worktree = await world.service.create(world.repository, world.ticket)
+
+    admin = await world.git.worktree_admin_dir(git_repo, Path(worktree.path))
+
+    assert admin == resolved(git_repo) / ".git" / "worktrees" / Path(worktree.path).name
+    with pytest.raises(UnsafePath, match="no worktree admin dir"):
+        await world.git.worktree_admin_dir(git_repo, world.settings.worktrees_root / "unknown")
+
+
+async def test_location_reports_a_row_whose_repository_is_not_ours(
+    world: World, session: AsyncSession
+) -> None:
+    """``location`` re-fetches the repo for legacy rows and must not leak it."""
+    other = await make_workspace(session, slug="other-location")
+    foreign_repo = await ScopedRepo(session, Repository, other.id).create(
+        name="foreign-location", local_path=world.repository.local_path
+    )
+    orphan = await ScopedRepo(session, Worktree, world.workspace.id).create(
+        repo_id=foreign_repo.id,
+        path=str(world.settings.worktrees_root / "orphaned-location"),
+        branch="gaia/orphaned-location",
+    )
+
+    with pytest.raises(WorktreeError, match="not in this workspace"):
+        await world.service.location(orphan)
 
 
 async def test_create_refuses_a_repository_from_another_workspace(

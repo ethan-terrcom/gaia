@@ -27,7 +27,12 @@ from gaia.services.git import (
     InvalidRef,
     NotARepository,
     UnsafePath,
+    WorktreeLocation,
+    WorktreeTampered,
+    _check_worktree_location,
     _parse_worktree_porcelain,
+    _resolve_from,
+    _scan_worktree_admin_dirs,
 )
 from gaia.services.proc import DEFAULT_MAX_OUTPUT_BYTES, DEFAULT_TIMEOUT_S, ProcResult
 from tests.git_repo import commit_file, git, resolved
@@ -85,6 +90,53 @@ def test_construction_creates_the_data_directory(tmp_path: Path) -> None:
     GitService(settings)
 
     assert settings.data_dir.is_dir()
+
+
+# ------------------------------------------------------------- F1 helpers --
+@pytest.mark.parametrize("entry", ["missing", "symlink"], ids=["missing", "symlink"])
+def test_check_worktree_location_refuses_a_missing_or_symlink_git_file(
+    tmp_path: Path, entry: str
+) -> None:
+    """The F1 check runs before git, and does not follow a planted symlink."""
+    work_tree = tmp_path / "wt"
+    work_tree.mkdir()
+    git_dir = tmp_path / "admin"
+    git_dir.mkdir()
+    if entry == "symlink":
+        (work_tree / ".git").symlink_to(tmp_path / "planted")
+
+    with pytest.raises(WorktreeTampered, match="not a regular file"):
+        _check_worktree_location(WorktreeLocation(work_tree=work_tree, git_dir=git_dir))
+
+
+def test_resolve_from_keeps_an_absolute_git_path(tmp_path: Path) -> None:
+    absolute = tmp_path / "git"
+    assert _resolve_from(tmp_path / "repo", str(absolute)) == resolved(absolute)
+
+
+def test_scan_worktree_admin_dirs_returns_none_without_a_worktrees_dir(
+    tmp_path: Path,
+) -> None:
+    assert _scan_worktree_admin_dirs(tmp_path / "common", tmp_path / "expected") is None
+
+
+def test_scan_worktree_admin_dirs_skips_an_unreadable_gitdir(tmp_path: Path) -> None:
+    common = tmp_path / "common"
+    worktrees_dir = common / "worktrees" / "wt"
+    worktrees_dir.mkdir(parents=True)
+    (worktrees_dir / "gitdir").mkdir()
+
+    assert _scan_worktree_admin_dirs(common, tmp_path / "expected") is None
+
+
+def test_scan_worktree_admin_dirs_resolves_a_relative_gitdir(tmp_path: Path) -> None:
+    common = tmp_path / "common"
+    worktrees_dir = common / "worktrees" / "wt"
+    worktrees_dir.mkdir(parents=True)
+    expected = common / "expected"
+    (worktrees_dir / "gitdir").write_text("../../expected\n")
+
+    assert _scan_worktree_admin_dirs(common, resolved(expected)) == worktrees_dir
 
 
 # ------------------------------------------------------------------ bounds --

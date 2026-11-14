@@ -168,9 +168,16 @@ class RunStepRead(WorkspaceScopedRead):
 
 
 class ApprovalCreate(Schema):
-    """Ask the human something. The decision is a separate call (doc 14)."""
+    """Ask the human something. The decision is a separate call (doc 14).
+
+    ``idempotency_key`` is what makes a resumed node upsert the same request
+    rather than insert a duplicate inbox entry (doc 12): graph gates use
+    ``"<node>:<step_index>:<attempt>"`` and in-turn command approvals use
+    ``"command:<tool_call_id>"``.
+    """
 
     run_id: str
+    idempotency_key: str
     kind: ApprovalKind
     payload_json: dict[str, Any] = Field(default_factory=dict)
 
@@ -179,6 +186,7 @@ class ApprovalRead(WorkspaceScopedRead):
     """An approval request and, once decided, its outcome."""
 
     run_id: str
+    idempotency_key: str
     kind: ApprovalKind
     payload_json: dict[str, Any]
     status: ApprovalStatus
