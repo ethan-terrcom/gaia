@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gaia.db.models import AuditLog, Base, Event, LlmUsage, Run, RunToken, Ticket
 from gaia.db.types import utcnow
+from gaia.domain.enums import RunStatus
 
 
 class WorkspaceMismatch(ValueError):
@@ -110,6 +111,40 @@ class RunTokenRepo:
             .values(revoked_at=utcnow())
         )
         await self.session.execute(statement)
+
+
+class RunRepo:
+    """System-level run lookups used by the orchestrator runner.
+
+    Normal tenant reads go through :class:`ScopedRepo`; the runner needs two
+    process-wide queries (find runs to recover at startup, and load a run to
+    cancel without a workspace argument). They live here so the orchestrator
+    never builds SQL itself.
+    """
+
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def get_by_id(self, run_id: str) -> Run | None:
+        """Return any run by id, or ``None``."""
+        return await self.session.get(Run, run_id)
+
+    async def list_recoverable(self) -> list[Run]:
+        """Return runs that may need to be resumed after a process restart.
+
+        Terminal runs and runs already sitting at a human gate are left alone:
+        an interrupted run already has a pending checkpoint question, and a
+        ``paused_budget`` run has a budget question.
+        """
+        ignored = (
+            RunStatus.FAILED.value,
+            RunStatus.COMPLETED.value,
+            RunStatus.CANCELLED.value,
+            RunStatus.AWAITING_APPROVAL.value,
+            RunStatus.PAUSED_BUDGET.value,
+        )
+        statement = select(Run).where(~Run.status.in_(ignored)).order_by(Run.id)
+        return list((await self.session.scalars(statement)).all())
 
 
 async def add_run_cost(session: AsyncSession, run_id: str, cost_usd: Decimal) -> None:

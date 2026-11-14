@@ -67,3 +67,55 @@ nodes behind an interface for now.
 
 ## Acceptance criteria
 - [ ] All the graph tests above pass. `docs/graph.md` is generated.
+
+## Decisions and deviations (as built) — 12a
+
+- **F3 transitions added:** `RUN_TRANSITIONS` now allows `PENDING → PAUSED_BUDGET`
+  and `PLANNING → PAUSED_BUDGET`, because `with_guard` checks the budget before
+  every node. `failed` remains terminal: a retry is a new run.
+- **Node → run status table:**
+
+  | Node | `run.status` |
+  |---|---|
+  | `prepare_worktree`, `lead_plan` | `planning` |
+  | `approve_plan`, `approve_pr`, `approve_merge`, `escalation`, and every interrupt | `awaiting_approval` |
+  | `implement_step`, `run_checks`, `git_commit_step` | `implementing` |
+  | `lead_review_step`, `lead_final_review` | `reviewing` |
+  | `open_pr`, `watch_ci`, `merge` | `pr_open` |
+  | `finish` | `completed` |
+
+- **Interrupt idempotency keys:**
+  - `approve_plan`: `approve_plan:<step_index>:<attempt>`
+  - `escalation`: `escalation:<step_index>:<attempt>`
+  - `approve_pr`: `approve_pr:<step_index>:<attempt>`
+  - `approve_merge`: `approve_merge:<step_index>:<attempt>`
+  - budget guard: `budget:<node_name>:<run.cost_usd>`
+- **Decision shape:** `{"action": "approve" | "reject" | "edit", "comment":
+  str | None, "plan": dict | None, "budget_usd": Decimal | None, "decided_by": str | None}`, validated by
+  `gaia.orchestrator.approvals.Decision`. `edit` requires `plan`.
+- **Deviations from the handoff:**
+  - The four node approval paths and the budget guard no longer contain a
+    defensive `if approval_row is None: raise ValueError` after re-loading the
+    approval row. The row is always created by the idempotent upsert immediately
+    before the interrupt, so that branch was unreachable; it was deleted instead
+    of adding coverage pragmas.
+  - `RunState` carries one extra JSON-safe key, `route`, so conditional edges can
+    route without reaching into the database. It uses the default last-value-wins
+    reducer, so no reducer was added.
+  - `docs/graph.md` is generated with a dummy `GraphDeps` object rather than the
+    test fakes: the diagram only needs the compiled graph topology, and the
+    dependencies are not executed during `draw_mermaid()`.
+  - `RunManager.start` creates `budget_usd=Decimal(str(settings.run_budget_usd))`
+    and `graph_thread_id=run_id`; both are required by the 12a handoff notes.
+
+### Lead review changes — 12a (2026-11-14, [`review-12a`](../reviews/2026-11-14-review-12a.md))
+- **R5:** every conditional edge has an explicit path map. An unknown route now raises instead of
+  silently ending the run, and `docs/graph.md` shows all 28 edges (it showed 4).
+- **G1:** budget "approve" without `budget_usd` grants another `settings.run_budget_usd`. An
+  explicit cap must exceed what has been spent.
+- **R1–R4:** `resume` refuses a busy run (`RunBusy`); graph errors are logged; `cancel` is
+  workspace-scoped; finished tasks are pruned.
+- **A1:** `Decision.decided_by` is recorded on the approval row.
+- `domain/plans.py`: 11's models are kept, plus the empty-title check.
+
+- [x] Acceptance (12a part): all the graph tests above pass, and `docs/graph.md` is generated (`make graph`).
