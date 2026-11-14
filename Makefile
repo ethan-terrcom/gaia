@@ -13,6 +13,7 @@ help: ## List the available targets
 setup: ## Install backend and frontend dependencies and the git hooks
 	cd $(BACKEND) && uv sync --locked
 	cd $(FRONTEND) && npm ci
+	cd $(FRONTEND)/tools/openapi && npm ci
 	cd $(BACKEND) && uv run pre-commit install
 
 sandbox-install: ## Install the pinned sandbox-runtime (srt) binary under GAIA_DATA_DIR
@@ -46,8 +47,9 @@ test: ## Run backend (pytest) and frontend (vitest) tests
 smoke-llm: ## Make one tiny real call to each LLM provider (uses keychain keys)
 	cd $(BACKEND) && uv run python scripts/smoke_llm.py
 
-openapi: ## Export the API schema for the frontend type generator (doc 06)
+openapi: ## Export the API schema and regenerate the frontend's types (docs 06, 16)
 	cd $(BACKEND) && uv run python scripts/export_openapi.py
+	cd $(FRONTEND) && npm run gen:api
 
 graph: ## Export the LangGraph Mermaid diagram to docs/graph.md
 	cd $(BACKEND) && uv run python scripts/export_graph.py

@@ -2,3 +2,6 @@ dist
 node_modules
 package-lock.json
 src/api/openapi.json
+tools/openapi/node_modules
+tools/openapi/package-lock.json
+src/api/schema.d.ts
