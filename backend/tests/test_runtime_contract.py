@@ -109,7 +109,7 @@ async def test_timeout_returns_timeout_and_the_process_is_gone(
     assert result.error is None
     if isinstance(runtime, FakeProcessRuntime):
         assert runtime.last_pid is not None
-        _assert_pid_gone(runtime.last_pid)
+        await _assert_pid_gone(runtime.last_pid)
 
 
 async def test_cancel_mid_run_returns_cancelled_within_5_s(
@@ -147,7 +147,7 @@ async def test_cancel_mid_run_returns_cancelled_within_5_s(
     assert result.status == "cancelled"
     assert time.monotonic() - started < 5
     if isinstance(runtime, FakeProcessRuntime) and runtime.last_pid is not None:
-        _assert_pid_gone(runtime.last_pid)
+        await _assert_pid_gone(runtime.last_pid)
 
 
 async def test_env_scrub_leaves_no_planted_or_provider_key(
@@ -289,7 +289,7 @@ async def test_orphan_registry_reaps_a_live_fake_agent(
             return bool(entry.pid == runtime.last_pid)
 
         await registry.reap_stale(is_ours=ours)
-        _assert_pid_gone(runtime.last_pid)
+        await _assert_pid_gone(runtime.last_pid)
         result = await asyncio.wait_for(run_task, timeout=5)
     finally:
         if not run_task.done():
@@ -341,11 +341,29 @@ def _registry_has_pid(registry: OrphanRegistry, pid: int) -> bool:
     return any(entry.get("pid") == pid for entry in data)
 
 
-def _assert_pid_gone(pid: int) -> None:
+def _is_zombie(pid: int) -> bool:
+    """True when ``pid`` has exited but not been collected yet (Linux ``/proc``)."""
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text()
+    except OSError:
+        return False
+    # Field 3, after the parenthesised command name, is the state letter.
+    return stat.rsplit(")", 1)[-1].split()[0] == "Z"
+
+
+async def _assert_pid_gone(pid: int) -> None:
+    """Wait until ``pid`` is gone, yielding to the loop so asyncio can reap it.
+
+    On Linux a killed child of this test process stays a zombie until asyncio's
+    child watcher collects it, and ``kill(pid, 0)`` still succeeds on a zombie.
+    The first CI run on Linux failed exactly that way (review 10a).
+    """
     for _ in range(100):
         try:
             os.kill(pid, 0)
         except ProcessLookupError:
             return
-        time.sleep(0.05)
+        if _is_zombie(pid):
+            return
+        await asyncio.sleep(0.05)
     pytest.fail(f"pid {pid} was still alive")
