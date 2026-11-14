@@ -30,7 +30,7 @@ come next, in the order given in [`docs/implementation/00-README.md`](../docs/im
 │             (every /api/v1 route requires the token; scoped to a workspace)   │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ orchestrator/  LangGraph workflow: plan → approve → implement → review → PR   │  12 planned · 11 lead built
-│ runtimes/      the agents themselves (Claude lead, DeepSeek juniors)          │  planned (10)
+│ runtimes/      the agents themselves (Claude lead, DeepSeek juniors)          │  10a base built · 10b/c next
 │ llm/           provider clients, cost accounting, LLM gateway (all built)     │  07a / 07b
 │ tools/         sandboxed file/shell tools for agents                          │  planned (09b; 09a policy built)
 ├──────────────────────────────────────────────────────────────────────────────┤
@@ -66,8 +66,9 @@ never imports FastAPI. `db/` knows nothing about HTTP or git.
 | 09a | `security/{paths,commands,sandbox}.py` | Path confinement, the command policy (a tripwire), and the `srt` sandbox profile (the boundary), proved live | [security core](../docs/backend/security.md) |
 | 13 | `services/events.py`, `api/routes/stream.py` | Durable event log plus live SSE stream with single-use tickets, replay and gap healing | [events](../docs/backend/events.md) |
 | 11 | `orchestrator/{lead,repo_context}.py`, `domain/plans.py` | The lead's plan and review calls: streamed structured outputs, policy-checked test commands, refusals escalate | [lead](../docs/backend/lead.md) |
+| 10a | `runtimes/`, `services/proc.py` (`stream_proc`) | The runtime seam: limits, scrubbed env, git-computed `files_changed`, in-turn approvals, orphan reaping, fake runtimes and a contract suite | [runtimes](../docs/backend/runtimes.md) |
 
-The whole suite (973 tests, 100% line and branch coverage) runs with `make check`, which is also what CI runs.
+The whole suite (1068 tests, 100% line and branch coverage) runs with `make check`, which is also what CI runs.
 
 ## Five design rules that explain most of the code
 

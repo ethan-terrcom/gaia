@@ -5,7 +5,7 @@
 > one-page overview in [`backend/README.md`](../../backend/README.md), then read the guide for the
 > area you are about to touch.
 >
-> **Status:** living document, current as of packages 07b, 09a, 11 and 13 (2026-11-14).
+> **Status:** living document, current as of packages 07b, 09a, 10a, 11 and 13 (2026-11-14).
 
 ## How these guides are organised
 
@@ -32,10 +32,11 @@ day. It is the vocabulary for the rest of the guides.
 | [LLM gateway](gateway.md) | Run tokens, the streaming proxy, metering, budgets: why agents never hold a provider key | 07b |
 | [Security core](security.md) | `confine`, the command policy, the `srt` sandbox profile: tripwire versus boundary | 09a |
 | [Lead planning & review](lead.md) | `LeadEngineer`, repo context, structured outputs, byte-stable prompts | 11 |
+| [Agent runtimes](runtimes.md) | `AgentRuntime`, `run_with_limits`, approval brokers, orphans, fakes, the contract suite | 10a |
 | [Events & live stream](events.md) | `EventBus`, `EventSink`, stream tickets, SSE replay and gap healing | 13 |
 | [Python concepts](python-concepts.md) | Explainers for the techniques the code relies on | – |
 
-Guides for `runtimes/`, `tools/`, `orchestrator/` and the event stream will be added as
+Guides for `tools/`, `orchestrator/` and the event stream will be added as
 those packages land (07b–15).
 
 ## Tooling and conventions

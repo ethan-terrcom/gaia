@@ -12,13 +12,11 @@ from __future__ import annotations
 import argparse
 import asyncio
 import getpass
-import io
 import json
 import sys
 from collections.abc import Callable, Sequence
 from decimal import Decimal
 from pathlib import Path
-from typing import TextIO, cast
 
 from pydantic import ValidationError
 
@@ -30,8 +28,9 @@ from gaia.config.secrets import (
     ensure_api_token,
     get_secret_store,
 )
-from gaia.config.settings import ensure_data_dir, get_settings
+from gaia.config.settings import Settings, ensure_data_dir, get_settings
 from gaia.llm.base import LLMStop, StructuredLLM, UsageRecorder
+from gaia.services.git import WorktreeLocation
 
 PROG = "gaia"
 
@@ -125,6 +124,13 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     plan.add_argument("ticket_id", help="ticket id in the local workspace")
+    run_task = dev_commands.add_parser(
+        "run-task",
+        help="run one fake agent task in a worktree (real runtimes arrive in 10b)",
+    )
+    run_task.add_argument("--runtime", choices=["fake"], default="fake", help="runtime to use")
+    run_task.add_argument("--worktree", required=True, help="a Gaia worktree path to run in")
+    run_task.add_argument("instructions", help="the task instructions")
 
     return parser
 
@@ -284,20 +290,6 @@ def _dev_plan(args: argparse.Namespace) -> int:
     return asyncio.run(_dev_plan_async(args))
 
 
-class _CurrentStderr(io.TextIOBase):
-    """A stream that writes to whatever ``sys.stderr`` is *now*.
-
-    Binding ``sys.stderr`` itself would pin the object of the moment; under a
-    test runner that is a capture stream that is closed after the test.
-    """
-
-    def write(self, text: str) -> int:
-        return sys.stderr.write(text)
-
-    def flush(self) -> None:
-        sys.stderr.flush()
-
-
 async def _dev_plan_async(args: argparse.Namespace) -> int:
     """Async body of ``gaia dev plan``."""
     from gaia.config.logging import configure_logging
@@ -315,9 +307,7 @@ async def _dev_plan_async(args: argparse.Namespace) -> int:
     from gaia.services.costs import DbUsageRecorder
 
     # stdout carries the plan JSON (pipe it to jq); logs go to stderr.
-    # A TextIOBase subclass is a text stream at runtime; typing only knows the
-    # TextIO protocol, hence the cast.
-    configure_logging(stream=cast("TextIO", _CurrentStderr()))
+    configure_logging()
     settings = get_settings()
     store = get_secret_store()
     engine = create_engine_for(settings)
@@ -394,11 +384,106 @@ async def _dev_plan_async(args: argparse.Namespace) -> int:
         await engine.dispose()
 
 
+def _worktree_location(path: Path) -> WorktreeLocation:
+    """Build a :class:`WorktreeLocation` from a Gaia worktree path.
+
+    The CLI is a developer helper, so it accepts only a real Gaia worktree: the
+    ``.git`` file must point at the trusted admin directory, exactly as
+    :class:`GitService` requires before it will run inside a worktree.
+    """
+    work_tree = path.expanduser().resolve()
+    git_file = work_tree / ".git"
+    if not git_file.is_file():
+        raise ValueError(f"{str(work_tree)!r} is not a Gaia worktree (no .git file)")
+    content = git_file.read_text()
+    if not content.startswith("gitdir: "):
+        raise ValueError(f"{str(work_tree)!r} is not a Gaia worktree (malformed .git file)")
+    git_dir = Path(content.removeprefix("gitdir: ").strip()).expanduser().resolve()
+    return WorktreeLocation(work_tree=work_tree, git_dir=git_dir)
+
+
+async def _run_fake_task(args: argparse.Namespace, settings: Settings) -> int:
+    """Create a scratch run and execute the fake runtime in a worktree."""
+    from gaia.api.app import create_app
+    from gaia.db.engine import session_scope
+    from gaia.db.ids import uuid7
+    from gaia.db.models import Repository, Run, Ticket
+    from gaia.db.repo import ScopedRepo
+    from gaia.domain.enums import AgentRole, EventType
+    from gaia.runtimes.approvals import InMemoryApprovalBroker
+    from gaia.runtimes.base import AgentTask
+    from gaia.runtimes.fake import Emit, FakeAction, FakeRuntime, Finish, WriteFile
+    from gaia.runtimes.support import run_with_limits
+    from gaia.services.events import BusEventSink
+
+    app = create_app(settings)
+    async with app.router.lifespan_context(app):
+        services = app.state.services
+        location = _worktree_location(Path(args.worktree))
+        base_sha = await services.git.current_sha(location)
+        async with session_scope(services.sessions) as session:
+            repos = ScopedRepo(session, Repository, services.principal.workspace_id)
+            repository = await repos.create(
+                name=f"dev-run-task-{uuid7()}",
+                local_path=str(location.work_tree),
+                created_by=services.principal.user_id,
+            )
+            tickets = ScopedRepo(session, Ticket, services.principal.workspace_id)
+            ticket = await tickets.create(
+                repo_id=repository.id,
+                title="Dev run-task",
+                created_by=services.principal.user_id,
+            )
+            runs = ScopedRepo(session, Run, services.principal.workspace_id)
+            run = await runs.create(
+                ticket_id=ticket.id,
+                repo_id=repository.id,
+                created_by=services.principal.user_id,
+            )
+
+        task = AgentTask(
+            task_id=uuid7(),
+            run_id=run.id,
+            run_step_id=None,
+            workspace_id=services.principal.workspace_id,
+            agent_id=None,
+            role=AgentRole.JUNIOR,
+            instructions=args.instructions,
+            worktree=location,
+            base_sha=base_sha,
+        )
+        script: list[FakeAction] = [
+            Emit(EventType.AGENT_MESSAGE, {"content": "writing hello.py"}),
+            WriteFile("hello.py", "print('hello')\n"),
+            Finish("wrote hello.py", None),
+        ]
+        runtime = FakeRuntime(script, InMemoryApprovalBroker())
+        sink = BusEventSink(
+            services.events,
+            workspace_id=services.principal.workspace_id,
+            run_id=run.id,
+        )
+        result = await run_with_limits(runtime, task, sink, git=services.git)
+        print(result.model_dump_json(indent=2))
+        return 0
+
+
+def _dev_run_task(args: argparse.Namespace) -> int:
+    """Run one fake task through the real app lifespan."""
+    try:
+        return asyncio.run(_run_fake_task(args, get_settings()))
+    except (OSError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+
+
 def _dev(args: argparse.Namespace) -> int:
     if args.dev_command == "fake-run":
         return _dev_fake_run(args)
     if args.dev_command == "plan":
         return _dev_plan(args)
+    if args.dev_command == "run-task":
+        return _dev_run_task(args)
     return 2
 
 

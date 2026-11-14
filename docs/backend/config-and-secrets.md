@@ -99,3 +99,5 @@ just before the renderer (so nothing prints an unmasked event). The API error en
   with a test in `tests/test_redaction.py`.
 - **Tests:** `tests/conftest.py` gives every test an in-memory keyring, an empty redaction registry
   and no inherited `GAIA_*` variables. The one real-keychain test is `@pytest.mark.live`.
+
+**Where logs go:** structlog writes to **stderr** (resolved at write time), so a command's stdout carries only its output, such as `gaia dev plan | jq` (review 10a, L1).
