@@ -24,6 +24,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Annotated, Any
 
+import httpx
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
@@ -33,6 +34,7 @@ from gaia.config.settings import Settings
 from gaia.db.engine import session_scope
 from gaia.db.models import AuditLog, Base
 from gaia.db.repo import AuditLogRepo, ScopedRepo
+from gaia.services.costs import PriceTable
 from gaia.services.events import EventBus
 from gaia.services.git import GitService
 from gaia.services.stream_tickets import StreamTickets
@@ -52,6 +54,8 @@ class AppServices:
     git: GitService
     events: EventBus
     stream_tickets: StreamTickets
+    llm_http: httpx.AsyncClient
+    prices: PriceTable
     background_tasks: set[asyncio.Task[None]] = field(default_factory=set)
 
 

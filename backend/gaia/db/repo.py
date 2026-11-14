@@ -17,12 +17,15 @@ filter lives in a repository helper "never ad hoc", so:
 
 from __future__ import annotations
 
+from datetime import datetime
+from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Select, select
+from sqlalchemy import Select, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from gaia.db.models import AuditLog, Base, Event, Ticket
+from gaia.db.models import AuditLog, Base, Event, LlmUsage, Run, RunToken, Ticket
+from gaia.db.types import utcnow
 
 
 class WorkspaceMismatch(ValueError):
@@ -55,6 +58,88 @@ def _workspace_of(row: Any) -> str:
     """
     workspace_id: str = row.workspace_id
     return workspace_id
+
+
+class RunTokenRepo:
+    """Unscoped run-token lookups and idempotent revocation (doc 07b).
+
+    Resolution deliberately does **not** filter by workspace: the SHA-256 token
+    hash is globally unique, and the token row itself is what proves the
+    workspace. ``revoke_*`` only sets ``revoked_at`` on live tokens, so calling
+    either method twice is a no-op.
+    """
+
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def get(self, token_id: str) -> RunToken | None:
+        """Return a token by id, for tests and administrative revocation."""
+        return await self.session.get(RunToken, token_id)
+
+    async def get_by_hash(self, token_hash: str) -> RunToken | None:
+        """Return the token whose hash matches, if any (no workspace filter)."""
+        statement = select(RunToken).where(RunToken.token_hash == token_hash)
+        return (await self.session.scalars(statement)).one_or_none()
+
+    async def revoke_by_id(self, workspace_id: str, token_id: str) -> None:
+        """Revoke one token by id, leaving an already-revoked token untouched.
+
+        Scoped by workspace like every other write (review 01-05, F5): a token
+        id from another workspace is a no-op, not a revocation.
+        """
+        statement = (
+            update(RunToken)
+            .where(
+                RunToken.workspace_id == workspace_id,
+                RunToken.id == token_id,
+                RunToken.revoked_at.is_(None),
+            )
+            .values(revoked_at=utcnow())
+        )
+        await self.session.execute(statement)
+
+    async def revoke_for_run(self, workspace_id: str, run_id: str) -> None:
+        """Revoke every live token minted for one run in one workspace."""
+        statement = (
+            update(RunToken)
+            .where(
+                RunToken.workspace_id == workspace_id,
+                RunToken.run_id == run_id,
+                RunToken.revoked_at.is_(None),
+            )
+            .values(revoked_at=utcnow())
+        )
+        await self.session.execute(statement)
+
+
+async def add_run_cost(session: AsyncSession, run_id: str, cost_usd: Decimal) -> None:
+    """Add ``cost_usd`` to ``run.cost_usd`` atomically (doc 07b).
+
+    The read-modify-write alternative would lose a concurrent usage row; the
+    database does the addition instead.
+    """
+    statement = update(Run).where(Run.id == run_id).values(cost_usd=Run.cost_usd + cost_usd)
+    await session.execute(statement)
+
+
+async def daily_llm_usage_cost_usd(
+    session: AsyncSession, workspace_id: str, *, start: datetime, end: datetime
+) -> Decimal:
+    """Return the sum of ``llm_usage.cost_usd`` in the half-open UTC day.
+
+    The query lives here because the "never build SQL outside ``gaia/db``" rule
+    applies just as much to aggregates as to row reads.
+    """
+    total = await session.scalar(
+        select(func.coalesce(func.sum(LlmUsage.cost_usd), 0)).where(
+            LlmUsage.workspace_id == workspace_id,
+            LlmUsage.created_at >= start,
+            LlmUsage.created_at < end,
+        )
+    )
+    # SQLite returns a float for SUM over NUMERIC; go through str so the
+    # Decimal is the value printed, not the float's binary expansion.
+    return Decimal(str(total or 0))
 
 
 class Repo[ModelT: Base]:

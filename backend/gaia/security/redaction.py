@@ -36,6 +36,10 @@ _PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"sk-[A-Za-z0-9]{20,}"), REDACTED),
     (re.compile(r"ghp_\w+"), REDACTED),
     (re.compile(r"github_pat_\w+"), REDACTED),
+    # Gaia's per-run gateway tokens (doc 07b). Matched by shape rather than
+    # registered one by one: the registry is never pruned and is scanned on
+    # every log line, while a pattern costs the same for the millionth token.
+    (re.compile(r"gaia_rt_[\w-]{20,}"), REDACTED),
     # Masks the token and keeps the word "Bearer", which is useful in logs.
     (re.compile(r"(?i)(bearer\s+)[\w.~+/=-]{16,}"), rf"\1{REDACTED}"),
 )

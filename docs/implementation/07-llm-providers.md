@@ -139,5 +139,39 @@ this "proxy pattern" for agents.
 - An over-budget request gets the non-retryable error, and no upstream call is made.
 
 ### Acceptance criteria
-- [ ] The native DeepSeek client and, in the spike, the Claude Agent SDK run through the gateway with
-      no provider key in their environment.
+- [x] The native DeepSeek client runs through the gateway with no provider key in its environment
+      (lead, live, 2026-11-14).
+- [ ] In the spike, the Claude Agent SDK runs through the gateway with no provider key in its
+      environment (doc 08).
+
+### Decisions and deviations (as built)
+- **DeepSeek stream options are set on the OpenAI-compatible routes only.** The doc says to add
+  `stream_options.include_usage = true` when `"stream": true`; this is applied for DeepSeek's
+  `chat/completions` and `v1/chat/completions`, but not for `anthropic/v1/messages`, which uses the
+  Anthropic wire shape and has no `stream_options` field.
+- **Run-token plaintext prefix.** Tokens are `gaia_rt_` + `secrets.token_urlsafe(32)`, stored as
+  `sha256(plaintext).hexdigest()` in `run_token.token_hash` (unique). The prefix is public; the
+  entropy is in the random half.
+- **Budget events are written directly through `EventRepo`.** They carry `{kind, limit_usd, spent_usd}`
+  and are marked `# TODO(gaia-13): publish through EventBus`; doc 13 is being built in parallel.
+- **The gateway is outside `/api/v1` and excluded from OpenAPI.** Its callers are provider SDKs, not
+  the UI, and FastAPI would otherwise generate duplicate operation ids for the multi-method catch-all.
+- **The gateway logs one `llm.gateway` line per call**, with `run_id`, `provider`, `path`, `model`,
+  `status`, `duration_ms`, `upstream_request_id` and `streamed`. Bodies and headers are never logged.
+- **Acceptance criterion:** the native DeepSeek half was verified live by the lead (see below). The
+  Claude Agent SDK half runs in the doc 08 spike.
+
+### Lead review changes (2026-11-14, [`review-07b`](../reviews/2026-11-14-review-07b.md))
+- **G1:** the post-stream cleanup (close upstream, record usage) runs in a **shielded** anyio cancel
+  scope, capped at 10 s. Before this, a client disconnect cancelled the recording and the call was
+  free.
+- **G2:** a 2xx response without usage is charged a conservative estimate
+  (`metering.estimate_usage`: bytes ÷ 3, full input rate, `price_tier="estimated"`), not $0.
+- **G3:** run tokens are masked by a `gaia_rt_…` redaction pattern instead of being registered one
+  by one.
+- **G4:** `revoke(session, workspace_id, token_id)` is workspace-scoped.
+- **G6:** DeepSeek prices were verified on 2026-11-14 and the shipped `prices.toml` uses them.
+  `PriceTable` gains `peak_windows_utc` and `peak_weekdays_only`; the old single-window
+  `off_peak_*_utc` keys still work.
+- The budget event is published through 13's `EventBus`.
+- **Open → 18a:** concurrent in-flight calls can overshoot a budget by up to one call each (G7).
