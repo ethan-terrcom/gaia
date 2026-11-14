@@ -8,8 +8,11 @@ status that survives, an environment that does not leak.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
+import shlex
+import signal
 import sys
 import time
 from pathlib import Path
@@ -20,7 +23,9 @@ import pytest
 from gaia.services.proc import (
     ENV_FALLBACKS,
     FORCED_ENV_VARS,
+    KILL_GRACE_S,
     ProcError,
+    _close_stream_reader,
     _kill_process_group,
     base_environment,
     run_proc,
@@ -177,6 +182,63 @@ async def test_run_proc_kills_the_whole_process_group(tmp_path: Path) -> None:
         pytest.fail(f"grandchild {grandchild} survived the process-group kill")
 
 
+async def test_an_escaped_grandchild_bounds_the_reap(tmp_path: Path) -> None:
+    """F2: a grandchild that called ``setsid`` cannot hang the timeout path."""
+    pid_file = tmp_path / "escaped.pid"
+    source = (
+        "import os,time; "
+        f"open({str(pid_file)!r},'w').write(str(os.getpid())); "
+        "os.setsid(); time.sleep(30)"
+    )
+    script = f"{PYTHON} -c {shlex.quote(source)} & echo started"
+
+    started = time.monotonic()
+    try:
+        result = await run_proc(["/bin/sh", "-c", script], cwd=tmp_path, timeout_s=1)
+        elapsed = time.monotonic() - started
+
+        assert result.timed_out
+        assert result.escaped
+        assert "started" in result.stdout
+        assert elapsed < 1 + KILL_GRACE_S + 2
+    finally:
+        # The escaped sleeper is no longer in the killed group by design, so the
+        # test finds and kills it - even when an assertion above failed.
+        _kill_pid_file(pid_file)
+
+
+def _kill_pid_file(pid_file: Path) -> None:
+    """SIGKILL the process whose pid ``pid_file`` holds, if it is still there."""
+    if pid_file.exists() and pid_file.read_text().strip():
+        with contextlib.suppress(ProcessLookupError):
+            os.kill(int(pid_file.read_text().strip()), signal.SIGKILL)
+
+
+async def test_cancelling_with_an_escaped_grandchild_is_bounded(tmp_path: Path) -> None:
+    """F2 (lead review): the cancellation path is bounded like the timeout path."""
+    pid_file = tmp_path / "escaped-cancel.pid"
+    source = (
+        "import os,time; "
+        f"open({str(pid_file)!r},'w').write(str(os.getpid())); "
+        "os.setsid(); time.sleep(30)"
+    )
+    script = f"{PYTHON} -c {shlex.quote(source)} & sleep 30"
+    task = asyncio.create_task(run_proc(["/bin/sh", "-c", script], cwd=tmp_path, timeout_s=60))
+    try:
+        for _ in range(100):
+            if pid_file.exists() and pid_file.read_text().strip():
+                break
+            await asyncio.sleep(0.05)
+
+        started = time.monotonic()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert time.monotonic() - started < KILL_GRACE_S + 2
+    finally:
+        _kill_pid_file(pid_file)
+
+
 async def test_cancelling_run_proc_kills_the_command(tmp_path: Path) -> None:
     """Doc 14 cancels runs: nothing may keep running behind a cancelled call."""
     pid_file = tmp_path / "cancelled.pid"
@@ -261,6 +323,11 @@ def test_kill_process_group_ignores_a_process_that_is_already_gone() -> None:
 def _unused_pid() -> int:
     """A pid that does not exist: the largest pid plus one, as Linux allows."""
     return 2**22 + 1
+
+
+async def test_close_stream_reader_ignores_a_missing_transport() -> None:
+    """A fresh ``StreamReader`` has no transport yet; closing it is a no-op."""
+    _close_stream_reader(asyncio.StreamReader())
 
 
 def test_base_environment_falls_back_when_the_parent_is_stripped(

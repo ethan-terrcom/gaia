@@ -11,6 +11,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 
+import pytest
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gaia.db.models import Approval, AuditLog, Event, LlmUsage, PullRequest, Ticket
@@ -77,6 +79,7 @@ async def test_an_approval_round_trips_and_keeps_its_payload(session: AsyncSessi
     approvals = ScopedRepo(session, Approval, chain.workspace.id)
     approval = await approvals.create(
         run_id=chain.run.id,
+        idempotency_key="plan:0:0",
         kind=ApprovalKind.MERGE.value,
         payload_json={"number": 6, "checks": ["lint", "test"]},
     )
@@ -94,11 +97,34 @@ async def test_an_approval_round_trips_and_keeps_its_payload(session: AsyncSessi
     reloaded = await approvals.get(approval.id)
     assert reloaded is not None
     assert reloaded.kind == ApprovalKind.MERGE.value
+    assert reloaded.idempotency_key == "plan:0:0"
     assert reloaded.payload_json == {"number": 6, "checks": ["lint", "test"]}
     assert reloaded.status == ApprovalStatus.APPROVED.value
     assert reloaded.comment == "Ship it"
     assert reloaded.decided_at is not None
     assert _is_aware_utc(reloaded.decided_at)
+
+
+async def test_approval_idempotency_is_unique_per_run(session: AsyncSession) -> None:
+    """A resumed node upserts by ``(run_id, idempotency_key)``, not by id."""
+    chain = await make_chain(session, slug="approval-unique")
+    approvals = ScopedRepo(session, Approval, chain.workspace.id)
+    await approvals.create(
+        run_id=chain.run.id, idempotency_key="plan:0:0", kind=ApprovalKind.PLAN.value
+    )
+
+    with pytest.raises(IntegrityError):
+        await approvals.create(
+            run_id=chain.run.id, idempotency_key="plan:0:0", kind=ApprovalKind.PLAN.value
+        )
+
+    await session.rollback()
+    second = await make_chain(session, slug="approval-second-run")
+    second_approvals = ScopedRepo(session, Approval, second.workspace.id)
+    await second_approvals.create(
+        run_id=second.run.id, idempotency_key="plan:0:0", kind=ApprovalKind.PLAN.value
+    )
+    assert (await second_approvals.list(run_id=second.run.id))[0].idempotency_key == "plan:0:0"
 
 
 async def test_a_pull_request_round_trips(session: AsyncSession) -> None:

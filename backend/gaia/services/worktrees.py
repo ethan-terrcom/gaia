@@ -33,7 +33,7 @@ from gaia.db.ids import uuid7
 from gaia.db.models import Repository, Worktree
 from gaia.db.repo import ScopedRepo, WorkspaceMismatch
 from gaia.domain.enums import WorktreeStatus
-from gaia.services.git import GitService, GitWorktree, TicketLike, resolve_within
+from gaia.services.git import GitService, GitWorktree, TicketLike, WorktreeLocation, resolve_within
 
 logger = structlog.get_logger(__name__)
 
@@ -162,14 +162,26 @@ class WorktreeService:
                 await self.git.worktree_add(repo_path, path=path, ref=branch)
             else:
                 await self.git.worktree_add(repo_path, path=path, ref=reference, new_branch=branch)
+            # Pin the admin dir while the worktree .git file is still the one git
+            # wrote; every later worktree call goes through WorktreeLocation and
+            # checks the file against this value (F1).
+            git_dir = await self.git.worktree_admin_dir(repo_path, path)
         except BaseException:
             # A row that says ``failed`` is a bug report; a directory with no row
             # is a mystery. Record it before the error goes up.
             await self.worktrees.update(row.id, status=WorktreeStatus.FAILED.value)
             logger.warning("worktree.create_failed", worktree_id=row.id, branch=branch)
             raise
-        logger.info("worktree.created", worktree_id=row.id, branch=branch, path=str(path))
-        return await self.worktrees.update(row.id, status=WorktreeStatus.READY.value)
+        logger.info(
+            "worktree.created",
+            worktree_id=row.id,
+            branch=branch,
+            path=str(path),
+            git_dir=str(git_dir),
+        )
+        return await self.worktrees.update(
+            row.id, status=WorktreeStatus.READY.value, git_dir=str(git_dir)
+        )
 
     async def _row_for(self, repo: Repository, branch: str, base_sha: str) -> Worktree:
         """The row to fill in for ``branch``: new, revived, or refused."""
@@ -200,6 +212,34 @@ class WorktreeService:
         candidate = self.git.worktrees_root / repo.id / worktree_id
         return resolve_within(self.git.worktrees_root, candidate)
 
+    async def location(self, worktree: Worktree) -> WorktreeLocation:
+        """The pinned :class:`WorktreeLocation` for ``worktree``.
+
+        Uses the ``git_dir`` recorded at creation, or re-derives it from the
+        trusted repository for rows that predate that column. ``GitService``
+        checks the worktree's ``.git`` file against this value before every
+        command, which is what closes the planted-gitdir hole (F1).
+        """
+        self._check_workspace(worktree)
+        repo = await self.repositories.get(worktree.repo_id)
+        if repo is None:
+            raise WorktreeError(
+                f"worktree {worktree.id} points at repository {worktree.repo_id!r}, "
+                "which is not in this workspace"
+            )
+        repo_path = await self.git.validate_repo(repo.local_path)
+        return await self._location_for(worktree, repo_path)
+
+    async def _location_for(self, worktree: Worktree, repo_path: Path) -> WorktreeLocation:
+        """Build a location for ``worktree``, deriving ``git_dir`` if needed."""
+        work_tree = resolve_within(self.git.worktrees_root, Path(worktree.path))
+        if worktree.git_dir is not None:
+            return WorktreeLocation(work_tree=work_tree, git_dir=Path(worktree.git_dir))
+        return WorktreeLocation(
+            work_tree=work_tree,
+            git_dir=await self.git.worktree_admin_dir(repo_path, work_tree),
+        )
+
     # --------------------------------------------------------------- remove --
     async def remove(self, worktree: Worktree, *, force: bool = False) -> Worktree:
         """Remove ``worktree`` from disk and mark its row ``removed``.
@@ -221,8 +261,12 @@ class WorktreeService:
                 "which is not in this workspace"
             )
         repo_path = await self.git.validate_repo(repo.local_path)
+        location = await self._location_for(worktree, repo_path)
         if path.exists():
-            if not force and await self.git.is_dirty(path):
+            # Even with force: `git worktree remove` checks the tree through the
+            # worktree's own `.git` file, so a tampered one is refused up front.
+            self.git.verify_location(location)
+            if not force and await self.git.is_dirty(location):
                 raise WorktreeDirty(worktree, path)
             await self.git.worktree_remove(repo_path, path, force=force)
         # Also handles a directory that was deleted behind Gaia's back, which is

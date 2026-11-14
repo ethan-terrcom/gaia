@@ -96,6 +96,7 @@ async def test_an_approval_read_schema_validates_a_pending_row(session: AsyncSes
     approvals = ScopedRepo(session, Approval, chain.workspace.id)
     row = await approvals.create(
         run_id=chain.run.id,
+        idempotency_key="command:tool-1",
         kind=ApprovalKind.COMMAND.value,
         payload_json={"command": "uv run pytest"},
     )
@@ -125,8 +126,8 @@ def test_a_repository_create_defaults_the_branch_and_commands() -> None:
 
 def test_an_approval_create_gets_its_own_payload_dict() -> None:
     """A mutable default is per instance, so two requests never share one."""
-    first = ApprovalCreate(run_id="run", kind=ApprovalKind.PLAN)
-    second = ApprovalCreate(run_id="run", kind=ApprovalKind.PR_OPEN)
+    first = ApprovalCreate(run_id="run", idempotency_key="plan:0:0", kind=ApprovalKind.PLAN)
+    second = ApprovalCreate(run_id="run", idempotency_key="pr:0:0", kind=ApprovalKind.PR_OPEN)
     first.payload_json["steps"] = 3
     assert second.payload_json == {}
 
@@ -134,7 +135,9 @@ def test_an_approval_create_gets_its_own_payload_dict() -> None:
 def test_an_approval_kind_must_be_known() -> None:
     """A payload from the UI is validated against the enum, not trusted."""
     with pytest.raises(ValidationError, match="kind"):
-        ApprovalCreate.model_validate({"run_id": "run", "kind": "not-a-kind"})
+        ApprovalCreate.model_validate(
+            {"run_id": "run", "idempotency_key": "plan:0:0", "kind": "not-a-kind"}
+        )
 
 
 def test_a_ci_status_round_trips_through_the_enum() -> None:
