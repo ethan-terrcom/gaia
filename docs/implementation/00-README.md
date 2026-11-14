@@ -21,7 +21,7 @@ accepted as recommended on 2026-11-13.
 | 06 | Repositories & tickets API | 04, 05 | 07b, 08, 09a, 10a, 11, 13 | junior |
 | 07a | LLM clients & cost accounting | 03 | 04, 05, 12a | junior |
 | 07b | LLM gateway **(D2)** | 04, 07a | 06, 08, 09a, 10a, 11, 13 | junior · lead review |
-| 08 | Runtime spike → ADR-001 (decision gate) | 05, 07a | 06, 07b, 09a, 10a, 11, 13 | **lead** · owner signs ADR |
+| 08 | Runtime spike → ADR-001 (decision gate) | 05, 07a | 06, 07b, 09a, 10a, 11, 13 | **lead** · owner signs ADR · [ADR-001](../decisions/ADR-001-agent-runtimes.md) proposed: native DeepSeek for juniors, Agent SDK for lead work, Cline disqualified |
 | 09a | Path guard, command policy, sandbox profile **(D1)** | 05 | 06, 07b, 08, 10a, 11, 13 | junior · **architect review** |
 | 09b | Sandboxed tools, registry, audit | 09a | 10b, 11, 15a | junior · architect review |
 | 10a | Runtime base types, contract suite, fake runtime | 05 | 06–09, 11, 13 | junior |

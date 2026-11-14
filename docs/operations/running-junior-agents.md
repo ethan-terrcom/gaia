@@ -216,7 +216,11 @@ and the Alembic revision chain. Rerun `make check`, then push with `--force-with
   candidate, and the evidence from these runs feeds the ADR.
 - **Gateway:** once 07b is merged, the harness should call DeepSeek through Gaia's gateway with a
   per-run token, so even the harness process holds no provider key.
-- **srt:** once 09a is merged, move the harness from a hand-written `sandbox-exec` profile to the
-  `srt` profile Gaia generates.
+- **srt:** 09a is merged, so move the harness from a hand-written `sandbox-exec` profile to the
+  `srt` profile Gaia generates. Inside srt, launch with `env -u NO_PROXY -u no_proxy`, or the
+  connection to the loopback gateway fails with `EPERM`, and set `TMPDIR` to the task dir
+  (ADR-001, consequences 1–2).
+- **ADR-001** proposes this native loop as Gaia's junior runtime (10b), so this harness is the
+  prototype for it.
 - **Frontend packages:** packages 16 and 17 need `npm run lint|test|build` added to the `run`
   allowlist.
