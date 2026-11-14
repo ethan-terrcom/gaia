@@ -7,6 +7,8 @@ worktrees, and a human approval inbox for every irreversible step.
 - What and why: [docs/PROJECT_BRIEF.md](docs/PROJECT_BRIEF.md)
 - How: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - Work packages: [docs/implementation/00-README.md](docs/implementation/00-README.md)
+- Backend overview: [backend/README.md](backend/README.md), with detailed guides and Python
+  explainers in [docs/backend/](docs/backend/README.md)
 
 ## Prerequisites
 

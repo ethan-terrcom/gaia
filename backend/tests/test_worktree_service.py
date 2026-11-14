@@ -353,7 +353,9 @@ async def test_open_in_editor_refuses_a_row_from_another_workspace(
         world.service.open_in_editor(foreign)
 
 
-@pytest.mark.parametrize("segment", ["../escape", "a/b", "", "x" * 65, "id with space"])
+@pytest.mark.parametrize(
+    "segment", ["../escape", "a/b", "", "x" * 65, "id with space", "trailing-newline\n"]
+)
 async def test_path_for_refuses_anything_that_is_not_one_safe_segment(
     world: World, segment: str
 ) -> None:
