@@ -1,6 +1,6 @@
 # API
 
-> Package 04 · Source of truth: [`docs/implementation/04-api-skeleton-auth.md`](../implementation/04-api-skeleton-auth.md)
+> Packages 04, 06 · Source of truth: [`04-api-skeleton-auth.md`](../implementation/04-api-skeleton-auth.md), [`06-repositories-and-tickets-api.md`](../implementation/06-repositories-and-tickets-api.md)
 > · Concepts used: [dependency injection](python-concepts.md#dependency-injection-in-fastapi),
 > [ASGI middleware](python-concepts.md#asgi-middleware), [context managers](python-concepts.md#context-managers-and-async-with),
 > [constant-time comparison](python-concepts.md#constant-time-comparison), [Protocols](python-concepts.md#protocols)
@@ -93,6 +93,23 @@ Every failure has the same shape, with the request id also in the `X-Request-ID`
 `conflict`, `validation_error`, `internal_error` or `http_error`. Messages are passed through
 `redact()`. Validation errors name the field but never echo the submitted value. Crashes are logged
 server-side with the traceback, and the client only sees "the server hit an unexpected error".
+
+### The domain routes (doc 06)
+
+| Method | Path | Notes |
+|---|---|---|
+| POST / GET | `/repositories` | Register (validated by git; origin and default branch detected, credentials stripped) / list |
+| GET / DELETE | `/repositories/{id}` | Detail with worktree and active-run counts / unregister, **409 if it has tickets or live worktrees** |
+| POST / GET | `/tickets` | Create (repo loaded in your workspace) / page with `status`, `repo_id`, `q`, `limit` ≤ 100, `cursor` → `{items, next_cursor}` |
+| GET / PATCH | `/tickets/{id}` | Read / update text fields and status (illegal move → 409) |
+| GET | `/agents` | The seeded roster (`lead`, `junior-1`) |
+| GET | `/worktrees?repo_id=` | Rows with `orphan`, `exists`, `dirty`, `tampered`, plus `unknown_paths` |
+| DELETE | `/worktrees/{id}?force=` | Remove from disk, keep the row; dirty → 409 unless `force`; tampered → always 409 |
+
+Service errors map to status codes in `api/errors.py`: `IllegalTransition`, `WorktreeDirty`,
+`WorktreeTampered`, `WorktreeError` and `IntegrityError` → 409; `NotARepository`, `UnsafePath` and
+`InvalidRef` → 422. Every mutating route calls `append_audit_log(...)`. `make openapi` regenerates
+`frontend/src/api/openapi.json`.
 
 ## Why it's built this way
 

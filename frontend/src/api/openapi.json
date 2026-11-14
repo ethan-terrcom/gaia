@@ -1,0 +1,1482 @@
+{
+  "components": {
+    "schemas": {
+      "AgentRead": {
+        "description": "A configured agent.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/AgentRole"
+          },
+          "runtime": {
+            "$ref": "#/components/schemas/RuntimeKind"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AgentStatus"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "updated_at",
+          "workspace_id",
+          "role",
+          "runtime",
+          "model",
+          "display_name",
+          "status"
+        ],
+        "title": "AgentRead",
+        "type": "object"
+      },
+      "AgentRole": {
+        "description": "Who an agent is in the hierarchy: the lead plans and reviews, juniors implement.",
+        "enum": [
+          "lead",
+          "junior"
+        ],
+        "title": "AgentRole",
+        "type": "string"
+      },
+      "AgentStatus": {
+        "description": "Whether an agent row is usable and busy.",
+        "enum": [
+          "idle",
+          "running",
+          "paused",
+          "failed",
+          "retired"
+        ],
+        "title": "AgentStatus",
+        "type": "string"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "Health": {
+        "description": "The body of ``GET /api/health``.",
+        "properties": {
+          "status": {
+            "const": "ok",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "Health",
+        "type": "object"
+      },
+      "Principal": {
+        "description": "The authenticated caller, and the workspace every query is scoped to.",
+        "properties": {
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "workspace_id"
+        ],
+        "title": "Principal",
+        "type": "object"
+      },
+      "RepositoryCreate": {
+        "additionalProperties": false,
+        "description": "Register a repository.\n\n``name`` is optional: the route defaults it to the repository root's\ndirectory name. The commands are argv lists (never a shell string), and they\nare the owner's registration-time values, never read from the repository.",
+        "properties": {
+          "local_path": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Local Path",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "setup_command": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Setup Command"
+          },
+          "test_command": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Test Command"
+          }
+        },
+        "required": [
+          "local_path"
+        ],
+        "title": "RepositoryCreate",
+        "type": "object"
+      },
+      "RepositoryDetailRead": {
+        "description": "A repository with the two counts the dashboard shows.",
+        "properties": {
+          "active_runs": {
+            "title": "Active Runs",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "default_branch": {
+            "title": "Default Branch",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "local_path": {
+            "title": "Local Path",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "remote_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remote Url"
+          },
+          "setup_command": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Setup Command"
+          },
+          "test_command": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Test Command"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          },
+          "worktree_count": {
+            "title": "Worktree Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "updated_at",
+          "workspace_id",
+          "name",
+          "local_path",
+          "remote_url",
+          "default_branch",
+          "setup_command",
+          "test_command",
+          "created_by",
+          "worktree_count",
+          "active_runs"
+        ],
+        "title": "RepositoryDetailRead",
+        "type": "object"
+      },
+      "RepositoryRead": {
+        "description": "A registered repository.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "default_branch": {
+            "title": "Default Branch",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "local_path": {
+            "title": "Local Path",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "remote_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remote Url"
+          },
+          "setup_command": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Setup Command"
+          },
+          "test_command": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Test Command"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "updated_at",
+          "workspace_id",
+          "name",
+          "local_path",
+          "remote_url",
+          "default_branch",
+          "setup_command",
+          "test_command",
+          "created_by"
+        ],
+        "title": "RepositoryRead",
+        "type": "object"
+      },
+      "RuntimeKind": {
+        "description": "The harness behind an agent; ADR-001 (doc 08) picks which ones ship.\n\n``native_claude`` and ``native_deepseek`` are the raw-API runtimes,\n``claude_agent_sdk`` and ``cline_cli`` the harnesses. The values are stored\non ``agent.runtime`` and ``run.junior_runtime``, so they must not change\nafter the first migration without one.",
+        "enum": [
+          "native_claude",
+          "native_deepseek",
+          "claude_agent_sdk",
+          "cline_cli"
+        ],
+        "title": "RuntimeKind",
+        "type": "string"
+      },
+      "TicketCreate": {
+        "additionalProperties": false,
+        "description": "Open a ticket. ``status`` is deliberately absent (see the module docstring).",
+        "properties": {
+          "body": {
+            "default": "",
+            "maxLength": 50000,
+            "title": "Body",
+            "type": "string"
+          },
+          "external_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Ref"
+          },
+          "priority": {
+            "default": 0,
+            "title": "Priority",
+            "type": "integer"
+          },
+          "repo_id": {
+            "title": "Repo Id",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "repo_id",
+          "title"
+        ],
+        "title": "TicketCreate",
+        "type": "object"
+      },
+      "TicketPage": {
+        "description": "One page of tickets and the cursor for the next one.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TicketRead"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "TicketPage",
+        "type": "object"
+      },
+      "TicketPatch": {
+        "additionalProperties": false,
+        "description": "Update a ticket. ``status`` goes through the transition machine.",
+        "properties": {
+          "body": {
+            "anyOf": [
+              {
+                "maxLength": 50000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Body"
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Priority"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TicketStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "title": "TicketPatch",
+        "type": "object"
+      },
+      "TicketRead": {
+        "description": "A ticket, with its status validated against :class:`TicketStatus`.",
+        "properties": {
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "external_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Ref"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "priority": {
+            "title": "Priority",
+            "type": "integer"
+          },
+          "repo_id": {
+            "title": "Repo Id",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TicketStatus"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "updated_at",
+          "workspace_id",
+          "repo_id",
+          "title",
+          "body",
+          "status",
+          "priority",
+          "external_ref",
+          "created_by"
+        ],
+        "title": "TicketRead",
+        "type": "object"
+      },
+      "TicketStatus": {
+        "description": "Where a ticket is in the queue (doc 03 task 3).",
+        "enum": [
+          "backlog",
+          "ready",
+          "in_progress",
+          "in_review",
+          "done",
+          "cancelled"
+        ],
+        "title": "TicketStatus",
+        "type": "string"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "WorktreeItemRead": {
+        "description": "A worktree as the list endpoint shows it.\n\n``dirty`` is ``None`` when a tampered worktree could not be inspected safely;\n``tampered`` is then ``True`` instead of failing the whole list.",
+        "properties": {
+          "base_sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Sha"
+          },
+          "branch": {
+            "title": "Branch",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "dirty": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dirty"
+          },
+          "exists": {
+            "title": "Exists",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "orphan": {
+            "title": "Orphan",
+            "type": "boolean"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "repo_id": {
+            "title": "Repo Id",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/WorktreeStatus"
+          },
+          "tampered": {
+            "title": "Tampered",
+            "type": "boolean"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "updated_at",
+          "workspace_id",
+          "repo_id",
+          "path",
+          "branch",
+          "base_sha",
+          "status",
+          "orphan",
+          "exists",
+          "dirty",
+          "tampered"
+        ],
+        "title": "WorktreeItemRead",
+        "type": "object"
+      },
+      "WorktreeListRead": {
+        "description": "The worktree list: rows plus paths git knows that no row claims.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/WorktreeItemRead"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "unknown_paths": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Unknown Paths",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items",
+          "unknown_paths"
+        ],
+        "title": "WorktreeListRead",
+        "type": "object"
+      },
+      "WorktreeRead": {
+        "description": "A git worktree (doc 05).",
+        "properties": {
+          "base_sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Sha"
+          },
+          "branch": {
+            "title": "Branch",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "repo_id": {
+            "title": "Repo Id",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/WorktreeStatus"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "updated_at",
+          "workspace_id",
+          "repo_id",
+          "path",
+          "branch",
+          "base_sha",
+          "status"
+        ],
+        "title": "WorktreeRead",
+        "type": "object"
+      },
+      "WorktreeStatus": {
+        "description": "Lifecycle of a git worktree (doc 05 owns the transitions).",
+        "enum": [
+          "preparing",
+          "ready",
+          "in_use",
+          "removed",
+          "failed"
+        ],
+        "title": "WorktreeStatus",
+        "type": "string"
+      }
+    },
+    "securitySchemes": {
+      "bearer": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "summary": "Local-first control plane for a hierarchy of AI coding agents.",
+    "title": "Gaia",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/health": {
+      "get": {
+        "description": "Answer without touching the database or the keychain.\n\nA probe that failed because the database was busy, or the keychain was\nlocked, would report the wrong problem. \"The process answers HTTP\" is what\nthis says, and it is the only thing a supervisor needs.",
+        "operationId": "health_api_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Liveness probe",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/api/v1/agents": {
+      "get": {
+        "description": "Return the workspace's agents, newest first by UUIDv7 id.",
+        "operationId": "list_agents_api_v1_agents_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AgentRead"
+                  },
+                  "title": "Response List Agents Api V1 Agents Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List agents",
+        "tags": [
+          "agents"
+        ]
+      }
+    },
+    "/api/v1/me": {
+      "get": {
+        "description": "Return the caller the bearer token resolved to.",
+        "operationId": "me_api_v1_me_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Principal"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "The authenticated caller",
+        "tags": [
+          "session"
+        ]
+      }
+    },
+    "/api/v1/repositories": {
+      "get": {
+        "description": "Return every repository registered in this workspace.",
+        "operationId": "list_repositories_api_v1_repositories_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RepositoryRead"
+                  },
+                  "title": "Response List Repositories Api V1 Repositories Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List repositories",
+        "tags": [
+          "repositories"
+        ]
+      },
+      "post": {
+        "description": "Validate ``local_path``, detect its origin and default branch, and add a row.",
+        "operationId": "register_repository_api_v1_repositories_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RepositoryCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Register a local git repository",
+        "tags": [
+          "repositories"
+        ]
+      }
+    },
+    "/api/v1/repositories/{repository_id}": {
+      "delete": {
+        "description": "Delete the row only. No file or directory on disk is touched.\n\nRefused with 409 while the repository has tickets or live worktrees: the\nforeign keys cascade, so deleting the row would silently delete every\nticket, run, approval and usage record that hangs off it (lead review of 06).",
+        "operationId": "unregister_repository_api_v1_repositories__repository_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "repository_id",
+            "required": true,
+            "schema": {
+              "title": "Repository Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Unregister a repository",
+        "tags": [
+          "repositories"
+        ]
+      },
+      "get": {
+        "description": "Return the repository plus its worktree count and active run count.",
+        "operationId": "get_repository_api_v1_repositories__repository_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "repository_id",
+            "required": true,
+            "schema": {
+              "title": "Repository Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryDetailRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get one repository",
+        "tags": [
+          "repositories"
+        ]
+      }
+    },
+    "/api/v1/tickets": {
+      "get": {
+        "description": "Return one page of tickets, filtered by status, repository and title.",
+        "operationId": "list_tickets_api_v1_tickets_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/TicketStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "repo_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Repo Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 36,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List tickets",
+        "tags": [
+          "tickets"
+        ]
+      },
+      "post": {
+        "description": "Create a ticket in ``repo_id`` after proving the repo is in this workspace.",
+        "operationId": "create_ticket_api_v1_tickets_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TicketCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create a ticket",
+        "tags": [
+          "tickets"
+        ]
+      }
+    },
+    "/api/v1/tickets/{ticket_id}": {
+      "get": {
+        "description": "Return one ticket, or 404 - the same answer for another workspace.",
+        "operationId": "get_ticket_api_v1_tickets__ticket_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get a ticket",
+        "tags": [
+          "tickets"
+        ]
+      },
+      "patch": {
+        "description": "Update text fields and apply a legal status transition, if one is given.",
+        "operationId": "update_ticket_api_v1_tickets__ticket_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TicketPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Update a ticket",
+        "tags": [
+          "tickets"
+        ]
+      }
+    },
+    "/api/v1/worktrees": {
+      "get": {
+        "description": "Return a repository's worktrees with orphan and dirty flags.",
+        "operationId": "list_worktrees_api_v1_worktrees_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "repo_id",
+            "required": true,
+            "schema": {
+              "title": "Repo Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorktreeListRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List worktrees",
+        "tags": [
+          "worktrees"
+        ]
+      }
+    },
+    "/api/v1/worktrees/{worktree_id}": {
+      "delete": {
+        "description": "Remove a worktree from disk and mark its row ``removed``.\n\nThe row is kept as history. A dirty worktree is refused unless ``force`` is\nset; a tampered worktree is always refused.",
+        "operationId": "remove_worktree_api_v1_worktrees__worktree_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "worktree_id",
+            "required": true,
+            "schema": {
+              "title": "Worktree Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "force",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Force",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorktreeRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Remove a worktree",
+        "tags": [
+          "worktrees"
+        ]
+      }
+    }
+  }
+}

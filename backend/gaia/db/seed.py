@@ -15,8 +15,10 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from gaia.db.models import User, Workspace
+from gaia.config.settings import Settings
+from gaia.db.models import Agent, User, Workspace
 from gaia.db.repo import ScopedRepo
+from gaia.domain.enums import AgentRole, RuntimeKind
 
 #: The local workspace's stable handle. ``slug`` is what config and the CLI quote.
 DEFAULT_WORKSPACE_SLUG = "local"
@@ -59,12 +61,56 @@ async def _default_user(session: AsyncSession, workspace_id: str) -> User:
     return await users.create(email=DEFAULT_USER_EMAIL, display_name=DEFAULT_USER_NAME)
 
 
-async def seed_initial_data(session: AsyncSession) -> Seeded:
-    """Create the default workspace and its local user if they are missing.
+async def _seed_agent(
+    session: AsyncSession,
+    workspace_id: str,
+    *,
+    display_name: str,
+    role: AgentRole,
+    runtime: RuntimeKind,
+    model: str,
+) -> Agent:
+    """Return the named agent, creating it the first time.
 
-    Flushes but does not commit: the caller owns the transaction, so a failure
-    later in startup cannot leave half a tenant behind.
+    Idempotent by ``display_name``: the seed runs on every startup, and the two
+    agents are stable roster entries, not duplicates.
+    """
+    agents = ScopedRepo(session, Agent, workspace_id)
+    existing = await agents.list(display_name=display_name)
+    if existing:
+        return existing[0]
+    return await agents.create(
+        role=role,
+        runtime=runtime,
+        model=model,
+        display_name=display_name,
+    )
+
+
+async def seed_initial_data(session: AsyncSession, settings: Settings) -> Seeded:
+    """Create the default workspace, its local user and the agent roster.
+
+    The agents are static rows for doc 06's dashboard: ``lead`` (Claude) and
+    ``junior-1`` (DeepSeek), using the models from settings. Flushes but does not
+    commit: the caller owns the transaction, so a failure later in startup
+    cannot leave half a tenant behind.
     """
     workspace = await _default_workspace(session)
     user = await _default_user(session, workspace.id)
+    await _seed_agent(
+        session,
+        workspace.id,
+        display_name="lead",
+        role=AgentRole.LEAD,
+        runtime=RuntimeKind.NATIVE_CLAUDE,
+        model=settings.lead_model,
+    )
+    await _seed_agent(
+        session,
+        workspace.id,
+        display_name="junior-1",
+        role=AgentRole.JUNIOR,
+        runtime=RuntimeKind.NATIVE_DEEPSEEK,
+        model=settings.junior_model,
+    )
     return Seeded(workspace=workspace, user=user)

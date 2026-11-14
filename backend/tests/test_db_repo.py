@@ -20,6 +20,7 @@ from gaia.db.repo import (
     EventRepo,
     NotFound,
     ScopedRepo,
+    TicketRepo,
     WorkspaceMismatch,
 )
 from tests.db_builders import Chain, make_chain
@@ -140,6 +141,49 @@ async def test_list_can_filter_page_and_order(session: AsyncSession) -> None:
     ]
     assert len(page) == 2
     assert backlog[:2] + page == backlog
+
+
+async def test_list_after_id_uses_uuidv7_cursor_order(session: AsyncSession) -> None:
+    """``after_id`` returns only rows that sort after the cursor."""
+    chain = await make_chain(session, slug="cursor")
+    tickets = ScopedRepo(session, Ticket, chain.workspace.id)
+    for index in range(3):
+        await tickets.create(repo_id=chain.repository.id, title=f"ticket {index}")
+
+    first = await tickets.list(limit=1)
+    after_first = await tickets.list(after_id=first[0].id)
+
+    assert [row.id for row in after_first] == [row.id for row in await tickets.list()][1:]
+
+
+async def test_delete_missing_row_raises_not_found(session: AsyncSession) -> None:
+    """Delete is scoped, so a missing id is indistinguishable from a foreign one."""
+    chain = await make_chain(session, slug="delete-missing")
+    tickets = ScopedRepo(session, Ticket, chain.workspace.id)
+
+    with pytest.raises(NotFound, match="missing-ticket"):
+        await tickets.delete("missing-ticket")
+
+
+async def test_delete_removes_the_row(session: AsyncSession) -> None:
+    """A successful delete returns the row and removes it from later reads."""
+    chain = await make_chain(session, slug="delete-row")
+    tickets = ScopedRepo(session, Ticket, chain.workspace.id)
+
+    deleted = await tickets.delete(chain.ticket.id)
+
+    assert deleted.id == chain.ticket.id
+    assert await tickets.get(chain.ticket.id) is None
+
+
+async def test_ticket_search_supports_no_limit(session: AsyncSession) -> None:
+    """The search method is also used without a limit, not only from the API."""
+    chain = await make_chain(session, slug="search-no-limit")
+    tickets = TicketRepo(session, Ticket, chain.workspace.id)
+
+    rows = await tickets.search()
+
+    assert [row.id for row in rows] == [chain.ticket.id]
 
 
 async def test_an_append_only_repo_has_no_update_or_delete() -> None:

@@ -61,7 +61,7 @@ async def test_a_setting_row_validates_into_its_schemas(session: AsyncSession) -
     repository = RepositoryRead.model_validate(chain.repository)
     run = RunRead.model_validate(chain.run)
     assert workspace.slug == "second"
-    assert repository.setup_command == "uv sync --locked"
+    assert repository.setup_command == ["uv", "sync", "--locked"]
     assert run.status is RunStatus.PENDING
     assert isinstance(run.cost_usd, Decimal)
 
@@ -116,10 +116,47 @@ def test_a_ticket_create_cannot_set_a_status() -> None:
     assert create.external_ref is None
 
 
-def test_a_repository_create_defaults_the_branch_and_commands() -> None:
-    """Only a name and a path are required; commands stay unset until given."""
-    create = RepositoryCreate(name="gaia", local_path="/src/gaia")
-    assert create.default_branch == "main"
+def test_a_repository_create_defaults_the_name_and_commands() -> None:
+    """Only a path is required; the route fills in the name from the repo root."""
+    create = RepositoryCreate(local_path="/src/gaia")
+    assert create.name is None
+    assert create.setup_command is None
+    assert create.test_command is None
+
+
+def test_repository_commands_are_argv_lists_with_limits() -> None:
+    """Commands are lists of 1-64 non-empty items, each at most 1000 chars."""
+    create = RepositoryCreate(
+        name="gaia",
+        local_path="/src/gaia",
+        setup_command=["uv", "sync", "--locked"],
+        test_command=["uv", "run", "pytest"],
+    )
+    assert create.setup_command == ["uv", "sync", "--locked"]
+    assert create.test_command == ["uv", "run", "pytest"]
+
+    with pytest.raises(ValidationError, match="between 1 and 64"):
+        RepositoryCreate(name="gaia", local_path="/src/gaia", setup_command=[])
+
+    with pytest.raises(ValidationError, match="1 and 1000"):
+        RepositoryCreate(name="gaia", local_path="/src/gaia", setup_command=[""])
+
+    with pytest.raises(ValidationError, match="NUL"):
+        RepositoryCreate(
+            name="gaia",
+            local_path="/src/gaia",
+            setup_command=["bad\x00argv"],
+        )
+
+
+def test_repository_commands_can_be_explicitly_none() -> None:
+    """Pydantic runs the validator when a command is explicitly ``None``."""
+    create = RepositoryCreate(
+        name="gaia",
+        local_path="/src/gaia",
+        setup_command=None,
+        test_command=None,
+    )
     assert create.setup_command is None
     assert create.test_command is None
 

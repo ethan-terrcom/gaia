@@ -51,8 +51,8 @@ async def make_chain(session: AsyncSession, slug: str = "local") -> Chain:
         name=f"repo-{slug}",
         local_path=f"/tmp/{slug}/repo",
         remote_url=f"https://example.invalid/{slug}/repo.git",
-        setup_command="uv sync --locked",
-        test_command="uv run pytest",
+        setup_command=["uv", "sync", "--locked"],
+        test_command=["uv", "run", "pytest"],
         created_by=user.id,
     )
 

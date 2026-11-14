@@ -34,6 +34,7 @@ import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
+from urllib.parse import urlsplit, urlunsplit
 
 import structlog
 
@@ -257,6 +258,19 @@ def slugify(title: str) -> str:
     folded = unicodedata.normalize("NFKD", title).encode("ascii", "ignore").decode("ascii")
     slug = _NON_SLUG_CHARS.sub("-", folded.lower()).strip("-")
     return slug[:SLUG_MAX_LENGTH].rstrip("-")
+
+
+def strip_url_credentials(url: str) -> str:
+    """Drop the ``user:password@`` part of a URL with a scheme.
+
+    scp-style remotes (``git@github.com:org/repo.git``) carry a user name and
+    no secret, so they are returned unchanged.
+    """
+    parts = urlsplit(url)
+    if not parts.scheme or "@" not in parts.netloc:
+        return url
+    host = parts.netloc.rsplit("@", 1)[1]
+    return urlunsplit((parts.scheme, host, parts.path, parts.query, parts.fragment))
 
 
 def check_ref_argument(name: str, *, what: str = "ref") -> str:
@@ -486,6 +500,25 @@ class GitService:
                 f"{str(work_tree_path / '.git')!r}"
             )
         return admin_dir
+
+    async def remote_url(
+        self, repo: Path, remote: str = "origin", *, timeout_s: float | None = None
+    ) -> str | None:
+        """The URL of ``remote`` with any embedded credentials removed, or ``None``.
+
+        ``https://user:token@host/x.git`` is a real thing people configure; the
+        URL is stored, returned by the API and logged, so the userinfo is
+        stripped here, once, for every caller (lead review of 06).
+        """
+        check_ref_argument(remote, what="remote")
+        cwd, env = self._command_context(repo)
+        result = await self._invoke(
+            "remote", "get-url", remote, cwd=cwd, env=env, timeout_s=timeout_s
+        )
+        url = result.stdout.strip()
+        if not result.ok or not url:
+            return None
+        return strip_url_credentials(url)
 
     async def current_sha(
         self, repo: Path | WorktreeLocation, rev: str = "HEAD", *, timeout_s: float | None = None

@@ -19,7 +19,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from gaia.domain.enums import (
     AgentRole,
@@ -40,6 +40,12 @@ class Schema(BaseModel):
     """Base for every schema: buildable straight from a SQLAlchemy row."""
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class RequestSchema(Schema):
+    """Base for request bodies: no unknown fields may ride along."""
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class ReadSchema(Schema):
@@ -73,15 +79,33 @@ class UserRead(WorkspaceScopedRead):
     display_name: str
 
 
-class RepositoryCreate(Schema):
-    """Register a repository. The commands are the owner's, never the repo's."""
+class RepositoryCreate(RequestSchema):
+    """Register a repository.
 
-    name: str
-    local_path: str
-    remote_url: str | None = None
-    default_branch: str = "main"
-    setup_command: str | None = None
-    test_command: str | None = None
+    ``name`` is optional: the route defaults it to the repository root's
+    directory name. The commands are argv lists (never a shell string), and they
+    are the owner's registration-time values, never read from the repository.
+    """
+
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    local_path: str = Field(min_length=1, max_length=4096)
+    setup_command: list[str] | None = None
+    test_command: list[str] | None = None
+
+    @field_validator("setup_command", "test_command")
+    @classmethod
+    def _validate_argv(cls, value: list[str] | None) -> list[str] | None:
+        """Commands are argv lists: 1-64 items, each 1-1000 chars, no NUL."""
+        if value is None:
+            return value
+        if not 1 <= len(value) <= 64:
+            raise ValueError("an argv list must contain between 1 and 64 items")
+        for item in value:
+            if len(item) < 1 or len(item) > 1000:
+                raise ValueError("each argv item must be between 1 and 1000 characters")
+            if "\x00" in item:
+                raise ValueError("argv items must not contain NUL characters")
+        return value
 
 
 class RepositoryRead(WorkspaceScopedRead):
@@ -91,19 +115,42 @@ class RepositoryRead(WorkspaceScopedRead):
     local_path: str
     remote_url: str | None
     default_branch: str
-    setup_command: str | None
-    test_command: str | None
+    setup_command: list[str] | None
+    test_command: list[str] | None
     created_by: str | None
 
 
-class TicketCreate(Schema):
+class RepositoryDetailRead(RepositoryRead):
+    """A repository with the two counts the dashboard shows."""
+
+    worktree_count: int
+    active_runs: int
+
+
+class TicketCreate(RequestSchema):
     """Open a ticket. ``status`` is deliberately absent (see the module docstring)."""
 
     repo_id: str
-    title: str
-    body: str = ""
+    title: str = Field(min_length=1, max_length=200)
+    body: str = Field(default="", max_length=50_000)
     priority: int = 0
     external_ref: str | None = None
+
+
+class TicketPatch(RequestSchema):
+    """Update a ticket. ``status`` goes through the transition machine."""
+
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    body: str | None = Field(default=None, max_length=50_000)
+    priority: int | None = None
+    status: TicketStatus | None = None
+
+    @model_validator(mode="after")
+    def _at_least_one_field(self) -> TicketPatch:
+        """A PATCH with no fields is a client bug, not a write."""
+        if all(value is None for value in (self.title, self.body, self.priority, self.status)):
+            raise ValueError("at least one field must be provided")
+        return self
 
 
 class TicketRead(WorkspaceScopedRead):
@@ -116,6 +163,13 @@ class TicketRead(WorkspaceScopedRead):
     priority: int
     external_ref: str | None
     created_by: str | None
+
+
+class TicketPage(Schema):
+    """One page of tickets and the cursor for the next one."""
+
+    items: list[TicketRead]
+    next_cursor: str | None
 
 
 class AgentRead(WorkspaceScopedRead):
@@ -136,6 +190,26 @@ class WorktreeRead(WorkspaceScopedRead):
     branch: str
     base_sha: str | None
     status: WorktreeStatus
+
+
+class WorktreeItemRead(WorktreeRead):
+    """A worktree as the list endpoint shows it.
+
+    ``dirty`` is ``None`` when a tampered worktree could not be inspected safely;
+    ``tampered`` is then ``True`` instead of failing the whole list.
+    """
+
+    orphan: bool
+    exists: bool
+    dirty: bool | None
+    tampered: bool
+
+
+class WorktreeListRead(Schema):
+    """The worktree list: rows plus paths git knows that no row claims."""
+
+    items: list[WorktreeItemRead]
+    unknown_paths: list[str]
 
 
 class RunRead(WorkspaceScopedRead):

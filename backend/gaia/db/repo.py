@@ -22,7 +22,7 @@ from typing import Any
 from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from gaia.db.models import AuditLog, Base, Event
+from gaia.db.models import AuditLog, Base, Event, Ticket
 
 
 class WorkspaceMismatch(ValueError):
@@ -116,10 +116,24 @@ class ScopedRepo[ModelT: Base](Repo[ModelT]):
         return row
 
     async def list(
-        self, *, limit: int | None = None, offset: int = 0, **filters: Any
+        self,
+        *,
+        limit: int | None = None,
+        offset: int = 0,
+        after_id: str | None = None,
+        **filters: Any,
     ) -> list[ModelT]:
-        """Rows in this workspace, optionally narrowed by equality on columns."""
-        statement = self._select(**filters).offset(offset)
+        """Rows in this workspace, optionally narrowed by equality on columns.
+
+        ``after_id`` is the UUIDv7 cursor: rows with an id greater than the
+        cursor, which is creation order. Like every other condition, it is an
+        SQLAlchemy expression compiled with a bound value, never a string built
+        into SQL.
+        """
+        statement = self._select(**filters)
+        if after_id is not None:
+            statement = statement.where(self._table.id > after_id)
+        statement = statement.offset(offset)
         if limit is not None:
             statement = statement.limit(limit)
         return list((await self.session.scalars(statement)).all())
@@ -136,6 +150,15 @@ class ScopedRepo[ModelT: Base](Repo[ModelT]):
         self._check_workspace(values)
         for name, value in values.items():
             setattr(row, name, value)
+        await self.session.flush()
+        return row
+
+    async def delete(self, row_id: str) -> ModelT:
+        """Delete an existing row of this workspace and return it."""
+        row = await self.get(row_id)
+        if row is None:
+            raise NotFound(self.model.__name__, row_id)
+        await self.session.delete(row)
         await self.session.flush()
         return row
 
@@ -169,6 +192,39 @@ class EventRepo(AppendOnlyRepo[Event]):
     ) -> list[Event]:
         """Events of one run with ``seq`` above ``after_seq``, oldest first."""
         statement = self._select(run_id=run_id).where(self._table.seq > after_seq)
+        if limit is not None:
+            statement = statement.limit(limit)
+        return list((await self.session.scalars(statement)).all())
+
+
+class TicketRepo(ScopedRepo[Ticket]):
+    """Ticket queries: filters plus the cursor-paginated ``search`` for doc 06."""
+
+    async def search(
+        self,
+        *,
+        status: str | None = None,
+        repo_id: str | None = None,
+        q: str | None = None,
+        after_id: str | None = None,
+        limit: int | None = None,
+    ) -> list[Ticket]:
+        """Tickets matching the dashboard filters, ordered by id.
+
+        ``q`` matches ``title`` case-insensitively. ``%`` and ``_`` in ``q`` are
+        escaped before the pattern is passed as a bound parameter, so a search
+        term cannot change the shape of the ``LIKE`` expression.
+        """
+        statement = self._select()
+        if status is not None:
+            statement = statement.where(self._table.status == status)
+        if repo_id is not None:
+            statement = statement.where(self._table.repo_id == repo_id)
+        if q:
+            escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            statement = statement.where(self._table.title.ilike(f"%{escaped}%", escape="\\"))
+        if after_id is not None:
+            statement = statement.where(self._table.id > after_id)
         if limit is not None:
             statement = statement.limit(limit)
         return list((await self.session.scalars(statement)).all())

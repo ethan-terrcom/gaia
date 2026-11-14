@@ -5,7 +5,7 @@
 > [`docs/backend/`](../docs/backend/README.md) take each part further, with explainers for the
 > Python techniques it uses.
 >
-> **Status:** living document, current as of implementation package 07a (2026-11-13). Update it
+> **Status:** living document, current as of implementation package 06 (2026-11-13). Update it
 > whenever a package lands (see "Keeping this current" at the end).
 
 ## What the backend is
@@ -34,7 +34,7 @@ come next, in the order given in [`docs/implementation/00-README.md`](../docs/im
 │ llm/           provider clients + cost accounting (built), LLM gateway        │  07a / 07b
 │ tools/         sandboxed file/shell tools for agents                          │  planned (09)
 ├──────────────────────────────────────────────────────────────────────────────┤
-│ services/   git & worktrees (built) · tickets, GitHub, events, costs (planned)│
+│ services/   git, worktrees, tickets, costs (built) · GitHub, events (planned) │
 │             └─ proc.py: the ONLY place a process is ever started              │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ db/ + domain/   SQLAlchemy models, migrations, workspace-scoped repositories, │
@@ -60,9 +60,10 @@ never imports FastAPI. `db/` knows nothing about HTTP or git.
 | 04 | `api/` | Localhost-only FastAPI app, bearer-token auth, uniform error envelope, `gaia serve` / `gaia ui` | [API](../docs/backend/api.md) |
 | 05 | `services/proc.py`, `git.py`, `worktrees.py` | Safe process runner, hardened git, one git worktree per ticket | [git & processes](../docs/backend/git-and-processes.md) |
 | 05b | `services/{git,proc,worktrees}.py`, migration `0002` | Worktree git pinned to the trusted admin dir (F1), bounded reap of escaped processes (F2), approval idempotency key (F4), commit-before-response (F6) | [git & processes](../docs/backend/git-and-processes.md) |
+| 06 | `api/routes/`, `services/tickets.py`, migration `0003` | Repositories, tickets, agents and worktrees API with pagination, audit rows and `make openapi` | [API](../docs/backend/api.md) |
 | 07a | `llm/`, `services/costs.py` | Claude and DeepSeek clients, priced and recorded in `llm_usage`; `FakeLLM` for tests | [LLM clients](../docs/backend/llm.md) |
 
-The whole suite (424 tests, 100% line and branch coverage) runs with `make check`, which is also what CI runs.
+The whole suite (495 tests, 100% line and branch coverage) runs with `make check`, which is also what CI runs.
 
 ## Five design rules that explain most of the code
 
