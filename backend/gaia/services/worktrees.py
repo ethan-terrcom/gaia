@@ -38,8 +38,10 @@ from gaia.services.git import GitService, GitWorktree, TicketLike, resolve_withi
 logger = structlog.get_logger(__name__)
 
 #: What an id may look like when it becomes a path segment. UUIDv7 strings pass;
-#: anything with a slash or a ``..`` in it does not.
-_SEGMENT = re.compile(r"^[0-9a-zA-Z-]{1,64}$")
+#: anything with a slash or a ``..`` in it does not. Always used with
+#: ``fullmatch``: with ``match``, ``$`` also matches just before a trailing
+#: newline, so ``"abc\n"`` would have passed.
+_SEGMENT = re.compile(r"[0-9a-zA-Z-]{1,64}")
 
 #: The URL scheme VS Code registers for "open this file/folder" (task 3).
 VSCODE_SCHEME = "vscode://file"
@@ -284,7 +286,7 @@ def _check_segment(value: str, what: str) -> None:
     here because ``repo.id`` arrives from a database row, and a row is not a
     place to trust for a filesystem path.
     """
-    if not _SEGMENT.match(value):
+    if not _SEGMENT.fullmatch(value):
         raise WorktreeError(f"{what} {value!r} is not usable as a directory name")
 
 

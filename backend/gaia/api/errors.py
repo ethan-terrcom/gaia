@@ -183,8 +183,8 @@ async def _handle_unexpected_error(request: Request, exc: Exception) -> Response
     """Answer a crash with 500 and log it, redacted, on the server side.
 
     Starlette re-raises after the handler returns, which is why a test that
-    asserts on this body has to build its client with
-    ``raise_server_exceptions=False``.
+    asserts on this body has to build its transport with
+    ``httpx.ASGITransport(app=app, raise_app_exceptions=False)``.
     """
     logger.error(
         "api.unhandled_error",
