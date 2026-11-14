@@ -9,6 +9,7 @@ worktrees, and a human approval inbox for every irreversible step.
 - Work packages: [docs/implementation/00-README.md](docs/implementation/00-README.md)
 - Backend overview: [backend/README.md](backend/README.md), with detailed guides and Python
   explainers in [docs/backend/](docs/backend/README.md)
+- How packages are built (lead + DeepSeek juniors): [docs/operations/running-junior-agents.md](docs/operations/running-junior-agents.md)
 
 ## Prerequisites
 

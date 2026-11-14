@@ -67,6 +67,9 @@ select = ["E", "F", "I", "B", "S", "UP", "ASYNC", "RUF", "PT", "TID"]
 "gaia/services/proc.py" = ["TID251"]
 # Tests may assert, use fake credentials and build fixture repos with subprocess.
 "tests/**" = ["S101", "S105", "S106", "S108", "S603", "S607", "TID251"]
+# Doc 08 spike prototypes: throwaway, never imported by gaia/. They launch sandboxed agent
+# processes directly (sandbox-exec), which is exactly what they evaluate.
+"spikes/**" = ["E501", "S603", "S607", "TID251"]
 
 # ---------------------------------------------------------------------------
 # mypy
