@@ -187,3 +187,41 @@ async def test_approvals_limit_is_enforced(api: Api, database: Database) -> None
     assert response.status_code == 200
     assert len(response.json()["items"]) == 2
     assert response.json()["total_pending"] == 3
+
+
+async def test_approvals_decided_newest_first(api: Api, database: Database) -> None:
+    """The inbox's "Decided" view: no pending rows, most recent first (17d review)."""
+    run_id = await _make_run(api, database, name="approvals-decided")
+    base = datetime(2026, 1, 3, tzinfo=UTC)
+    await _add_approval(
+        api,
+        database,
+        run_id,
+        idempotency_key="old-approved",
+        status=ApprovalStatus.APPROVED,
+        created_at=base,
+    )
+    await _add_approval(
+        api, database, run_id, idempotency_key="pending", created_at=base + timedelta(seconds=1)
+    )
+    await _add_approval(
+        api,
+        database,
+        run_id,
+        idempotency_key="new-rejected",
+        status=ApprovalStatus.REJECTED,
+        created_at=base + timedelta(seconds=2),
+    )
+
+    response = await api.client.get(
+        "/api/v1/approvals",
+        params={"decided": "true", "order": "newest"},
+        headers=api.auth,
+    )
+
+    assert response.status_code == 200
+    assert [item["idempotency_key"] for item in response.json()["items"]] == [
+        "new-rejected",
+        "old-approved",
+    ]
+    assert response.json()["total_pending"] == 1

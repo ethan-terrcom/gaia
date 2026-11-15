@@ -3,7 +3,8 @@
 > **Audience:** developers working in `frontend/` who know React and TypeScript, but not
 > necessarily React Query, openapi-fetch, Server-Sent Events or Tailwind v4.
 >
-> **Status:** current as of package 16, the shell (2026-11-14). The feature views are 17a–f.
+> **Status:** current as of the 17 views (2026-11-14): the shell (16) and all six feature views
+> (17a–f) are built.
 
 ## What the frontend is
 A single-page React app: the architect's cockpit for tickets, runs, approvals and PRs. It talks
@@ -21,12 +22,25 @@ make dev-frontend     # terminal 2: Vite on 127.0.0.1:5173
 cd backend && uv run gaia ui   # prints the one-time login URL; open it in your browser
 ```
 
+## The views
+| Route | View (`src/views/…`) | What it is for |
+|---|---|---|
+| `/` | `dashboard/` | active runs, what needs you, open PRs, today's spend, the last 14 days |
+| `/tickets` | `tickets/` | board and table, create and edit, **Start run** |
+| `/runs/:id` | `run-detail/` | one run: header, steps, approvals, live timeline, diff (`?tab=diff`), cancel |
+| `/approvals` | `approvals/` | the decision inbox: `j`/`k`, `a`/`r`, a typed `merge <n>` |
+| `/prs` | `pull-requests/` | Gaia's PRs with CI and review state |
+| `/worktrees` | `worktrees/` | repositories (register, commands) and worktrees (flags, remove) |
+
+Each view owns its queries and passes the current global `fetch` per request, so tests can stub it.
+Query keys start with the event stream's invalidation prefixes, so views refresh live.
+
 ## Files
 | Path | Role |
 |---|---|
 | `src/main.tsx` | calls `bootstrapToken()` **before** rendering, then mounts `<App/>` |
 | `src/App.tsx` | the auth gate: no token → `ConnectScreen`; `gaia:unauthorized` → back to it; otherwise the router inside `QueryClientProvider` |
-| `src/routes.tsx` | the routes, all under `AppLayout`. Each section is a placeholder until 17a–f |
+| `src/routes.tsx` | the routes, all under `AppLayout`; each `src/pages/*.tsx` renders a view from `src/views/` |
 | `src/api/token.ts` | the token in `sessionStorage` only; `bootstrapToken` takes `#token=` from the URL and strips it |
 | `src/api/client.ts` | `api = createClient<paths>()` (openapi-fetch) with the auth/error middleware; `fetchMe`, `fetchPendingApprovals`, `fetchTodayCosts` |
 | `src/api/errors.ts` | `ApiError` and `parseErrorEnvelope`, which zod-validates `{error: {code, message, request_id}}` |

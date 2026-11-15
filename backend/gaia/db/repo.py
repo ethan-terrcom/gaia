@@ -925,15 +925,26 @@ class ApprovalRepo(ScopedRepo[Approval]):
         *,
         status: str | None = None,
         run_id: str | None = None,
+        decided: bool = False,
+        newest_first: bool = False,
         limit: int | None = None,
     ) -> list[Approval]:
-        """Return approvals oldest first, optionally filtered by status/run."""
+        """Return approvals, optionally filtered by status/run or to decided ones.
+
+        Oldest first by default (the inbox works through the queue in order);
+        ``newest_first`` serves a "recent decisions" list.
+        """
         statement = self._select().order_by(None)
         if status is not None:
             statement = statement.where(self._table.status == status)
+        if decided:
+            statement = statement.where(self._table.status != ApprovalStatus.PENDING.value)
         if run_id is not None:
             statement = statement.where(self._table.run_id == run_id)
-        statement = statement.order_by(self._table.created_at, self._table.id)
+        if newest_first:
+            statement = statement.order_by(self._table.created_at.desc(), self._table.id.desc())
+        else:
+            statement = statement.order_by(self._table.created_at, self._table.id)
         if limit is not None:
             statement = statement.limit(limit)
         return list((await self.session.scalars(statement)).all())

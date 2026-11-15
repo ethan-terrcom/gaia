@@ -146,8 +146,10 @@ browser's `EventSource` cannot send a bearer header. The details are in [events]
   on a 500 body builds its transport with `httpx.ASGITransport(app=app, raise_app_exceptions=False)`.
 
 ## Approvals inbox, today's costs, and the built UI (package 16)
-- `GET /api/v1/approvals?status=&run_id=&limit=` returns `ApprovalPage{items, total_pending}`,
-  oldest first by `(created_at, id)`. `total_pending` ignores the filters, so the nav badge needs
+- `GET /api/v1/approvals?status=&run_id=&decided=&order=&limit=` returns
+  `ApprovalPage{items, total_pending}`, oldest first by `(created_at, id)`. `decided=true` keeps
+  only approvals that are no longer pending, and `order=newest` reverses the order; together they
+  are the inbox's "Decided" view (17d). `total_pending` ignores the filters, so the nav badge needs
   one call. Deciding an approval is package 14 (`POST /approvals/{id}/decide`).
 - `GET /api/v1/costs/today` returns `TodayCosts{spent_usd, budget_usd, by_provider[], day_start}`
   for the UTC day, from `llm_usage` (`daily_llm_usage_cost_usd`, `daily_llm_usage_by_provider`).

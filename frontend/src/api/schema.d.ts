@@ -57,7 +57,10 @@ export interface paths {
         };
         /**
          * List approval requests
-         * @description Return approvals oldest first, optionally filtered by status or run.
+         * @description Return approvals, oldest first by default, optionally filtered.
+         *
+         *     ``decided=true`` with ``order=newest`` is the inbox's "recent decisions"
+         *     view (lead review of 17d: oldest-first made it show the oldest 50).
          *
          *     ``total_pending`` always counts the workspace's pending approvals, whatever
          *     filters the caller passed: the badge makes one call and must not change with
@@ -1423,6 +1426,9 @@ export interface operations {
             query?: {
                 status?: components["schemas"]["ApprovalStatus"] | null;
                 run_id?: string | null;
+                /** @description Only approvals that are no longer pending. */
+                decided?: boolean;
+                order?: "oldest" | "newest";
                 limit?: number;
             };
             header?: never;
