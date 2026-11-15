@@ -17,6 +17,7 @@ import time
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 import structlog
@@ -31,7 +32,7 @@ from gaia.db.repo import RunRepo, ScopedRepo
 from gaia.domain.enums import ApprovalKind, ApprovalStatus, CiStatus, EventType, PullRequestState
 from gaia.services.ci import ci_rollup
 from gaia.services.events import EventBus
-from gaia.services.git import GitService, WorktreeLocation
+from gaia.services.git import GitError, GitService, WorktreeLocation
 from gaia.services.github import (
     CheckRun,
     GitHubClient,
@@ -43,6 +44,7 @@ from gaia.services.github import (
     check_token,
     parse_github_remote,
 )
+from gaia.services.proc import ProcError
 from gaia.services.worktrees import WorktreeService
 
 logger = structlog.get_logger(__name__)
@@ -314,6 +316,25 @@ class PullRequestService:
             run_id=run_id,
         )
 
+    async def _refresh_remote(
+        self, session: AsyncSession, workspace_id: str, repository: Repository
+    ) -> Repository:
+        """Pick up an ``origin`` added after the repository was registered.
+
+        ``remote_url`` is read once at registration, and a repository with tickets
+        cannot be unregistered, so without this a remote added later could never
+        be used. A missing or unreadable remote leaves the row alone.
+        """
+        try:
+            url = await self.git.remote_url(Path(repository.local_path))
+        except (GitError, ProcError):
+            return repository
+        if not url:
+            return repository
+        return await ScopedRepo(session, Repository, workspace_id).update(
+            repository.id, remote_url=url
+        )
+
     # ---------------------------------------------------------------- loading --
     async def _load(self, session: AsyncSession, run_id: str) -> _RunContext:
         """Load and check everything both methods need, inside one session."""
@@ -332,6 +353,8 @@ class PullRequestService:
         worktree = await ScopedRepo(session, Worktree, workspace_id).get(run.worktree_id)
         if worktree is None:
             raise GitHubSetupError(f"run {run_id!r} has no worktree {run.worktree_id!r}")
+        if not repository.remote_url:
+            repository = await self._refresh_remote(session, workspace_id, repository)
         slug = _parse_repo_slug(repository)
         location = await WorktreeService(
             git=self.git, session=session, workspace_id=workspace_id

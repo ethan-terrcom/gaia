@@ -21,13 +21,14 @@ from gaia.db.models import Approval, Event, PullRequest, Repository, Run, RunSte
 from gaia.db.repo import EventRepo, ScopedRepo
 from gaia.domain.enums import ApprovalKind, ApprovalStatus, CiStatus, EventType, PullRequestState
 from gaia.services.events import EventBus
-from gaia.services.git import GitService, WorktreeLocation
+from gaia.services.git import GitError, GitService, WorktreeLocation
 from gaia.services.github import (
     GitHubClient,
     GitHubSetupError,
     MergeBlocked,
     parse_github_remote,
 )
+from gaia.services.proc import ProcResult
 from gaia.services.pull_requests import (
     PullRequestService,
     _parse_repo_slug,
@@ -950,3 +951,87 @@ async def test_a_failed_token_check_is_not_cached(database, git_settings: Settin
     calls = len(fake.calls)
     await service._ensure_token_checked("repo", SecretStr(TOKEN), SLUG)
     assert len(fake.calls) == calls
+
+
+# -------------------------------------------------- remote added after register --
+def _service_for(database, git: GitService) -> PullRequestService:
+    return PullRequestService(
+        sessions=database.sessions,
+        git=git,
+        secrets=InMemorySecretStore(),
+        bus=EventBus(database.sessions),
+        client_factory=_client_factory(GitHubFake()),
+    )
+
+
+async def _repo_without_stored_remote(session: AsyncSession, local_path: Path) -> Repository:
+    chain = await make_chain(session, slug="late")
+    return await ScopedRepo(session, Repository, chain.workspace.id).update(
+        chain.repository.id, remote_url=None, local_path=str(local_path)
+    )
+
+
+async def test_refresh_remote_picks_up_an_origin_added_after_registration(
+    database, git_settings: Settings, tmp_path: Path
+) -> None:
+    git = GitService(git_settings)
+    repo_dir = tmp_path / "late-repo"
+    repo_dir.mkdir()
+    await git._run("init", "--initial-branch=main", cwd=repo_dir)
+    await git._run("remote", "add", "origin", PUSH_URL, cwd=repo_dir)
+    service = _service_for(database, git)
+
+    async with session_scope(database.sessions) as session:
+        repository = await _repo_without_stored_remote(session, repo_dir)
+        refreshed = await service._refresh_remote(session, repository.workspace_id, repository)
+
+    assert refreshed.remote_url == PUSH_URL
+    async with session_scope(database.sessions) as session:
+        stored = await ScopedRepo(session, Repository, repository.workspace_id).get(repository.id)
+    assert stored is not None
+    assert stored.remote_url == PUSH_URL
+
+
+async def test_refresh_remote_leaves_a_repository_without_origin_alone(
+    database, git_settings: Settings, tmp_path: Path
+) -> None:
+    git = GitService(git_settings)
+    repo_dir = tmp_path / "no-origin"
+    repo_dir.mkdir()
+    await git._run("init", "--initial-branch=main", cwd=repo_dir)
+    service = _service_for(database, git)
+
+    async with session_scope(database.sessions) as session:
+        repository = await _repo_without_stored_remote(session, repo_dir)
+        refreshed = await service._refresh_remote(session, repository.workspace_id, repository)
+
+    assert refreshed.remote_url is None
+
+
+async def test_refresh_remote_ignores_a_git_failure(
+    database, git_settings: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    git = GitService(git_settings)
+    service = _service_for(database, git)
+
+    async def failing_remote_url(*_args: object, **_kwargs: object) -> str | None:
+        result = ProcResult(
+            argv=("git",),
+            cwd=tmp_path,
+            pid=1,
+            returncode=1,
+            stdout="",
+            stderr="boom",
+            stdout_truncated=False,
+            stderr_truncated=False,
+            duration_s=0.0,
+            timed_out=False,
+        )
+        raise GitError(("remote", "get-url"), result)
+
+    monkeypatch.setattr(git, "remote_url", failing_remote_url)
+    async with session_scope(database.sessions) as session:
+        repository = await _repo_without_stored_remote(session, tmp_path)
+        refreshed = await service._refresh_remote(session, repository.workspace_id, repository)
+
+    assert refreshed.remote_url is None
