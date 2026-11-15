@@ -79,6 +79,14 @@ class UserRead(WorkspaceScopedRead):
     display_name: str
 
 
+class SessionRead(Schema):
+    """The authenticated caller plus process-wide flags the UI needs (18b-2)."""
+
+    user_id: str
+    workspace_id: str
+    demo_mode: bool
+
+
 class RepositoryCreate(RequestSchema):
     """Register a repository.
 

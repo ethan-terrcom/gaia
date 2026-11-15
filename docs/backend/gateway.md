@@ -99,6 +99,15 @@ together overshoot by up to N calls. Reserving budget up front is doc 18a's job.
 half price. Chinese public holidays, which DeepSeek treats as off-peak, are priced at peak: a slight
 over-count, which is the safe direction.
 
+### Demo mode (18b-2)
+With `GAIA_FAKE_LLM=1`, `llm_http` uses `gaia.dev.fake_llm.FakeProviderTransport`: an in-memory
+transport that answers in Anthropic's and DeepSeek's real wire formats, streamed or not. It
+returns a one-step plan, an accepting review, and a junior loop of `write_file`, an optional
+`run_command`, then `finish`. The gateway uses a placeholder key and **never reads the secret
+store**. Everything else is real: run tokens, metering, budgets, the tools, the sandbox and git.
+Both roles are forced onto the native runtime, so the `claude` CLI never starts. Pair it with
+`gaia demo init`, which creates a small repository, registers it, and adds a ticket.
+
 ## Try it
 ```sh
 GAIA_DATA_DIR=/tmp/g uv run gaia serve &

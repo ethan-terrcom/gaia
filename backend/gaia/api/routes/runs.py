@@ -15,7 +15,7 @@ from gaia.db.engine import session_scope
 from gaia.db.models import Repository, Run, Ticket, Worktree
 from gaia.db.repo import RunRepo, RunSummaryRow, ScopedRepo
 from gaia.db.types import utcnow
-from gaia.domain.enums import RunStatus
+from gaia.domain.enums import RunStatus, RuntimeKind
 from gaia.domain.schemas import (
     ApprovalRead,
     RunCreate,
@@ -129,6 +129,13 @@ async def start_run(
         return _orchestrator_unavailable(request)
     if services.pause is not None and services.pause.is_paused():
         return _orchestrator_paused(request)
+
+    if services.settings.fake_llm and payload.junior_runtime is RuntimeKind.CLAUDE_AGENT_SDK:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "demo mode (GAIA_FAKE_LLM=1) only supports the native_deepseek runtime; "
+            "claude_agent_sdk would launch the real Claude CLI",
+        )
 
     ticket = await scoped.repo(Ticket).get(payload.ticket_id)
     if ticket is None:

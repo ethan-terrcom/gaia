@@ -37,9 +37,14 @@ from gaia.domain.enums import EventType
 from gaia.llm.metering import UsageAccumulator, estimate_usage
 from gaia.llm.run_tokens import RunTokenContext
 from gaia.llm.run_tokens import resolve as resolve_run_token
+from gaia.security.redaction import register_secret
 from gaia.services.costs import BudgetExceeded, DbUsageRecorder, PriceTable, ensure_budget
 
 logger = structlog.get_logger(__name__)
+
+#: Placeholder key used in demo mode only. The fake transport ignores it, and
+#: it is registered with redaction like a real key.
+FAKE_LLM_SECRET = SecretStr("fake-llm-demo")
 
 router = APIRouter(prefix="/llm")
 
@@ -564,22 +569,33 @@ async def _handle(request: Request, provider: str, path: str) -> Response:
         )
         return _budget_exceeded_response(provider, refusal)
 
-    try:
-        secret = await run_in_threadpool(services.store.require, _secret_name(provider))
-    except MissingSecretError:
-        _log_call(
-            run_id=context.run_id,
-            provider=provider,
-            path=normalised,
-            model=requested_model,
-            status=503,
-            duration_ms=(time.perf_counter() - start) * 1000,
-            upstream_request_id=None,
-            streamed=streamed,
-        )
-        return _provider_error(
-            provider, 503, "api_error", "provider not configured", code="provider_not_configured"
-        )
+    if services.settings.fake_llm:
+        # Demo mode must not need, and must not read, a real provider key. The
+        # fake transport ignores the credential header; this placeholder is
+        # registered for redaction exactly like a value from the secret store.
+        register_secret(FAKE_LLM_SECRET.get_secret_value())
+        secret = FAKE_LLM_SECRET
+    else:
+        try:
+            secret = await run_in_threadpool(services.store.require, _secret_name(provider))
+        except MissingSecretError:
+            _log_call(
+                run_id=context.run_id,
+                provider=provider,
+                path=normalised,
+                model=requested_model,
+                status=503,
+                duration_ms=(time.perf_counter() - start) * 1000,
+                upstream_request_id=None,
+                streamed=streamed,
+            )
+            return _provider_error(
+                provider,
+                503,
+                "api_error",
+                "provider not configured",
+                code="provider_not_configured",
+            )
 
     base_url = (
         services.settings.anthropic_base_url

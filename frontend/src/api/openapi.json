@@ -694,25 +694,6 @@
         "title": "PauseStatus",
         "type": "object"
       },
-      "Principal": {
-        "description": "The authenticated caller, and the workspace every query is scoped to.",
-        "properties": {
-          "user_id": {
-            "title": "User Id",
-            "type": "string"
-          },
-          "workspace_id": {
-            "title": "Workspace Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "user_id",
-          "workspace_id"
-        ],
-        "title": "Principal",
-        "type": "object"
-      },
       "ProviderCost": {
         "description": "Today's spend for one LLM provider.",
         "properties": {
@@ -1826,6 +1807,30 @@
         "title": "RuntimeKind",
         "type": "string"
       },
+      "SessionRead": {
+        "description": "The authenticated caller plus process-wide flags the UI needs (18b-2).",
+        "properties": {
+          "demo_mode": {
+            "title": "Demo Mode",
+            "type": "boolean"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "workspace_id",
+          "demo_mode"
+        ],
+        "title": "SessionRead",
+        "type": "object"
+      },
       "StreamTicket": {
         "description": "The short-lived credential the UI puts in the SSE query string.",
         "properties": {
@@ -2701,14 +2706,14 @@
     },
     "/api/v1/me": {
       "get": {
-        "description": "Return the caller the bearer token resolved to.",
+        "description": "Return the caller the bearer token resolved to, plus process flags.",
         "operationId": "me_api_v1_me_get",
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Principal"
+                  "$ref": "#/components/schemas/SessionRead"
                 }
               }
             },

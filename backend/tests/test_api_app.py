@@ -72,7 +72,7 @@ async def test_a_valid_token_returns_the_principal(api: Api) -> None:
     response = await api.client.get("/api/v1/me", headers=api.auth)
 
     assert response.status_code == 200
-    assert set(response.json()) == {"user_id", "workspace_id"}
+    assert set(response.json()) == {"user_id", "workspace_id", "demo_mode"}
 
 
 async def test_the_principal_is_the_seeded_owner(api: Api, database: Database) -> None:
@@ -83,7 +83,7 @@ async def test_the_principal_is_the_seeded_owner(api: Api, database: Database) -
         user = (await session.scalars(select(User))).one()
         workspace = (await session.scalars(select(Workspace))).one()
 
-    assert body == {"user_id": user.id, "workspace_id": workspace.id}
+    assert body == {"user_id": user.id, "workspace_id": workspace.id, "demo_mode": False}
 
 
 async def test_startup_seeds_one_workspace_and_one_owner(api: Api, database: Database) -> None:

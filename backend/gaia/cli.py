@@ -149,6 +149,22 @@ def _build_parser() -> argparse.ArgumentParser:
         help="remove the planned worktrees and scratch directories",
     )
 
+    demo = commands.add_parser(
+        "demo",
+        help="first-run demo helpers (18b-2)",
+    )
+    demo_commands = demo.add_subparsers(dest="demo_command", required=True, metavar="ACTION")
+    demo_commands.add_parser(
+        "init",
+        help="create the local demo repository, registration and ticket",
+        description=(
+            "Creates {data_dir}/demo/greet, a tiny git repo with one commit, "
+            "registers it as a Gaia repository and opens one ticket. Running it "
+            "again reuses the same rows. It works with or without "
+            "GAIA_FAKE_LLM=1."
+        ),
+    )
+
     dev = commands.add_parser(
         "dev",
         help="development helpers that are only available when the server enables them",
@@ -434,6 +450,20 @@ def _worktrees_cleanup(args: argparse.Namespace) -> int:
 def _worktrees(args: argparse.Namespace) -> int:
     if args.worktrees_command == "cleanup":
         return _worktrees_cleanup(args)
+    return 2
+
+
+def _demo_init(args: argparse.Namespace) -> int:
+    """Run ``gaia demo init`` against the configured data directory."""
+    del args
+    from gaia.dev.demo import init_demo
+
+    return asyncio.run(init_demo(get_settings()))
+
+
+def _demo(args: argparse.Namespace) -> int:
+    if args.demo_command == "init":
+        return _demo_init(args)
     return 2
 
 
@@ -958,6 +988,7 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "secrets": _secrets,
     "github": _github,
     "worktrees": _worktrees,
+    "demo": _demo,
     "serve": _serve,
     "ui": _ui,
     "dev": _dev,
