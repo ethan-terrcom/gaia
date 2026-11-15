@@ -78,6 +78,7 @@ class RunStatus(StrEnum):
     REVIEWING = "reviewing"
     PR_OPEN = "pr_open"
     PAUSED_BUDGET = "paused_budget"
+    PAUSED = "paused"
     FAILED = "failed"
     COMPLETED = "completed"
     CANCELLED = "cancelled"

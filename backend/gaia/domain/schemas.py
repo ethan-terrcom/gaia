@@ -389,6 +389,32 @@ class DecideAccepted(Schema):
     status: Literal["accepted"]
 
 
+class PauseStatus(Schema):
+    """Whether the global kill switch is on (doc 18a)."""
+
+    paused: bool
+    since: datetime | None
+    reason: str | None
+
+
+class PauseAllRequest(RequestSchema):
+    """Reason for pausing every run. Global, not per workspace: Gaia is single-user."""
+
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class PauseAllResult(Schema):
+    """The ids paused by this call (usually empty when already paused)."""
+
+    paused_run_ids: list[str]
+
+
+class ResumeAllResult(Schema):
+    """The ids that were ``paused`` and are now being relaunched."""
+
+    resumed_run_ids: list[str]
+
+
 class EventRead(WorkspaceScopedRead):
     """One event. ``seq`` is the SSE event id a client resumes from (doc 13)."""
 

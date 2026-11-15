@@ -55,10 +55,16 @@ update keeps the previous node's `route` in state, and the next conditional edge
 ### The guard around every node
 `with_guard` runs before every node:
 - **Terminal run:** a run that is already terminal does nothing.
-- **Budget:** a run out of budget moves to `paused_budget` and hits a `budget` interrupt.
-  - **approve** with a `budget_usd` above what has been spent sets the new cap;
-  - **approve** without one grants another `settings.run_budget_usd`;
+- **Budget:** a run out of its own budget (`scope: "run"`), or a workspace over its daily cap
+  (`scope: "daily"`, 18a), moves to `paused_budget` and hits a `budget` interrupt.
+  - **approve** (run scope) with a `budget_usd` above what has been spent sets the new cap;
+    without one, it grants another `settings.run_budget_usd`;
+  - **approve** (daily scope) changes no budget: the daily cap is a hard limit. If the day is still
+    over, the next node pauses again with a fresh approval;
   - **reject** cancels the run.
+  - On the resume re-run, the guard answers the node's **pending** budget approval first, rather
+    than recomputing the scope. Otherwise a cap raised in the meantime would leave the row pending
+    forever.
 - **Events:** emits `run.node_started` and `run.node_finished`.
 - **Failures:** any exception except LangGraph's control flow (`GraphBubbleUp`, which covers
   interrupts) marks the run `failed`, emits `run.failed`, and stops the graph.
@@ -70,14 +76,27 @@ unknown node, so a typo would quietly stop a run, and the diagram would show no 
 
 ### Crashes and restarts
 `durability="sync"` makes each step's checkpoint durable before the next runs. At startup,
-`RunManager.recover()` examines every run that is not terminal, `awaiting_approval` or
-`paused_budget`:
+`RunManager.recover()` examines every run that is not terminal, `awaiting_approval`,
+`paused_budget` or `paused`:
 - if its checkpoint holds a pending interrupt, the run is marked `awaiting_approval`;
 - otherwise the graph is re-invoked with input `None` on the same thread, which continues from
   the last checkpoint.
 
 The crash-recovery test kills a run mid-step, opens a fresh checkpointer and manager, and shows
 the run completing with no duplicate rows.
+
+### The kill switch (18a)
+`POST /api/v1/admin/pause-all` writes the flag file `data_dir/paused` (0600) first, then cancels
+every live graph task. Those runs, plus every queued `pending` run, become **`paused`**, and their
+in-turn command approvals expire. Runs waiting at a gate are left alone, and the flag blocks their
+decisions (409 `orchestrator_paused`) and new runs.
+
+`POST /admin/resume-all` clears the flag and reconciles each paused run as `recover()` does:
+- a run with an open interrupt becomes `awaiting_approval`;
+- any other run continues from its last checkpoint.
+
+**Startup never resumes a paused run**, and `recover()` does nothing while the flag exists. A node
+cancelled mid-way re-runs from its start, exactly as after a crash.
 
 ### Concurrency and safety
 - `max_concurrent_runs` (default 3) is an `asyncio.Semaphore`. Waiting runs stay `pending`.

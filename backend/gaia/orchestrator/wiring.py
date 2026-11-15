@@ -31,6 +31,7 @@ from gaia.orchestrator.impl.planning import GatewayPlanner
 from gaia.orchestrator.impl.review import GatewayReviewer
 from gaia.orchestrator.impl.steps import RuntimeStepRunner
 from gaia.orchestrator.impl.worktrees import WorktreeSetup
+from gaia.orchestrator.pause import PauseSwitch
 from gaia.runtimes.approvals import DbApprovalBroker
 from gaia.runtimes.base import AgentTask, RuntimeRegistry
 from gaia.runtimes.claude_agent_sdk import ClaudeAgentSdkRuntime
@@ -58,6 +59,7 @@ class Wiring:
     deps: GraphDeps
     runtimes: RuntimeRegistry
     approvals: DbApprovalBroker
+    pause: PauseSwitch
 
 
 class LazySrtRunner:
@@ -143,6 +145,7 @@ def build_wiring(
     default_registry = build_default_registry(search_supports_regex=rg_path is not None)
 
     approvals = DbApprovalBroker(sessions, bus)
+    pause = PauseSwitch(settings.data_dir / "paused")
     audit = DbAuditSink(sessions)
 
     setup_runner = command_runner or LazySrtRunner(
@@ -264,4 +267,4 @@ def build_wiring(
         events=bus,
         settings=settings,
     )
-    return Wiring(deps=deps, runtimes=runtimes, approvals=approvals)
+    return Wiring(deps=deps, runtimes=runtimes, approvals=approvals, pause=pause)

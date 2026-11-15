@@ -48,6 +48,7 @@ from gaia.api.errors import (
     new_request_id,
 )
 from gaia.api.routes import (
+    admin,
     agents,
     approvals,
     costs,
@@ -236,7 +237,7 @@ def _lifespan(
                     )
                 except Exception:
                     logger.exception("orchestrator.orphan_reap_failed")
-                runs = RunManager(graph, wiring.deps)
+                runs = RunManager(graph, wiring.deps, pause=wiring.pause)
                 try:
                     await runs.recover()
                 except Exception:
@@ -258,6 +259,7 @@ def _lifespan(
                 runs=runs,
                 approvals=approvals,
                 wiring=wiring,
+                pause=wiring.pause if wiring is not None else None,
             )
             if settings.pr_sync_enabled:
                 pr_sync = PRSyncService(
@@ -326,6 +328,7 @@ def api_v1_router(*, dev_routes: bool = False) -> APIRouter:
     router.include_router(costs.router)
     router.include_router(metrics.router)
     router.include_router(runs.router)
+    router.include_router(admin.router)
     if dev_routes:
         router.include_router(dev.router)
     return router

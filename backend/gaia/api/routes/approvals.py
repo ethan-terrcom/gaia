@@ -26,6 +26,7 @@ from gaia.domain.schemas import (
 )
 from gaia.orchestrator.approvals import Decision
 from gaia.orchestrator.guard import TERMINAL_RUN_STATUSES
+from gaia.orchestrator.pause import OrchestratorPaused
 from gaia.orchestrator.runner import RunBusy, RunManager
 from gaia.runtimes.approvals import ApprovalNotPending, DbApprovalBroker
 
@@ -44,6 +45,16 @@ def _unavailable(request: Request) -> Response:
         status.HTTP_503_SERVICE_UNAVAILABLE,
         ErrorCode.ORCHESTRATOR_UNAVAILABLE,
         "the orchestrator is unavailable",
+    )
+
+
+def _orchestrator_paused(request: Request) -> Response:
+    """The 409 answer while the global kill switch is on."""
+    return error_response(
+        request,
+        status.HTTP_409_CONFLICT,
+        ErrorCode.ORCHESTRATOR_PAUSED,
+        "the orchestrator is paused",
     )
 
 
@@ -218,6 +229,13 @@ async def _decide_locked(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             "unknown approval kind",
         ) from None
+
+    # The kill switch blocks graph-gate decisions (they would resume a graph),
+    # but command approvals still work: the agent is gone anyway, and the broker
+    # simply reports the decision to the runtime.
+    if kind != ApprovalKind.COMMAND and services.pause is not None and services.pause.is_paused():
+        return _orchestrator_paused(request)
+
     details: dict[str, Any] = {
         "kind": kind.value,
         "decision": payload.decision,
@@ -298,6 +316,8 @@ async def _decide_locked(
     decision = Decision.model_validate(decision_payload)
     try:
         await runs.resume(approval.run_id, decision.model_dump(mode="json"))
+    except OrchestratorPaused:
+        return _orchestrator_paused(request)
     except RunBusy:
         return _run_busy(request, approval.run_id)
 

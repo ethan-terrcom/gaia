@@ -180,6 +180,12 @@ dashboard (17a).
 | `POST /api/v1/runs/{id}/cancel` | Cancels the run (the worktree is kept); 409 if it has already finished |
 | `GET /api/v1/runs/{id}/diff` | The committed (`base..HEAD`) plus uncommitted diff as `text/x-diff`, capped. Read-only: it never stages anything |
 | `POST /api/v1/approvals/{id}/decide` `{decision, comment?, edited_payload?, confirm?, budget_usd?}` | See below |
+| `GET /api/v1/admin/pause` | `{paused, since, reason}` (18a) |
+| `POST /api/v1/admin/pause-all` `{reason?}` | The kill switch: stops every running agent and holds every run → `{paused_run_ids}` |
+| `POST /api/v1/admin/resume-all` | Clears the switch and resumes the paused runs → `{resumed_run_ids}` |
+
+`POST /runs` also answers **409** `daily_budget_exhausted` at the daily cap, and, like graph-gate
+decisions, **409** `orchestrator_paused` while the kill switch is on.
 
 **Deciding an approval:**
 - **Command approvals** (asked inside an agent's turn) are answered through the shared

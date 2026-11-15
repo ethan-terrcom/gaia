@@ -13,18 +13,21 @@ Every graph node is wrapped in the same envelope:
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from datetime import datetime
 from decimal import Decimal
 from functools import wraps
 from typing import Any
 
+import structlog
 from langgraph.errors import GraphBubbleUp
 from langgraph.types import interrupt
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gaia.db.engine import session_scope
 from gaia.db.models import Approval, Run
-from gaia.db.repo import ScopedRepo
-from gaia.domain.enums import ApprovalKind, EventType, RunStatus
+from gaia.db.repo import ScopedRepo, count_decided_budget_approvals
+from gaia.db.types import utcnow
+from gaia.domain.enums import ApprovalKind, ApprovalStatus, EventType, RunStatus
 from gaia.domain.state import transition
 from gaia.orchestrator.approvals import (
     Decision,
@@ -35,7 +38,9 @@ from gaia.orchestrator.approvals import (
 from gaia.orchestrator.deps import GraphDeps
 from gaia.orchestrator.state import RunState
 from gaia.security.redaction import redact
-from gaia.services.costs import remaining_budget
+from gaia.services.costs import daily_spend, remaining_budget
+
+logger = structlog.get_logger(__name__)
 
 TERMINAL_RUN_STATUSES = frozenset(
     {RunStatus.FAILED.value, RunStatus.COMPLETED.value, RunStatus.CANCELLED.value}
@@ -91,13 +96,36 @@ async def _mark_failed(deps: GraphDeps, node_name: str, state: RunState, exc: Ex
     return error
 
 
+async def _pending_budget_approval(
+    session: AsyncSession, state: RunState, node_name: str
+) -> Approval | None:
+    """Return this node's still-pending budget approval for the run, if any."""
+    approvals = ScopedRepo(session, Approval, state["workspace_id"])
+    rows = await approvals.list(
+        run_id=state["run_id"],
+        kind=ApprovalKind.BUDGET.value,
+        status=ApprovalStatus.PENDING.value,
+    )
+    prefix = f"budget:{node_name}:"
+    matching = [row for row in rows if row.idempotency_key.startswith(prefix)]
+    return matching[0] if matching else None
+
+
 def with_guard(
-    deps: GraphDeps, node_name: str
+    deps: GraphDeps,
+    node_name: str,
+    *,
+    now: Callable[[], datetime] = utcnow,
 ) -> Callable[
     [Callable[[RunState], Awaitable[dict[str, Any] | None]]],
     Callable[[RunState], Awaitable[dict[str, Any]]],
 ]:
-    """Decorate a node function with the shared guard envelope."""
+    """Decorate a node function with the shared guard envelope.
+
+    ``now`` is the guard's clock. A graph dependency may carry its own clock in
+    ``deps.now`` (for example an 18a test with a frozen UTC day); when it does
+    not, ``now`` is used.
+    """
 
     def decorator(
         node: Callable[[RunState], Awaitable[dict[str, Any] | None]],
@@ -118,35 +146,84 @@ def with_guard(
 
             # 2. Budget check. The approval row is upserted before interrupting,
             # because this whole wrapper re-runs from its first line on resume.
+            # The run cap is checked first, exactly as ``ensure_budget`` does.
+            clock = deps.now if deps.now is not None else now
             budget_key: str | None = None
             budget_payload: dict[str, Any] | None = None
             budget_created = False
+            budget_scope: str | None = None
             async with session_scope(deps.sessions) as session:
                 run = await _load_run(session, state)
-                if remaining_budget(run) <= 0:
+                spent_today = Decimal(0)
+                daily_limit = Decimal(str(deps.settings.daily_budget_usd))
+                # A pending budget approval for this node means this is the
+                # re-run on resume: answer *that* approval. Recomputing would
+                # miss it whenever the cap no longer applies (the owner raised
+                # it, or a new UTC day began), leaving the row pending forever
+                # (lead review 18a, B1).
+                pending = await _pending_budget_approval(session, state, node_name)
+                if pending is not None:
+                    budget_scope = str(pending.payload_json.get("scope", "run"))
+                    budget_key = pending.idempotency_key
+                    budget_payload = {**pending.payload_json, "approval_id": pending.id}
+                elif remaining_budget(run) <= 0:
+                    budget_scope = "run"
+                else:
+                    spent_today = await daily_spend(session, workspace_id, now=clock())
+                    if spent_today >= daily_limit:
+                        budget_scope = "daily"
+
+                if budget_scope is not None and pending is None:
                     transition(run, RunStatus.PAUSED_BUDGET)
-                    budget_key = f"budget:{node_name}:{run.cost_usd}"
+                    if budget_scope == "run":
+                        # Run scope keeps today's key: the cost is unchanged
+                        # while this pause is pending, so the re-run on resume
+                        # finds the same still-pending row instead of inserting
+                        # a duplicate.
+                        budget_key = f"budget:{node_name}:{run.cost_usd}"
+                        payload = {
+                            "kind": ApprovalKind.BUDGET.value,
+                            "node": node_name,
+                            "run_id": run_id,
+                            "scope": "run",
+                            "cost_usd": str(run.cost_usd),
+                            "budget_usd": str(run.budget_usd),
+                        }
+                    else:
+                        # Daily scope uses a key unique per pause but stable
+                        # across the resume re-run. ``n`` counts this node's
+                        # *decided* daily budget approvals, so the current
+                        # still-pending row is not counted and the re-run gets
+                        # the same key. The next pause, after this row has been
+                        # decided, gets ``n + 1`` and therefore a fresh row.
+                        count = await count_decided_budget_approvals(
+                            session,
+                            run_id=run_id,
+                            workspace_id=workspace_id,
+                            key_prefix=f"budget:{node_name}:daily:",
+                        )
+                        budget_key = f"budget:{node_name}:daily:{count}"
+                        payload = {
+                            "kind": ApprovalKind.BUDGET.value,
+                            "node": node_name,
+                            "run_id": run_id,
+                            "scope": "daily",
+                            "cost_usd": str(run.cost_usd),
+                            "budget_usd": str(run.budget_usd),
+                            "spent_today_usd": str(spent_today),
+                            "daily_budget_usd": str(daily_limit),
+                        }
                     approval, budget_created = await upsert_approval(
                         session,
                         workspace_id=workspace_id,
                         run_id=run_id,
                         idempotency_key=budget_key,
                         kind=ApprovalKind.BUDGET,
-                        payload={
-                            "kind": ApprovalKind.BUDGET.value,
-                            "node": node_name,
-                            "run_id": run_id,
-                            "cost_usd": str(run.cost_usd),
-                            "budget_usd": str(run.budget_usd),
-                        },
+                        payload=payload,
                     )
                     budget_payload = {
-                        "kind": ApprovalKind.BUDGET.value,
+                        **payload,
                         "approval_id": approval.id,
-                        "node": node_name,
-                        "run_id": run_id,
-                        "cost_usd": str(run.cost_usd),
-                        "budget_usd": str(run.budget_usd),
                     }
 
             if budget_created and budget_payload is not None:
@@ -172,6 +249,18 @@ def with_guard(
                     await apply_decision(session, approval_row, decision)
                     if decision.action == "reject":
                         transition(run, RunStatus.CANCELLED)
+                    elif budget_scope == "daily":
+                        # Approving a daily-scope pause changes no budget: the
+                        # daily cap is a hard limit. If the owner raised
+                        # ``daily_budget_usd`` (or a new UTC day has started),
+                        # the next guard simply passes; if the day is still over
+                        # the cap, the next guard pauses again with a new key.
+                        if decision.budget_usd is not None:
+                            logger.info(
+                                "guard.daily_budget_ignored",
+                                run_id=run_id,
+                                node=node_name,
+                            )
                     elif decision.budget_usd is not None:
                         if decision.budget_usd <= run.cost_usd:
                             raise ValueError("budget_usd must be above what the run has spent")

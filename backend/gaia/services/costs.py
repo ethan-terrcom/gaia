@@ -299,6 +299,19 @@ class BudgetExceeded(Exception):
         super().__init__(f"{kind} LLM budget exceeded: {spent_usd} of {limit_usd} USD spent")
 
 
+async def daily_spend(session: AsyncSession, workspace_id: str, *, now: datetime) -> Decimal:
+    """Return the workspace's ``llm_usage`` spend for the UTC day containing ``now``.
+
+    This is the same half-open ``[00:00, 00:00 + 1 day)`` window used by
+    :func:`ensure_budget`, extracted so the guard can pause on the daily cap
+    without duplicating the date arithmetic.
+    """
+    day_start = _as_utc(now).replace(hour=0, minute=0, second=0, microsecond=0)
+    return await daily_llm_usage_cost_usd(
+        session, workspace_id, start=day_start, end=day_start + timedelta(days=1)
+    )
+
+
 async def ensure_budget(
     session: AsyncSession, run: Run, settings: Settings, *, now: datetime
 ) -> None:
@@ -311,10 +324,7 @@ async def ensure_budget(
     if remaining_budget(run) <= 0:
         raise BudgetExceeded("run", run.budget_usd, run.cost_usd)
 
-    day_start = _as_utc(now).replace(hour=0, minute=0, second=0, microsecond=0)
-    spent_today = await daily_llm_usage_cost_usd(
-        session, run.workspace_id, start=day_start, end=day_start + timedelta(days=1)
-    )
+    spent_today = await daily_spend(session, run.workspace_id, now=now)
     daily_limit = Decimal(str(settings.daily_budget_usd))
     if spent_today >= daily_limit:
         raise BudgetExceeded("daily", daily_limit, spent_today)
