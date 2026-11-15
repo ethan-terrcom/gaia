@@ -29,13 +29,19 @@ from gaia.tools.shell import CommandRunner
 _SETUP_OUTPUT_TAIL_CHARS = 2_000
 
 
+_SETUP_ERROR_CHARS = 800
+
+
 class SetupFailed(RuntimeError):
     """The repository's owner-registered setup command did not succeed."""
 
     def __init__(self, returncode: int, tail: str) -> None:
         self.returncode = returncode
         self.tail = tail
-        super().__init__(f"setup command exited with status {returncode}")
+        # The tail is already redacted. It goes in the message so the run's failure
+        # event and the log say *why*, not just the exit status.
+        detail = f":\n{tail.strip()[-_SETUP_ERROR_CHARS:]}" if tail.strip() else ""
+        super().__init__(f"setup command exited with status {returncode}{detail}")
 
 
 @dataclass(frozen=True)
