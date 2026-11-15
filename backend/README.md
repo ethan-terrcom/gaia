@@ -30,7 +30,7 @@ come next, in the order given in [`docs/implementation/00-README.md`](../docs/im
 │             (every /api/v1 route requires the token; scoped to a workspace)   │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ orchestrator/  LangGraph workflow: plan → approve → implement → review → PR   │  11 + 12a built · 12b next
-│ runtimes/      the agents themselves (Claude lead, DeepSeek juniors)          │  10a base built · 10b/c next
+│ runtimes/      the agents themselves (Claude lead, DeepSeek juniors)          │  10a + 10b built · 10c next
 │ llm/           provider clients, cost accounting, LLM gateway (all built)     │  07a / 07b
 │ tools/         sandboxed file/shell/git tools, registry, audit                │  built (09a, 09b)
 ├──────────────────────────────────────────────────────────────────────────────┤
@@ -70,6 +70,7 @@ never imports FastAPI. `db/` knows nothing about HTTP or git.
 | 13 | `services/events.py`, `api/routes/stream.py` | Durable event log plus live SSE stream with single-use tickets, replay and gap healing | [events](../docs/backend/events.md) |
 | 11 | `orchestrator/{lead,repo_context}.py`, `domain/plans.py` | The lead's plan and review calls: streamed structured outputs, policy-checked test commands, refusals escalate | [lead](../docs/backend/lead.md) |
 | 10a | `runtimes/`, `services/proc.py` (`stream_proc`) | The runtime seam: limits, scrubbed env, git-computed `files_changed`, in-turn approvals, orphan reaping, fake runtimes and a contract suite | [runtimes](../docs/backend/runtimes.md) |
+| 10b | `runtimes/{native,native_llm,finish}.py`, `DeepSeekClient.parse` | Gaia's own provider-neutral agent loop (the default junior), through the gateway and the 09b tools; P1 vendor-boundary test; P6 lead planning on DeepSeek | [runtimes](../docs/backend/runtimes.md) |
 | 12a | `orchestrator/{graph,guard,runner,approvals}.py`, `nodes/` | The durable LangGraph ticket-run workflow on interfaces: idempotent human gates, budget guard, crash recovery, concurrency limit ([diagram](../docs/graph.md)) | [orchestrator](../docs/backend/orchestrator.md) |
 
 The whole suite (1402 backend tests and 28 frontend tests, 100% line and branch coverage) runs with `make check`, which is also what CI runs.

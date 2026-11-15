@@ -12,8 +12,16 @@ import openai
 import pytest
 from pydantic import SecretStr
 
-from gaia.llm.base import LLMMessage, LLMStop, LLMTool, LLMUsage, ToolCall
-from gaia.llm.deepseek_client import DeepSeekClient
+from gaia.llm.base import (
+    LLMBudgetExceeded,
+    LLMMessage,
+    LLMStop,
+    LLMTool,
+    LLMUsage,
+    ToolCall,
+    ToolChatLLM,
+)
+from gaia.llm.deepseek_client import DeepSeekClient, _budget_exceeded_body
 from gaia.services.costs import ModelPrice, PriceRates, PriceTable
 
 
@@ -96,6 +104,17 @@ def _completion(**overrides: Any) -> Any:
     return SimpleNamespace(**values)
 
 
+def _permission_error(body: Any) -> openai.PermissionDeniedError:
+    request = httpx2.Request("POST", "https://api.deepseek.com/chat/completions")
+    return openai.PermissionDeniedError(
+        "forbidden",
+        response=httpx2.Response(
+            403, request=request, headers={"x-request-id": "req_permission_ds"}
+        ),
+        body=body,
+    )
+
+
 def _openai_error(kind: str) -> Exception:
     request = httpx2.Request("POST", "https://api.deepseek.com/chat/completions")
     if kind == "rate":
@@ -113,6 +132,81 @@ def _openai_error(kind: str) -> Exception:
             body=None,
         )
     return openai.APIConnectionError(message="down", request=request)
+
+
+def test_deepseek_client_satisfies_tool_chat_llm() -> None:
+    client = DeepSeekClient(
+        api_key=SecretStr("sk-deepseek-test-1234567890"),
+        model="deepseek-v4-pro",
+        base_url="https://api.deepseek.com",
+        recorder=RecordingRecorder(),
+        price_table=_price_table(),
+    )
+    assert isinstance(client, ToolChatLLM)
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        ({"error": {"code": "budget_exceeded", "message": "x"}}, True),
+        ({"error": {"code": "other"}}, False),
+        ({"code": "budget_exceeded"}, True),
+        (None, False),
+    ],
+)
+def test_budget_exceeded_body_detection(body: Any, expected: bool) -> None:
+    assert _budget_exceeded_body(_permission_error(body)) is expected
+
+
+async def test_permission_denied_budget_body_translates_to_llm_budget_exceeded() -> None:
+    error = _permission_error({"error": {"code": "budget_exceeded"}})
+    stub = StubDeepSeek(_completion(), error=error)
+    client = _client(stub, RecordingRecorder())
+
+    with pytest.raises(LLMBudgetExceeded):
+        await client.complete(messages=[LLMMessage(role="user", content="hello")])
+
+
+async def test_permission_denied_non_budget_body_is_reraised() -> None:
+    stub = StubDeepSeek(_completion(), error=_permission_error({"error": {"code": "other"}}))
+    client = _client(stub, RecordingRecorder())
+
+    with pytest.raises(openai.PermissionDeniedError):
+        await client.complete(messages=[LLMMessage(role="user", content="hello")])
+
+
+async def test_aclose_is_a_noop_when_the_client_has_no_close() -> None:
+    client = _client(StubDeepSeek(_completion()), RecordingRecorder())
+    await client.aclose()
+
+
+async def test_aclose_closes_the_underlying_client() -> None:
+    class ClosableCompletions:
+        async def create(self, **kwargs: Any) -> Any:
+            del kwargs
+            return _completion()
+
+    class ClosableStub:
+        def __init__(self) -> None:
+            self.chat = SimpleNamespace(completions=ClosableCompletions())
+            self.closed = False
+
+        async def close(self) -> None:
+            self.closed = True
+
+    stub = ClosableStub()
+    client = DeepSeekClient(
+        api_key=SecretStr("sk-deepseek-test-1234567890"),
+        model="deepseek-v4-pro",
+        base_url="https://api.deepseek.com",
+        recorder=RecordingRecorder(),
+        price_table=_price_table(),
+        client=stub,
+    )
+
+    await client.aclose()
+
+    assert stub.closed
 
 
 async def test_constructor_builds_sdk_client_with_explicit_key() -> None:

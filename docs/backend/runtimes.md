@@ -1,6 +1,7 @@
 # Agent runtimes: the seam and its shared machinery
 
-> Package **10a** · `gaia/runtimes/{base,support,approvals,orphans,fake,fake_agent}.py`,
+> Packages **10a** (the seam) and **10b** (the native runtime) ·
+> `gaia/runtimes/{base,support,approvals,orphans,fake,fake_agent,finish,native,native_llm}.py`,
 > `services/proc.py` (`stream_proc`), `GitService.changed_paths` · current as of 2026-11-14
 
 ## What it's for
@@ -75,11 +76,61 @@ A runtime registers every process group it starts. At startup, `reap_stale` kill
 only if `ps` confirms that the pid still has the recorded start time **and** command. pids get
 reused, and killing a stranger's process is worse than leaving an orphan.
 
+## The native runtime (10b): Gaia's own agent loop
+`NativeRuntime` is the default junior runtime (ADR-001). It is a plain loop that Gaia owns end to
+end, and it is **provider-neutral**: it talks to any `ToolChatLLM` (`gaia/llm/base.py`), and
+DeepSeek is simply the first implementation.
+
+```
+run_task(task)                                   ← runs the loop in its own child task
+  handle = llm_factory(task)        mint a run token, client → gateway /llm/deepseek
+  ctx    = context_factory(task)    09b ToolContext: sandbox runner, broker, audit
+  messages = [system: junior_system.md, user: task.instructions]
+  repeat up to task.max_turns:
+    resp = llm.complete(messages, tools = registry.specs() + finish)
+    emit agent.message / agent.usage
+    append the assistant message (with reasoning_content: DeepSeek requires it)
+    no tool calls 3 turns running → failed
+    each tool call:
+      finish  → validate FinishArgs → completed (or feed the error back)
+      other   → registry.call(...) → append the tool result (every call gets one)
+  → failed: max turns
+finally: close the handle (revokes the token)
+```
+
+- **Cost and budget live at the gateway.** The client's recorder is an in-memory `UsageTally`; the
+  gateway writes the one `llm_usage` row and updates `run.cost_usd`. A refused call (403
+  `budget_exceeded`) becomes `LLMBudgetExceeded` in the adapter, and `budget_exceeded` here.
+- **History is append-only** (requirement 10). Messages are frozen dataclasses in a list that is
+  only appended to.
+- **`finish`** (`gaia/runtimes/finish.py`) is the one tool the registry does not own. It ends the
+  task and never touches the worktree. The Claude Agent SDK runtime offers the same tool with the
+  same schema, so one prompt works for both.
+- **Cancellation:** `cancel(task_id)` stops only the agent's loop, and `run_task` returns
+  `cancelled`. Cancelling the *caller* propagates as usual. The loop runs in a child task for
+  exactly this reason: registering the caller's task would let `cancel()` tear down the graph
+  node that called it.
+
+### Portability (ADR-001)
+- **P1:** `tests/test_vendor_boundaries.py` walks every import under `gaia/`: `anthropic` only in
+  `llm/anthropic_client.py`, `openai` only in `llm/deepseek_client.py`, `claude_agent_sdk` only
+  in `runtimes/claude_agent_sdk.py`.
+- **P6:** `DeepSeekClient.parse` implements `StructuredLLM`. DeepSeek has no JSON-schema mode, so
+  it uses `response_format=json_object` with the schema in the system prompt, plus one repair
+  call. `tests/test_lead_portability.py` runs the lead's planning and review on it, and it was
+  verified live: DeepSeek planned a real ticket through the gateway.
+
 ## Try it
 ```sh
 git -C <repo> worktree add <wt> -b gaia/try main
 GAIA_DATA_DIR=/tmp/g uv run gaia dev run-task --runtime fake --worktree <wt> "add hello()"
 # → {"status": "completed", "files_changed": ["hello.py"], ...}  (logs go to stderr)
+```
+The native runtime, against a running server (`gaia serve` or the dev server) that holds a
+DeepSeek key, with srt installed (`make sandbox-install`):
+```sh
+uv run gaia dev run-task --runtime native --gateway-base http://127.0.0.1:8765 \
+  --worktree <a gaia worktree> "Add farewell(name) to src/greet.py with a test, then finish"
 ```
 
 ## Changing it safely
