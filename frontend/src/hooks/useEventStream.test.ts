@@ -203,12 +203,16 @@ describe('useEventStream', () => {
       FakeEventSource.instances[0]?.emitMessage(
         event({ type: 'approval.requested' }),
       )
+      FakeEventSource.instances[0]?.emitMessage(
+        event({ type: 'run.status_changed', run_id: 'run-1' }),
+      )
     })
 
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['runs'] })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['runs', 'run-1'] })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['costs'] })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['approvals'] })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['admin'] })
   })
 })
 

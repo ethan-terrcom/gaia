@@ -540,6 +540,83 @@ describe('TicketsView', () => {
     ).toBeTruthy()
   })
 
+  it('shows the orchestrator_paused 409 message in the start-run dialog', async () => {
+    mockFetch(async (request) => {
+      if (request.method === 'POST' && request.url.includes('/api/v1/runs')) {
+        return jsonResponse(409, {
+          error: {
+            code: 'orchestrator_paused',
+            message:
+              'the orchestrator is paused; resume it before starting runs',
+          },
+        })
+      }
+      if (
+        request.method === 'GET' &&
+        request.url.includes('/api/v1/repositories')
+      ) {
+        return jsonResponse(200, [repository])
+      }
+      if (request.method === 'GET' && request.url.includes('/api/v1/tickets')) {
+        return jsonResponse(200, { items: [ticket()], next_cursor: null })
+      }
+      return jsonResponse(404, {
+        error: { code: 'not_found', message: 'not found' },
+      })
+    })
+
+    renderView()
+    await screen.findByText('Fix login bug')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Start run' }))
+
+    expect(
+      await within(dialog).findByText(
+        'the orchestrator is paused; resume it before starting runs',
+      ),
+    ).toBeTruthy()
+  })
+
+  it('shows the daily_budget_exhausted 409 message in the start-run dialog', async () => {
+    mockFetch(async (request) => {
+      if (request.method === 'POST' && request.url.includes('/api/v1/runs')) {
+        return jsonResponse(409, {
+          error: {
+            code: 'daily_budget_exhausted',
+            message: 'daily LLM budget exhausted: 12.00 of 10.00 USD spent',
+          },
+        })
+      }
+      if (
+        request.method === 'GET' &&
+        request.url.includes('/api/v1/repositories')
+      ) {
+        return jsonResponse(200, [repository])
+      }
+      if (request.method === 'GET' && request.url.includes('/api/v1/tickets')) {
+        return jsonResponse(200, { items: [ticket()], next_cursor: null })
+      }
+      return jsonResponse(404, {
+        error: { code: 'not_found', message: 'not found' },
+      })
+    })
+
+    renderView()
+    await screen.findByText('Fix login bug')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Start run' }))
+
+    expect(
+      await within(dialog).findByText(
+        'daily LLM budget exhausted: 12.00 of 10.00 USD spent',
+      ),
+    ).toBeTruthy()
+  })
+
   it('shows the 503 orchestrator message in the start-run dialog', async () => {
     mockFetch(async (request) => {
       if (request.method === 'POST' && request.url.includes('/api/v1/runs')) {

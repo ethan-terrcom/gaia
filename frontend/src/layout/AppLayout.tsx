@@ -4,6 +4,8 @@ import { useQuery } from '@tanstack/react-query'
 import { fetchMe, fetchPendingApprovals, fetchTodayCosts } from '../api/client'
 import { useEventStream } from '../hooks/useEventStream'
 import { useHotkeys } from '../hooks/useHotkeys'
+import { DemoBadge } from './DemoBadge'
+import { PauseControl } from './PauseControl'
 
 type Theme = 'light' | 'dark' | 'system'
 
@@ -150,6 +152,8 @@ export default function AppLayout() {
           />
           <TodaySpend />
           <div className="ml-auto flex items-center gap-3">
+            <DemoBadge />
+            <PauseControl variant="button" />
             <button
               type="button"
               onClick={cycleTheme}
@@ -162,6 +166,7 @@ export default function AppLayout() {
             </span>
           </div>
         </header>
+        <PauseControl variant="banner" />
         <main className="p-6">
           <Outlet />
         </main>

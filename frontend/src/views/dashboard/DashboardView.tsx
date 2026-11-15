@@ -153,7 +153,7 @@ function ActiveRunItem({ run }: { run: RunSummary }) {
             Step {step.index + 1}: {step.title}
           </>
         ) : (
-          'No step started yet'
+          'No step in progress'
         )}
       </p>
       <div className="mt-3">
