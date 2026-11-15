@@ -46,13 +46,23 @@ existing handoffs in that folder are worked examples.
   lead runs: a `scripts/dev_*.py` file, or a route that exists only when `GAIA_DEV_ROUTES=true`.
 - **Pre-decide security tightenings** and ask them to record each as a deviation. An example is
   09a, where `git` is denied in `run_command` in favour of GitService tools.
+- **Place the boundary's own files.** Say where every file that configures a sandbox, a policy or
+  a credential helper lives, and make sure the bounded process cannot write there (09b).
+- **Say how a flow leaves a non-default state.** "Open as draft" needs "mark ready before merge"
+  (15a). A handoff that chooses a state must name the step that undoes it.
+- **Say where the transaction ends.** For anything that calls the network, write "load → network →
+  persist", and say what is committed first when a later step can fail (15a).
+- **Name the platform semantics a fake must copy.** A browser delivers named SSE events only to
+  `addEventListener`. An HTTP path must be matched as sent. Put the platform rule in the lead
+  notes, and ask for the fake to follow it (16, 15a).
 - **Name parallel work.** If another package is being built at the same time, say what to stub and
   which `TODO(gaia-NN)` to leave. An example is 07b writing an event row because 13's bus did not
   exist yet.
 
 ## Sizing and parallel dispatch
-- One handoff is one PR. About 15–20M prompt tokens (about 99% cache hits) and 80–100K output
-  tokens is normal. More than 220 turns means the package is too big: split it.
+- One handoff is one PR. About 15–45M prompt tokens (about 99% cache hits) and 80–150K output
+  tokens is normal. 09b (10 tools, 4 cross-module edits) took 209 turns: give packages that size
+  `--max-turns 260`, and split anything larger.
 - **Signs a package is too big:** more than about 12 new modules, or more than 8 required
   integration tests. 12a (graph, 15 nodes, guard, runner, 8 graph tests) hit 240 turns
   unfinished. When that happens, measure what exists (`pytest`, `--cov`), then dispatch a
@@ -71,8 +81,16 @@ existing handoffs in that folder are worked examples.
 - [ ] Every new dependency is added by the lead before dispatch, pinned to a version at least two
       weeks old. **Check the transitive ones too:** diff `uv.lock` and look up each new package's
       upload date. Hold back any that are too new with `[tool.uv] exclude-newer-package = { pkg =
-      "<date>" }` (12a needed 9 of these for langgraph). A global `--exclude-newer` also downgrades
-      your existing pins.
+      "<date>" }` (12a needed 9 of these for langgraph; 10c needed `sse-starlette`). A global
+      `--exclude-newer` also downgrades your existing pins. Commit the setup as its own commit
+      ("NN: lead setup"), so the junior's diff stays reviewable on its own.
+- [ ] **npm:** check every new `package-lock.json` entry's publish date (`npm view <pkg> time`), and
+      hold back young transitive packages with `"overrides"` in `package.json` (16 needed 3). If a
+      tool's peer dependency conflicts with the app (`openapi-typescript` needs TypeScript 5; the app
+      is on 7), give the tool its own pinned folder (`frontend/tools/<tool>/`). npm overrides do
+      not apply to peers.
+- [ ] Frontend packages: the harness allows `npm run {lint,format,typecheck,test,build,gen:api}`
+      with `cwd: "frontend"`, offline. Install everything first.
 - [ ] The handoff is copied into the worktree, and the `run` allowlist covers every command it
       names.
 - [ ] Each acceptance criterion maps to either a named test or a named lead step.

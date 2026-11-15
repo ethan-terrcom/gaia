@@ -205,7 +205,11 @@ and the Alembic revision chain. Rerun `make check`, then push with `--force-with
 | Cleanup in `finally` on a streaming path is cancelled along with the stream (07b: a client disconnect made a model call free). | Shield cleanup (`anyio.CancelScope(shield=True)`), and reproduce with an ASGI `http.disconnect` test. |
 | Juniors default "missing" to zero and "no cursor" to everything (07b's $0 usage, 13's full-log replay). | In the lead notes, say what happens when data is absent. In review, grep for `limit=None` and module-level registries. |
 | A package with about 15 modules and 8 integration tests (12a) runs out of turns. | Split up front, or dispatch a "part 2" handoff listing the failing tests, missed lines and missing files. |
-| New dependencies pull in transitive packages released days ago. | `[tool.uv] exclude-newer-package` per package; check every new `uv.lock` entry's upload date. |
+| New dependencies pull in transitive packages released days ago. | `[tool.uv] exclude-newer-package` per package; check every new `uv.lock` entry's upload date. For npm, `"overrides"`, and a separate tool folder when a peer dependency conflicts (16). |
+| Fakes encode the junior's model of a platform, not the platform (15a: decoded URL paths; 16: `onmessage` for named SSE events). | At review, compare fakes with the platform docs, and run one test with a real implementation (Node's `EventSource`, a bare git repo, real `srt`). |
+| A boundary's config written where the bounded process can write it (09b: srt settings in the task dir). | Lead notes say where every boundary file lives. Review asks "can the agent write this path?" |
+| Each step correct alone, the sequence impossible (15a: draft PRs cannot be merged). | Lead notes name how the flow leaves every non-default state. |
+| Three juniors in parallel took 2–2.3 hours each, against about 20 minutes alone. | Parallelism is still worth it, because review is the bottleneck. Start reviews as runs finish, and write the next handoffs meanwhile. |
 
 ## 6. When something goes wrong
 

@@ -72,3 +72,13 @@ under `env -i`. Afterwards, `grep -c` the server log for the key and the token: 
 Merge one PR at a time. Rebase the next branch on `main` (`git rebase main` with the pinned
 `GIT_DIR`), resolve the conflicts (`AppServices`, `app.py` routers, migration revision chain), rerun
 `make check`, push with `--force-with-lease`, then merge.
+
+## Rebasing after a parallel batch (as done for 09b → 15a → 16)
+- Merge one PR, then `git fetch origin && git rebase origin/main` on the next branch, using the
+  pinned `GIT_DIR`.
+- The usual conflicts are the index rows in `backend/README.md` and `docs/backend/README.md`, and
+  neighbouring `Settings` validators. Rows: keep both sides. Validators: merge the field lists.
+  The "What exists today" test count: rerun `pytest` and write the real number.
+- Regenerate artefacts after a rebase (`make openapi`, `make graph`) in case the other branch
+  changed the API or the graph, then run **all** checks, frontend included, before
+  `git push --force-with-lease`.
