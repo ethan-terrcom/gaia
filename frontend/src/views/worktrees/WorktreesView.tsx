@@ -100,6 +100,28 @@ async function registerRepository(input: {
   return data
 }
 
+async function updateRepositoryCommands(input: {
+  id: string
+  setup_command: string[] | null
+  test_command: string[] | null
+}): Promise<RepositoryRead> {
+  const { data, error } = await api.PATCH(
+    '/api/v1/repositories/{repository_id}',
+    {
+      fetch: globalThis.fetch,
+      params: { path: { repository_id: input.id } },
+      body: {
+        setup_command: input.setup_command,
+        test_command: input.test_command,
+      },
+    },
+  )
+  if (error) {
+    throw error
+  }
+  return data
+}
+
 async function unregisterRepository(repositoryId: string): Promise<void> {
   const { error } = await api.DELETE('/api/v1/repositories/{repository_id}', {
     fetch: globalThis.fetch,
@@ -176,6 +198,92 @@ function RemoteUrl({ url }: { url: string | null }) {
   return <span>{url}</span>
 }
 
+function EditCommandsForm({
+  repository,
+  onDone,
+}: {
+  repository: RepositoryRead
+  onDone: () => void
+}) {
+  const queryClient = useQueryClient()
+  const [setupCommand, setSetupCommand] = useState(
+    repository.setup_command?.join(' ') ?? '',
+  )
+  const [testCommand, setTestCommand] = useState(
+    repository.test_command?.join(' ') ?? '',
+  )
+  const mutation = useMutation({
+    mutationFn: updateRepositoryCommands,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['repositories'] })
+      onDone()
+    },
+  })
+
+  function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    mutation.mutate({
+      id: repository.id,
+      setup_command: parseCommand(setupCommand),
+      test_command: parseCommand(testCommand),
+    })
+  }
+
+  return (
+    <form
+      onSubmit={onSubmit}
+      aria-label={`Edit commands for ${repository.name}`}
+      className="mt-3 grid gap-3 text-sm"
+    >
+      <div>
+        <label htmlFor={`edit-setup-${repository.id}`} className="block">
+          Setup command
+        </label>
+        <input
+          id={`edit-setup-${repository.id}`}
+          value={setupCommand}
+          onChange={(event) => setSetupCommand(event.target.value)}
+          autoComplete="off"
+          className="mt-1 w-full rounded border border-gray-300 px-2 py-1 font-mono dark:border-gray-700 dark:bg-gray-950"
+        />
+      </div>
+      <div>
+        <label htmlFor={`edit-test-${repository.id}`} className="block">
+          Test command
+        </label>
+        <input
+          id={`edit-test-${repository.id}`}
+          value={testCommand}
+          onChange={(event) => setTestCommand(event.target.value)}
+          autoComplete="off"
+          className="mt-1 w-full rounded border border-gray-300 px-2 py-1 font-mono dark:border-gray-700 dark:bg-gray-950"
+        />
+      </div>
+      <p className="text-xs text-gray-500 dark:text-gray-400">
+        Split on whitespace, no shell. Leave a box empty to clear it. The next
+        run uses the new commands.
+      </p>
+      <div className="flex gap-2">
+        <button
+          type="submit"
+          disabled={mutation.isPending}
+          className="rounded bg-blue-600 px-3 py-1.5 text-white disabled:opacity-50"
+        >
+          {mutation.isPending ? 'Saving…' : 'Save commands'}
+        </button>
+        <button
+          type="button"
+          onClick={onDone}
+          className="rounded border border-gray-300 px-3 py-1.5 dark:border-gray-700"
+        >
+          Cancel
+        </button>
+      </div>
+      {mutation.isError ? <InlineApiError error={mutation.error} /> : null}
+    </form>
+  )
+}
+
 function RepositoryCard({
   repository,
   onUnregister,
@@ -183,17 +291,30 @@ function RepositoryCard({
   repository: RepositoryRead
   onUnregister: () => void
 }) {
+  const [editing, setEditing] = useState(false)
   return (
     <article className="rounded border border-gray-200 p-4 dark:border-gray-800">
       <div className="flex items-start justify-between gap-4">
         <h3 className="font-semibold">{repository.name}</h3>
-        <button
-          type="button"
-          onClick={onUnregister}
-          className="rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-700"
-        >
-          Unregister
-        </button>
+        <div className="flex gap-2">
+          {editing ? null : (
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              aria-label={`Edit commands for ${repository.name}`}
+              className="rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-700"
+            >
+              Edit commands
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onUnregister}
+            className="rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-700"
+          >
+            Unregister
+          </button>
+        </div>
       </div>
       <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
         <div>
@@ -214,23 +335,35 @@ function RepositoryCard({
             <code className="font-mono">{repository.default_branch}</code>
           </dd>
         </div>
-        <div>
-          <dt className="text-gray-500 dark:text-gray-400">Setup command</dt>
-          <dd>
-            <code className="font-mono">
-              {commandText(repository.setup_command)}
-            </code>
-          </dd>
-        </div>
-        <div>
-          <dt className="text-gray-500 dark:text-gray-400">Test command</dt>
-          <dd>
-            <code className="font-mono">
-              {commandText(repository.test_command)}
-            </code>
-          </dd>
-        </div>
+        {editing ? null : (
+          <>
+            <div>
+              <dt className="text-gray-500 dark:text-gray-400">
+                Setup command
+              </dt>
+              <dd>
+                <code className="font-mono">
+                  {commandText(repository.setup_command)}
+                </code>
+              </dd>
+            </div>
+            <div>
+              <dt className="text-gray-500 dark:text-gray-400">Test command</dt>
+              <dd>
+                <code className="font-mono">
+                  {commandText(repository.test_command)}
+                </code>
+              </dd>
+            </div>
+          </>
+        )}
       </dl>
+      {editing ? (
+        <EditCommandsForm
+          repository={repository}
+          onDone={() => setEditing(false)}
+        />
+      ) : null}
     </article>
   )
 }

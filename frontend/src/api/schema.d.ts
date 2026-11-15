@@ -296,7 +296,15 @@ export interface paths {
         delete: operations["unregister_repository_api_v1_repositories__repository_id__delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Change a repository's setup or test command
+         * @description Set or clear the setup and test commands; only the fields sent change.
+         *
+         *     The commands are owner-registered values (never read from the repository),
+         *     so editing them is an owner action and is audited. A run that is already
+         *     past setup keeps what it started with; the next run uses the new values.
+         */
+        patch: operations["update_repository_api_v1_repositories__repository_id__patch"];
         trace?: never;
     };
     "/api/v1/runs": {
@@ -995,6 +1003,19 @@ export interface components {
             updated_at: string;
             /** Workspace Id */
             workspace_id: string;
+        };
+        /**
+         * RepositoryUpdate
+         * @description Change a registered repository's commands.
+         *
+         *     Only the fields that are sent change; ``null`` clears a command. The path,
+         *     name and remote are not editable: they identify the repository.
+         */
+        RepositoryUpdate: {
+            /** Setup Command */
+            setup_command?: string[] | null;
+            /** Test Command */
+            test_command?: string[] | null;
         };
         /**
          * ResumeAllResult
@@ -1879,6 +1900,41 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_repository_api_v1_repositories__repository_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                repository_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RepositoryUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RepositoryRead"];
+                };
             };
             /** @description Validation Error */
             422: {

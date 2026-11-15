@@ -276,6 +276,89 @@ describe('repositories', () => {
   })
 })
 
+describe('editing a repository', () => {
+  function routes(onPatch: (request: Request) => Response | Promise<Response>) {
+    mockFetch(async (request) => {
+      if (request.method === 'PATCH') {
+        return onPatch(request)
+      }
+      if (
+        request.method === 'GET' &&
+        request.url.includes('/api/v1/repositories')
+      ) {
+        return jsonResponse(200, [repository])
+      }
+      if (
+        request.method === 'GET' &&
+        request.url.includes('/api/v1/worktrees')
+      ) {
+        return jsonResponse(200, { items: [], unknown_paths: [] })
+      }
+      return jsonResponse(404, {
+        error: { code: 'not_found', message: 'not found' },
+      })
+    })
+  }
+
+  it('saves new commands and clears an empty one', async () => {
+    let body: unknown = null
+    let url = ''
+    routes(async (request) => {
+      url = request.url
+      body = await request.json()
+      return jsonResponse(200, repository)
+    })
+
+    renderView()
+    await screen.findByRole('heading', { name: 'gaia' })
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Edit commands for gaia' }),
+    )
+    const form = screen.getByRole('form', { name: 'Edit commands for gaia' })
+    fireEvent.change(within(form).getByLabelText('Setup command'), {
+      target: { value: 'make setup-worktree' },
+    })
+    fireEvent.change(within(form).getByLabelText('Test command'), {
+      target: { value: '' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save commands' }))
+
+    await waitFor(() => expect(body).not.toBeNull())
+    expect(url).toContain('/api/v1/repositories/repo-1')
+    expect(body).toEqual({
+      setup_command: ['make', 'setup-worktree'],
+      test_command: null,
+    })
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('button', { name: 'Save commands' }),
+      ).toBeNull(),
+    )
+  })
+
+  it('shows an error inline and cancel closes the form', async () => {
+    routes(() =>
+      jsonResponse(422, {
+        error: { code: 'validation_error', message: 'bad command' },
+      }),
+    )
+
+    renderView()
+    await screen.findByRole('heading', { name: 'gaia' })
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Edit commands for gaia' }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Save commands' }))
+    expect(await screen.findByText('bad command')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('button', { name: 'Save commands' })).toBeNull()
+    expect(
+      screen.getByRole('button', { name: 'Edit commands for gaia' }),
+    ).toBeTruthy()
+  })
+})
+
 describe('worktrees', () => {
   it('shows flags and sends repo_id when the repo filter changes', async () => {
     const flaggedWorktree = worktree({
