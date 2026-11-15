@@ -101,8 +101,9 @@ async def init_demo(settings: Settings) -> int:
         else:
             print("demo already initialized; nothing duplicated")
         print(
-            "Next step: start `GAIA_FAKE_LLM=1 gaia serve`, open the UI, and "
-            "press Start run on the ticket."
+            "Next step: run Gaia in demo mode (`make demo` does this for you, or "
+            "`GAIA_FAKE_LLM=1 make run`), open the login link it prints, and press "
+            "Start run on the ticket."
         )
         return 0
     finally:

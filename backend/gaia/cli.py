@@ -456,8 +456,12 @@ def _worktrees(args: argparse.Namespace) -> int:
 def _demo_init(args: argparse.Namespace) -> int:
     """Run ``gaia demo init`` against the configured data directory."""
     del args
+    from gaia.config.logging import configure_logging
     from gaia.dev.demo import init_demo
 
+    # Like every other command: INFO and up, redacted. Without this, structlog's
+    # default prints debug lines (proc.finished ...) to a first-time user.
+    configure_logging()
     return asyncio.run(init_demo(get_settings()))
 
 

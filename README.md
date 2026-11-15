@@ -4,6 +4,9 @@ A local-first control plane for a hierarchy of AI coding agents: a lead engineer
 (Claude) that plans and reviews, junior agents (DeepSeek) that implement in isolated git
 worktrees, and a human approval inbox for every irreversible step.
 
+- **New here? Start with the [user guide](docs/USER_GUIDE.md):** install, a free demo run, then
+  your first real one.
+- Security model and how to report a vulnerability: [docs/SECURITY.md](docs/SECURITY.md)
 - What and why: [docs/PROJECT_BRIEF.md](docs/PROJECT_BRIEF.md)
 - How: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - Work packages: [docs/implementation/00-README.md](docs/implementation/00-README.md)
@@ -29,6 +32,8 @@ make migrate       # create or upgrade ~/.gaia/gaia.sqlite (Alembic)
 make check         # lint, typecheck, test and secret scan (exactly what CI runs)
 make dev-frontend  # UI on http://127.0.0.1:5173
 make dev-backend   # API on http://127.0.0.1:8765, reloading on change
+make run           # or: one process serving the built UI and the API on :8765
+make demo          # a full run with fake models: no keys, no cost
 ```
 
 Run `make` with no arguments to list every target.

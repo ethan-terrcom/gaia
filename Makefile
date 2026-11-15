@@ -5,7 +5,11 @@ BACKEND := backend
 FRONTEND := frontend
 
 .DEFAULT_GOAL := help
-.PHONY: help setup migrate dev-backend dev-frontend fmt lint typecheck test secrets smoke-llm openapi graph sandbox-install check audit
+.PHONY: help setup migrate dev-backend dev-frontend run ui-url demo fmt lint typecheck test secrets smoke-llm openapi graph sandbox-install check audit
+
+# `make run` serves the built UI from the API itself, so the login link uses the API's origin.
+SERVE_ORIGIN = http://127.0.0.1:$${GAIA_PORT:-8765}
+UI_DIST := $(abspath $(FRONTEND))/dist
 
 help: ## List the available targets
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-14s %s\n", $$1, $$2}'
@@ -24,6 +28,18 @@ migrate: ## Create or upgrade the database schema in ~/.gaia/gaia.sqlite
 
 dev-backend: ## Run the API server on the host and port from Settings
 	cd $(BACKEND) && uv run gaia serve --reload
+
+run: migrate ## Build the UI and serve Gaia (API + UI) on 127.0.0.1:8765; prints your login link
+	cd $(FRONTEND) && npm run build
+	cd $(BACKEND) && GAIA_UI_ORIGIN=$(SERVE_ORIGIN) uv run gaia ui
+	cd $(BACKEND) && GAIA_UI_DIST_DIR=$(UI_DIST) GAIA_UI_ORIGIN=$(SERVE_ORIGIN) uv run gaia serve
+
+ui-url: ## Print the login link for the UI that `make run` serves
+	cd $(BACKEND) && GAIA_UI_ORIGIN=$(SERVE_ORIGIN) uv run gaia ui
+
+demo: migrate ## Create the demo repo and ticket, then run Gaia with fake models (no keys, no cost)
+	cd $(BACKEND) && uv run gaia demo init
+	GAIA_FAKE_LLM=1 $(MAKE) run
 
 dev-frontend: ## Run the Vite dev server on 127.0.0.1:5173
 	cd $(FRONTEND) && npm run dev
