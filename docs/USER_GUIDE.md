@@ -66,6 +66,13 @@ This does three things:
 3. builds the UI and starts Gaia with `GAIA_FAKE_LLM=1`, printing a login link like
    `http://127.0.0.1:8765/#token=…`.
 
+**What you will see.** `make demo` prints a lot (database migration, the UI build), then a line
+`demo initialized` with a "Demo ready" note. That note is only information: **you do not need to
+run another command.** Gaia then starts and the terminal stays busy, with no prompt, because the
+server is running. That is normal. Leave that terminal alone, look for the line starting
+`http://127.0.0.1:8765/#token=`, and open it in your browser. If you need a terminal for other
+commands, open a second one. Press `Ctrl-C` in the first to stop Gaia.
+
 The first time, macOS may ask whether Python can use the Keychain: Gaia stores its own login
 token there. Allow it.
 
