@@ -88,3 +88,14 @@ The pinned `export GIT_DIR=… GIT_WORK_TREE=…` used for committing leaks into
 that shell. Before 18c, a `pytest` run in that shell failed the push tests intermittently. The
 test suite now strips those variables itself, but keep commits and test runs in separate
 commands anyway, and run tests with `-rf` so a failure names itself.
+
+## Gotcha: waiting for CI after a force-push
+Rebasing a PR branch and force-pushing cancels the running CI, and the new run takes a moment to
+register. `gh pr checks <n> --watch` can then exit at once with "no checks reported", which looks
+like done. Wait on the run itself, then read its conclusion before merging:
+```sh
+RID=$(gh run list --branch <branch> --limit 1 --json databaseId -q '.[0].databaseId')
+gh run watch "$RID" && gh run view "$RID" --json conclusion -q .conclusion
+```
+Branch protection refuses a merge without green checks anyway, so this saves a failed merge, not
+a bad one.
