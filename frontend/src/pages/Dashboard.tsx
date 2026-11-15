@@ -1,5 +1,5 @@
-import { PagePlaceholder } from './Placeholder'
+import { DashboardView } from '../views/dashboard/DashboardView'
 
 export default function Dashboard() {
-  return <PagePlaceholder title="Dashboard" arrivesIn="17a" />
+  return <DashboardView />
 }
