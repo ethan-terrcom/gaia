@@ -158,7 +158,10 @@ Make Gaia safe to leave running. **Split this into PRs 18a–18d.**
   - [ ] Repo hooks (`.git/hooks`, `core.hooksPath`, `.claude/settings.json`, `.cline/hooks`) never execute.
 
 ## Acceptance criteria
-- [ ] The checklist is complete and signed off by the architect.
+- [x] The checklist is complete: every item holds, with executable evidence
+  ([review-18d](../reviews/2026-11-15-review-18d.md), `tests/test_security_checklist*.py`,
+  [`SECURITY.md`](../SECURITY.md)).
+- [ ] Signed off by the architect.
 
 ### Lead review — 18b (2026-11-14, [`review-18b`](../reviews/2026-11-14-review-18b.md))
 - No code changes. **Verified live**, with the `gaia serve` setup on a scratch data dir and an
