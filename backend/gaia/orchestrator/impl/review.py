@@ -71,11 +71,13 @@ class GatewayReviewer:
         sessions: async_sessionmaker[AsyncSession],
         price_table: PriceTable,
         git: GitService,
+        http_client: Any | None = None,
     ) -> None:
         self._settings = settings
         self._sessions = sessions
         self._price_table = price_table
         self._git = git
+        self._http_client = http_client
 
     async def review_step(
         self,
@@ -92,6 +94,7 @@ class GatewayReviewer:
             price_table=self._price_table,
             run_id=run_id,
             workspace_id=workspace_id,
+            http_client=self._http_client,
         ) as llm:
             engineer = LeadEngineer(llm, CommandPolicy.from_default())
             return await engineer.review_step(plan, step_index, outcome.diff, checks.output)
@@ -110,6 +113,7 @@ class GatewayReviewer:
             price_table=self._price_table,
             run_id=run_id,
             workspace_id=context.workspace_id,
+            http_client=self._http_client,
         ) as llm:
             engineer = LeadEngineer(llm, CommandPolicy.from_default())
             return await engineer.final_review(context.plan, diff)

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -34,8 +35,14 @@ async def lead_llm(
     price_table: PriceTable,
     run_id: str,
     workspace_id: str,
+    http_client: Any | None = None,
 ) -> AsyncIterator[StructuredLLM]:
-    """Yield a structured LLM for one lead call, revoking its token afterwards."""
+    """Yield a structured LLM for one lead call, revoking its token afterwards.
+
+    ``http_client`` is the same test seam as in
+    :func:`gaia.runtimes.native_llm.gateway_llm_factory`: production passes
+    ``None``, and the in-process gateway tests pass an ASGI transport.
+    """
     async with session_scope(sessions) as session:
         minted = await run_tokens.mint(
             session,
@@ -49,14 +56,28 @@ async def lead_llm(
     token_id = minted.token_id
     origin = f"http://{settings.host}:{settings.port}"
     base_url = f"{origin.rstrip('/')}/llm/{settings.planner_provider}"
-    client = build_structured_llm(
-        provider=settings.planner_provider,
-        model=settings.planner_model,
-        api_key=minted.token,
-        base_url=base_url,
-        recorder=UsageTally(),
-        price_table=price_table,
-    )
+    # Omit ``http_client`` when it is ``None`` so monkeypatched factories in
+    # tests keep their existing signatures; both branches build the same client
+    # in production.
+    if http_client is None:
+        client = build_structured_llm(
+            provider=settings.planner_provider,
+            model=settings.planner_model,
+            api_key=minted.token,
+            base_url=base_url,
+            recorder=UsageTally(),
+            price_table=price_table,
+        )
+    else:
+        client = build_structured_llm(
+            provider=settings.planner_provider,
+            model=settings.planner_model,
+            api_key=minted.token,
+            base_url=base_url,
+            recorder=UsageTally(),
+            price_table=price_table,
+            http_client=http_client,
+        )
     try:
         yield client
     finally:

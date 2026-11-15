@@ -180,7 +180,12 @@ async def api(
     """
     store = InMemorySecretStore()
     monkeypatch.setattr(app_module, "get_secret_store", lambda: store)
-    settings = Settings(data_dir=tmp_path / "gaia-data", db_url=database.url, pr_sync_enabled=False)
+    settings = Settings(
+        data_dir=tmp_path / "gaia-data",
+        db_url=database.url,
+        orchestrator_enabled=False,
+        pr_sync_enabled=False,
+    )
     app = create_app(settings)
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)

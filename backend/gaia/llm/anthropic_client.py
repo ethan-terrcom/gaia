@@ -112,6 +112,9 @@ class AnthropicClient:
         # accepting the concrete client here would make tests unable to use a
         # stub and would make this seam depend on one SDK minor version.
         client: Any | None = None,
+        # An optional transport for the real Anthropic client. Production leaves
+        # this ``None``; the in-process gateway test supplies an ASGI transport.
+        http_client: Any | None = None,
     ) -> None:
         price_table.require(model)
         self._model = model
@@ -120,6 +123,7 @@ class AnthropicClient:
         self._client = client or anthropic.AsyncAnthropic(
             api_key=api_key.get_secret_value(),
             base_url=base_url,
+            http_client=http_client,
         )
 
     async def aclose(self) -> None:

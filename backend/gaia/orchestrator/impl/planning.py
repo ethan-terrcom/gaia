@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -27,10 +28,12 @@ class GatewayPlanner:
         settings: Settings,
         sessions: async_sessionmaker[AsyncSession],
         price_table: PriceTable,
+        http_client: Any | None = None,
     ) -> None:
         self._settings = settings
         self._sessions = sessions
         self._price_table = price_table
+        self._http_client = http_client
 
     async def plan(self, run_id: str) -> Plan:
         """Plan ``run_id``'s ticket, holding no DB session during the LLM call."""
@@ -68,6 +71,7 @@ class GatewayPlanner:
             price_table=self._price_table,
             run_id=run_id,
             workspace_id=workspace_id,
+            http_client=self._http_client,
         ) as llm:
             engineer = LeadEngineer(llm, CommandPolicy.from_default())
             return await engineer.plan_ticket(
