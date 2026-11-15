@@ -280,14 +280,26 @@ class ApprovalPage(Schema):
     total_pending: int
 
 
-class PullRequestRead(WorkspaceScopedRead):
-    """The PR a run opened, and GitHub's view of it (doc 15)."""
+class PullRequestRead(ReadSchema):
+    """A PR as the pull-request list route shows it (doc 15b)."""
 
-    run_id: str
     number: int
     url: str
     state: PullRequestState
     ci_status: CiStatus
+    review_state: str | None
+    head_sha: str | None
+    run_id: str
+    run_status: RunStatus
+    ticket_id: str
+    ticket_title: str
+    repo_name: str
+
+
+class PullRequestPage(Schema):
+    """One page of pull requests (doc 15b)."""
+
+    items: list[PullRequestRead]
 
 
 class EventRead(WorkspaceScopedRead):

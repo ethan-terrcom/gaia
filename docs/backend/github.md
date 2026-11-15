@@ -1,12 +1,13 @@
 # GitHub: token check, push, pull requests, merge
 
-> Package **15a** · `gaia/services/{github,pull_requests}.py`, `GitService.push` in
-> `gaia/services/git.py`, `gaia github check` · current as of 2026-11-14
+> Packages **15a** and **15b** · `gaia/services/{github,pull_requests,ci,pr_sync}.py`,
+> `GitService.push`, `gaia/api/routes/pull_requests.py`, `gaia github check` · current as of 2026-11-14
 
 ## What it's for
 When a run's steps are done and a human approves, Gaia pushes the agent's branch, opens a
 **draft** pull request, and later merges it after a second, explicit human approval. This package
-is that GitHub side. CI watching and PR sync are 15b; importing issues is 15c.
+is that GitHub side (15a opens and merges, 15b watches CI and keeps PRs in sync); importing
+issues is 15c.
 
 ## Files
 | File | Role |
@@ -72,6 +73,39 @@ once. Otherwise:
    Branch protection refusals (405) are also `MergeBlocked`. There is **no retry and no force**.
 2. Commit the merged state.
 3. Delete the remote branch, best-effort and logged, then publish `pr.merged`.
+
+### Watching CI (`watch_ci(run_id, pr)`, 15b)
+It watches the **worktree's HEAD**, the commit Gaia pushed and the human will approve, never
+whatever the PR branch points at later.
+- Each poll reads the combined status and every check run (paginated), and `ci_rollup` reduces
+  them to `passed`, `failed`, `pending` or `unknown`:
+  - **failed:** any `failure`/`error` status, or a completed check concluding `failure`,
+    `cancelled`, `timed_out`, `action_required`, `startup_failure` or `stale`;
+  - **pending:** anything still running;
+  - **passed:** everything finished, with `neutral` and `skipped` counting as passing;
+  - **unknown:** the repo has **no CI** at all (GitHub then says "pending" with 0 statuses).
+- On a **change**, it updates `pull_request.ci_status` and publishes one `ci.status` event. It
+  never publishes on every poll.
+- Polls start every 30 s and back off ×1.5 to 5 minutes; a change resets them.
+- **No CI:** it waits 2 minutes for checks to appear, then records `unknown` and returns
+  "passed". The merge gate is still a human.
+- **Two hours** without a result → `failed` with "timed out waiting for CI". A rate limit pauses
+  the loop; any other GitHub error fails the step.
+
+### Keeping PRs in sync (`PRSyncService`, 15b)
+Humans also act on GitHub directly: they review, close, merge and push. A background task (started
+in the app lifespan, `settings.pr_sync_enabled`) refreshes every **open** PR every 60 s:
+- the state, the head SHA, `review_rollup` (each reviewer's latest decisive review:
+  `changes_requested` > `approved` > `none`) and the CI rollup **at the PR's head**;
+- a changed row is saved and published as `pr.updated`.
+
+Without a token it does nothing, silently. One PR failing doesn't stop the others; a rate limit
+ends the round; being offline is a warning, not an error.
+
+### The PR list (`GET /api/v1/pull-requests?state=&limit=`, 15b)
+Newest first, scoped to the workspace, in **one** joined query. Each row has the PR (number, URL,
+state, CI, review state, head SHA) plus its run, its run status, ticket title and repository
+name. This feeds the PRs view (17e).
 
 ### The client
 - One `httpx.AsyncClient` with GitHub's media type, API version, `User-Agent: gaia` and a bearer

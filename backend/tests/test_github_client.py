@@ -11,6 +11,9 @@ import pytest
 from pydantic import SecretStr
 
 from gaia.services.github import (
+    CheckRun,
+    CombinedStatus,
+    CommitStatus,
     GitHubAuthError,
     GitHubClient,
     GitHubError,
@@ -19,6 +22,7 @@ from gaia.services.github import (
     MergeBlocked,
     PullRequestInfo,
     RateLimited,
+    Review,
     TokenCheck,
     check_token,
     parse_github_remote,
@@ -754,3 +758,236 @@ async def test_delete_branch_keeps_the_slash_literal_on_the_wire() -> None:
     async with _client(fake) as client:
         await client.delete_branch(SLUG, "gaia/abc")
     assert b"%2F" not in fake.calls[0].url.raw_path
+
+
+# ------------------------------------------------- combined status / checks --
+async def test_get_combined_status_parses_every_field() -> None:
+    fake = GitHubFake()
+    fake.add_json(
+        "GET",
+        f"/repos/acme/widgets/commits/{'a' * 40}/status",
+        {
+            "state": "success",
+            "total_count": 2,
+            "statuses": [
+                {"context": "ci/test", "state": "success"},
+                {"context": "ci/lint", "state": "success"},
+            ],
+        },
+    )
+
+    async with _client(fake) as client:
+        result = await client.get_combined_status(SLUG, "a" * 40)
+
+    assert result == CombinedStatus(
+        state="success",
+        total_count=2,
+        statuses=(CommitStatus("ci/test", "success"), CommitStatus("ci/lint", "success")),
+    )
+    assert fake.calls[0].url.path == "/repos/acme/widgets/commits/" + "a" * 40 + "/status"
+
+
+@pytest.mark.parametrize("sha", ["", "a" * 39, "A" * 40, "g" + "a" * 39, "a" * 41])
+async def test_get_combined_status_refuses_a_bad_sha(sha: str) -> None:
+    fake = GitHubFake()
+    async with _client(fake) as client:
+        with pytest.raises(ValueError, match="sha"):
+            await client.get_combined_status(SLUG, sha)
+    assert fake.calls == []
+
+
+@pytest.mark.parametrize(
+    ("payload", "match"),
+    [
+        ([], "unparseable combined-status response"),
+        ({"state": "weird", "total_count": 0, "statuses": []}, "unknown combined status state"),
+        ({"state": "pending", "statuses": []}, "without a total_count"),
+        ({"state": "pending", "total_count": 0}, "without statuses"),
+        ({"state": "pending", "total_count": 0, "statuses": ["bad"]}, "unparseable commit status"),
+        (
+            {"state": "pending", "total_count": 1, "statuses": [{"state": "success"}]},
+            "without a context",
+        ),
+        (
+            {
+                "state": "pending",
+                "total_count": 1,
+                "statuses": [{"context": "ci", "state": "weird"}],
+            },
+            "unknown commit status state",
+        ),
+    ],
+)
+async def test_get_combined_status_raises_on_malformed_payload(payload: object, match: str) -> None:
+    fake = GitHubFake()
+    fake.add_json("GET", "/repos/acme/widgets/commits/" + "a" * 40 + "/status", payload)
+
+    async with _client(fake) as client:
+        with pytest.raises(GitHubError, match=match):
+            await client.get_combined_status(SLUG, "a" * 40)
+
+
+async def test_list_check_runs_parses_and_paginates() -> None:
+    fake = GitHubFake()
+    page_calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal page_calls
+        page_calls += 1
+        if page_calls == 1:
+            return json_response(
+                200,
+                {
+                    "total_count": 101,
+                    "check_runs": [
+                        {
+                            "name": f"check-{index}",
+                            "status": "completed",
+                            "conclusion": "success",
+                        }
+                        for index in range(100)
+                    ],
+                },
+            )
+        return json_response(
+            200,
+            {
+                "total_count": 101,
+                "check_runs": [
+                    {"name": "check-100", "status": "completed", "conclusion": "success"}
+                ],
+            },
+        )
+
+    fake.add_dynamic("GET", "/repos/acme/widgets/commits/" + "a" * 40 + "/check-runs", handler)
+
+    async with _client(fake) as client:
+        result = await client.list_check_runs(SLUG, "a" * 40)
+
+    assert len(result) == 101
+    assert result[0] == CheckRun("check-0", "completed", "success")
+    assert result[-1] == CheckRun("check-100", "completed", "success")
+    assert fake.calls[0].url.params["per_page"] == "100"
+    assert "page" not in fake.calls[0].url.params
+    assert fake.calls[1].url.params["page"] == "2"
+
+
+async def test_list_check_runs_stops_after_ten_full_pages() -> None:
+    fake = GitHubFake()
+    for _ in range(10):
+        fake.add_json(
+            "GET",
+            "/repos/acme/widgets/commits/" + "a" * 40 + "/check-runs",
+            {
+                "total_count": 1000,
+                "check_runs": [
+                    {"name": "check", "status": "completed", "conclusion": "success"}
+                    for _ in range(100)
+                ],
+            },
+        )
+
+    async with _client(fake) as client:
+        result = await client.list_check_runs(SLUG, "a" * 40)
+
+    assert len(result) == 1000
+    assert len(fake.calls) == 10
+
+
+async def test_list_check_runs_refuses_a_bad_sha() -> None:
+    fake = GitHubFake()
+    async with _client(fake) as client:
+        with pytest.raises(ValueError, match="sha"):
+            await client.list_check_runs(SLUG, "a" * 39)
+    assert fake.calls == []
+
+
+@pytest.mark.parametrize(
+    ("payload", "match"),
+    [
+        ([], "unparseable check-runs response"),
+        ({"check_runs": []}, "without a total_count"),
+        ({"total_count": 0}, "without check_runs"),
+        ({"total_count": 1, "check_runs": ["bad"]}, "unparseable check run"),
+        ({"total_count": 1, "check_runs": [{"status": "completed"}]}, "without a name"),
+        (
+            {"total_count": 1, "check_runs": [{"name": "ci", "status": "weird"}]},
+            "unknown check-run status",
+        ),
+        (
+            {
+                "total_count": 1,
+                "check_runs": [{"name": "ci", "status": "completed", "conclusion": 1}],
+            },
+            "non-string check-run conclusion",
+        ),
+    ],
+)
+async def test_list_check_runs_raises_on_malformed_payload(payload: object, match: str) -> None:
+    fake = GitHubFake()
+    fake.add_json("GET", "/repos/acme/widgets/commits/" + "a" * 40 + "/check-runs", payload)
+
+    async with _client(fake) as client:
+        with pytest.raises(GitHubError, match=match):
+            await client.list_check_runs(SLUG, "a" * 40)
+
+
+# ------------------------------------------------------------------ reviews --
+async def test_list_reviews_parses_reviews() -> None:
+    fake = GitHubFake()
+    fake.add_json(
+        "GET",
+        "/repos/acme/widgets/pulls/7/reviews",
+        [
+            {
+                "user": {"login": "alice"},
+                "state": "APPROVED",
+                "submitted_at": "2026-11-14T00:00:00Z",
+            },
+            {
+                "user": {"login": "bob"},
+                "state": "PENDING",
+                "submitted_at": None,
+            },
+        ],
+    )
+
+    async with _client(fake) as client:
+        result = await client.list_reviews(SLUG, 7)
+
+    assert result == (
+        Review("alice", "APPROVED", "2026-11-14T00:00:00Z"),
+        Review("bob", "PENDING", None),
+    )
+
+
+@pytest.mark.parametrize("number", [0, -1, 1.5, True])
+async def test_list_reviews_refuses_a_bad_number(number: Any) -> None:
+    fake = GitHubFake()
+    async with _client(fake) as client:
+        with pytest.raises(ValueError, match="number"):
+            await client.list_reviews(SLUG, number)
+    assert fake.calls == []
+
+
+@pytest.mark.parametrize(
+    ("payload", "match"),
+    [
+        ({}, "unparseable reviews response"),
+        (["bad"], "unparseable review"),
+        ([{"state": "APPROVED", "submitted_at": None}], "without a user"),
+        ([{"user": {}, "state": "APPROVED", "submitted_at": None}], "without a user login"),
+        ([{"user": {"login": "alice"}, "submitted_at": None}], "unknown review state"),
+        (
+            [{"user": {"login": "alice"}, "state": "APPROVED", "submitted_at": 1}],
+            "non-string submitted_at",
+        ),
+    ],
+)
+async def test_list_reviews_raises_on_malformed_payload(payload: object, match: str) -> None:
+    fake = GitHubFake()
+    fake.add_json("GET", "/repos/acme/widgets/pulls/7/reviews", payload)
+
+    async with _client(fake) as client:
+        with pytest.raises(GitHubError, match=match):
+            await client.list_reviews(SLUG, 7)

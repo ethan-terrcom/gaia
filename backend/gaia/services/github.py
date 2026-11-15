@@ -56,6 +56,10 @@ DEFAULT_RATE_LIMIT_WAIT_S = 60.0
 #: Legal GitHub owner/name characters, as required by the handoff.
 _REPO_PART = re.compile(r"^[A-Za-z0-9_.-]{1,100}$")
 
+#: A full git commit SHA. ``sha`` URL components are validated before they are
+#: sent so a bad value never reaches a URL (doc 15b).
+_SHA = re.compile(r"^[0-9a-f]{40}$")
+
 
 class UnsupportedRemote(ValueError):
     """``parse_github_remote`` was given a URL that is not a GitHub remote."""
@@ -204,6 +208,20 @@ def _validated_slug(owner: str, repo: str, original: str) -> RepoSlug:
     return RepoSlug(owner=owner, name=repo)
 
 
+def _require_sha(sha: str) -> str:
+    """Return ``sha`` after proving it is a 40-character hex commit id."""
+    if not isinstance(sha, str) or not _SHA.fullmatch(sha):
+        raise ValueError(f"sha must be a 40-character hex string, got {sha!r}")
+    return sha
+
+
+def _require_pr_number(number: int) -> int:
+    """Return ``number`` after proving it is a positive integer PR number."""
+    if not isinstance(number, int) or isinstance(number, bool) or number <= 0:
+        raise ValueError(f"number must be a positive integer, got {number!r}")
+    return number
+
+
 @dataclass(frozen=True)
 class RepoInfo:
     """What ``GET /repos/{owner}/{repo}`` tells us."""
@@ -226,6 +244,41 @@ class PullRequestInfo:
     base_ref: str
     #: GraphQL id; needed to mark a draft ready for review (REST cannot).
     node_id: str = ""
+
+
+@dataclass(frozen=True)
+class CommitStatus:
+    """One entry from GitHub's combined commit-status endpoint."""
+
+    context: str
+    state: str
+
+
+@dataclass(frozen=True)
+class CombinedStatus:
+    """What ``GET /repos/{owner}/{repo}/commits/{sha}/status`` tells us."""
+
+    state: str
+    total_count: int
+    statuses: tuple[CommitStatus, ...]
+
+
+@dataclass(frozen=True)
+class CheckRun:
+    """One entry from GitHub's check-runs endpoint."""
+
+    name: str
+    status: str
+    conclusion: str | None
+
+
+@dataclass(frozen=True)
+class Review:
+    """One GitHub PR review that matters for the doc 15b review rollup."""
+
+    user_login: str
+    state: str
+    submitted_at: str | None
 
 
 @dataclass(frozen=True)
@@ -499,6 +552,112 @@ class GitHubClient:
         if not isinstance(payload, dict):
             raise GitHubError(200, "GitHub returned an unparseable pull request")
         return _parse_pull_request(payload)
+
+    async def get_combined_status(self, slug: RepoSlug, sha: str) -> CombinedStatus:
+        """``GET /repos/{owner}/{repo}/commits/{sha}/status`` (doc 15b)."""
+        sha = _require_sha(sha)
+        payload = await self._request_json("GET", f"{self._repo_path(slug)}/commits/{sha}/status")
+        if not isinstance(payload, dict):
+            raise GitHubError(200, "GitHub returned an unparseable combined-status response")
+        state = payload.get("state")
+        total_count = payload.get("total_count")
+        statuses = payload.get("statuses")
+        if state not in {"success", "failure", "error", "pending"}:
+            raise GitHubError(200, f"GitHub returned an unknown combined status state {state!r}")
+        if not isinstance(total_count, int):
+            raise GitHubError(200, "GitHub returned a combined status without a total_count")
+        if not isinstance(statuses, list):
+            raise GitHubError(200, "GitHub returned a combined status without statuses")
+        parsed: list[CommitStatus] = []
+        for item in statuses:
+            if not isinstance(item, dict):
+                raise GitHubError(200, "GitHub returned an unparseable commit status")
+            context = item.get("context")
+            item_state = item.get("state")
+            if not isinstance(context, str) or not context:
+                raise GitHubError(200, "GitHub returned a commit status without a context")
+            if item_state not in {"success", "failure", "error", "pending"}:
+                raise GitHubError(
+                    200, f"GitHub returned an unknown commit status state {item_state!r}"
+                )
+            parsed.append(CommitStatus(context=context, state=item_state))
+        return CombinedStatus(state=state, total_count=total_count, statuses=tuple(parsed))
+
+    async def list_check_runs(self, slug: RepoSlug, sha: str) -> tuple[CheckRun, ...]:
+        """``GET /repos/{owner}/{repo}/commits/{sha}/check-runs``, paginated.
+
+        Up to 10 pages are followed while a page is full (doc 15b).
+        """
+        sha = _require_sha(sha)
+        path = f"{self._repo_path(slug)}/commits/{sha}/check-runs"
+        runs: list[CheckRun] = []
+        page = 1
+        while page <= 10:
+            params = {"per_page": "100"} if page == 1 else {"per_page": "100", "page": str(page)}
+            payload = await self._request_json("GET", path, params=params)
+            if not isinstance(payload, dict):
+                raise GitHubError(200, "GitHub returned an unparseable check-runs response")
+            total_count = payload.get("total_count")
+            items = payload.get("check_runs")
+            if not isinstance(total_count, int):
+                raise GitHubError(200, "GitHub returned check runs without a total_count")
+            if not isinstance(items, list):
+                raise GitHubError(200, "GitHub returned check runs without check_runs")
+            for item in items:
+                if not isinstance(item, dict):
+                    raise GitHubError(200, "GitHub returned an unparseable check run")
+                name = item.get("name")
+                status = item.get("status")
+                conclusion = item.get("conclusion")
+                if not isinstance(name, str) or not name:
+                    raise GitHubError(200, "GitHub returned a check run without a name")
+                if status not in {
+                    "queued",
+                    "in_progress",
+                    "completed",
+                    "waiting",
+                    "requested",
+                    "pending",
+                }:
+                    raise GitHubError(
+                        200, f"GitHub returned an unknown check-run status {status!r}"
+                    )
+                if conclusion is not None and not isinstance(conclusion, str):
+                    raise GitHubError(200, "GitHub returned a non-string check-run conclusion")
+                runs.append(CheckRun(name=name, status=status, conclusion=conclusion))
+            if len(items) < 100:
+                break
+            page += 1
+        return tuple(runs)
+
+    async def list_reviews(self, slug: RepoSlug, number: int) -> tuple[Review, ...]:
+        """``GET /repos/{owner}/{repo}/pulls/{number}/reviews`` (doc 15b)."""
+        number = _require_pr_number(number)
+        payload = await self._request_json(
+            "GET",
+            f"{self._repo_path(slug)}/pulls/{number}/reviews",
+            params={"per_page": "100"},
+        )
+        if not isinstance(payload, list):
+            raise GitHubError(200, "GitHub returned an unparseable reviews response")
+        reviews: list[Review] = []
+        for item in payload:
+            if not isinstance(item, dict):
+                raise GitHubError(200, "GitHub returned an unparseable review")
+            user = item.get("user")
+            state = item.get("state")
+            submitted_at = item.get("submitted_at")
+            if not isinstance(user, dict):
+                raise GitHubError(200, "GitHub returned a review without a user")
+            user_login = user.get("login")
+            if not isinstance(user_login, str) or not user_login:
+                raise GitHubError(200, "GitHub returned a review without a user login")
+            if state not in {"APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED", "PENDING"}:
+                raise GitHubError(200, f"GitHub returned an unknown review state {state!r}")
+            if submitted_at is not None and not isinstance(submitted_at, str):
+                raise GitHubError(200, "GitHub returned a review with a non-string submitted_at")
+            reviews.append(Review(user_login=user_login, state=state, submitted_at=submitted_at))
+        return tuple(reviews)
 
     async def merge_pr(
         self,

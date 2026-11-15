@@ -13,25 +13,31 @@ from __future__ import annotations
 
 import asyncio
 import re
-from collections.abc import Callable, Sequence
+import time
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
+from typing import Any
 
 import structlog
 from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from gaia.config.secrets import SecretName, SecretStore
+from gaia.config.settings import Settings
 from gaia.db.engine import session_scope
 from gaia.db.models import Approval, PullRequest, Repository, RunStep, Ticket, Worktree
 from gaia.db.repo import RunRepo, ScopedRepo
 from gaia.domain.enums import ApprovalKind, ApprovalStatus, CiStatus, EventType, PullRequestState
+from gaia.services.ci import ci_rollup
 from gaia.services.events import EventBus
 from gaia.services.git import GitService, WorktreeLocation
 from gaia.services.github import (
+    CheckRun,
     GitHubClient,
     GitHubError,
     GitHubSetupError,
+    RateLimited,
     RepoSlug,
     UnsupportedRemote,
     check_token,
@@ -142,12 +148,18 @@ class PullRequestService:
         secrets: SecretStore,
         bus: EventBus,
         client_factory: Callable[[SecretStr], GitHubClient] = GitHubClient,
+        settings: Settings | None = None,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self.sessions = sessions
         self.git = git
         self.secrets = secrets
         self.bus = bus
         self.client_factory = client_factory
+        self.settings = settings if settings is not None else Settings()
+        self._sleep = sleep
+        self._monotonic = monotonic
         # Token checks are cached once per process per repository (doc 15a
         # deviation: startup is not blocked, so the first open_pr is the gate).
         self._passed_token_checks: set[str] = set()
@@ -335,8 +347,136 @@ class PullRequestService:
 
     # ----------------------------------------------------------------- watch --
     async def watch_ci(self, run_id: str, pr: int) -> str:
-        """Poll combined status and check runs (owned by doc 15b)."""
-        raise NotImplementedError("TODO(gaia-15b)")
+        """Poll CI for ``pr`` and return ``"passed"`` or ``"failed"`` (doc 15b).
+
+        The SHA watched is the worktree's current HEAD: the commit Gaia pushed and
+        the human approved, not whatever the GitHub PR branch points at later.
+        Polling starts at :attr:`Settings.ci_poll_interval_s` and backs off by
+        1.5x after a poll with no change, up to 300s. A change resets the
+        interval. A repository with no CI is given
+        :attr:`Settings.ci_no_checks_grace_s` to register checks, then recorded
+        as ``unknown`` and treated as passing: the human gate is the real check.
+        """
+        async with session_scope(self.sessions) as session:
+            ctx = await self._load(session, run_id)
+            rows = await ScopedRepo(session, PullRequest, ctx.workspace_id).list(
+                run_id=run_id, number=pr
+            )
+            if not rows:
+                raise GitHubSetupError(f"run {run_id!r} has no pull request #{pr}")
+            row = rows[0]
+            row_id = row.id
+            workspace_id = ctx.workspace_id
+            published_ci = CiStatus(row.ci_status)
+
+        token = self.secrets.require(SecretName.GITHUB_TOKEN)
+        sha = await self.git.current_sha(ctx.location)
+
+        interval = self.settings.ci_poll_interval_s
+        deadline = self._monotonic() + self.settings.ci_watch_timeout_s
+        unknown_since: float | None = None
+
+        async with self.client_factory(token) as client:
+            while True:
+                if self._monotonic() >= deadline:
+                    await self._persist_ci_status(workspace_id, row_id, CiStatus.FAILED)
+                    await self._publish_ci_status(
+                        workspace_id=workspace_id,
+                        run_id=run_id,
+                        number=pr,
+                        sha=sha,
+                        rollup=CiStatus.FAILED,
+                        checks=(),
+                        reason="timed out waiting for CI",
+                    )
+                    return "failed"
+
+                try:
+                    status = await client.get_combined_status(ctx.slug, sha)
+                    checks = await client.list_check_runs(ctx.slug, sha)
+                except RateLimited as exc:
+                    await self._sleep(min(exc.retry_after_s, 300.0))
+                    continue
+
+                rollup = ci_rollup(status, checks)
+                now = self._monotonic()
+
+                if rollup is CiStatus.UNKNOWN:
+                    if unknown_since is None:
+                        unknown_since = now
+                    if now - unknown_since >= self.settings.ci_no_checks_grace_s:
+                        if published_ci is not CiStatus.UNKNOWN:
+                            await self._persist_ci_status(workspace_id, row_id, CiStatus.UNKNOWN)
+                            await self._publish_ci_status(
+                                workspace_id=workspace_id,
+                                run_id=run_id,
+                                number=pr,
+                                sha=sha,
+                                rollup=CiStatus.UNKNOWN,
+                                checks=checks,
+                            )
+                            published_ci = CiStatus.UNKNOWN
+                        logger.info("ci.no_checks", run_id=run_id, pr=pr, sha=sha)
+                        return "passed"
+                else:
+                    unknown_since = None
+                    if rollup is not published_ci:
+                        await self._persist_ci_status(workspace_id, row_id, rollup)
+                        await self._publish_ci_status(
+                            workspace_id=workspace_id,
+                            run_id=run_id,
+                            number=pr,
+                            sha=sha,
+                            rollup=rollup,
+                            checks=checks,
+                        )
+                        published_ci = rollup
+                        interval = self.settings.ci_poll_interval_s
+                    if rollup is CiStatus.PASSED:
+                        return "passed"
+                    if rollup is CiStatus.FAILED:
+                        return "failed"
+
+                await self._sleep(interval)
+                interval = min(interval * 1.5, 300.0)
+
+    async def _persist_ci_status(self, workspace_id: str, row_id: str, rollup: CiStatus) -> None:
+        """Update ``pull_request.ci_status`` in its own short transaction."""
+        async with session_scope(self.sessions) as session:
+            await ScopedRepo(session, PullRequest, workspace_id).update(
+                row_id, ci_status=rollup.value
+            )
+
+    async def _publish_ci_status(
+        self,
+        *,
+        workspace_id: str,
+        run_id: str,
+        number: int,
+        sha: str,
+        rollup: CiStatus,
+        checks: Sequence[CheckRun],
+        reason: str | None = None,
+    ) -> None:
+        """Publish one ``ci.status`` event, with at most 50 check runs."""
+        payload: dict[str, Any] = {
+            "run_id": run_id,
+            "number": number,
+            "sha": sha,
+            "ci_status": rollup.value,
+            "checks": [
+                {"name": check.name, "status": check.status, "conclusion": check.conclusion}
+                for check in checks[:50]
+            ],
+        }
+        if reason is not None:
+            payload["reason"] = reason
+        await self.bus.publish(
+            workspace_id=workspace_id,
+            type=EventType.CI_STATUS,
+            payload=payload,
+            run_id=run_id,
+        )
 
 
 def _parse_repo_slug(repository: Repository) -> RepoSlug:

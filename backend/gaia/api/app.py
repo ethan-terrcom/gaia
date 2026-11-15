@@ -53,6 +53,7 @@ from gaia.api.routes import (
     costs,
     dev,
     health,
+    pull_requests,
     repositories,
     session,
     stream,
@@ -69,6 +70,7 @@ from gaia.llm.gateway import router as llm_router
 from gaia.services.costs import load_price_table
 from gaia.services.events import EventBus
 from gaia.services.git import GitService
+from gaia.services.pr_sync import PRSyncService
 from gaia.services.stream_tickets import StreamTickets
 
 logger = structlog.get_logger(__name__)
@@ -214,6 +216,15 @@ def _lifespan(
                 llm_http=llm_http,
                 prices=prices,
             )
+            if settings.pr_sync_enabled:
+                pr_sync = PRSyncService(
+                    sessions=sessions,
+                    secrets=store,
+                    bus=events,
+                    settings=settings,
+                )
+                pr_sync_task = asyncio.create_task(pr_sync.run_forever(), name="pr-sync")
+                app.state.services.background_tasks.add(pr_sync_task)
             logger.info(
                 "api.startup",
                 host=settings.host,
@@ -257,6 +268,7 @@ def api_v1_router(*, dev_routes: bool = False) -> APIRouter:
     router.include_router(tickets.router)
     router.include_router(agents.router)
     router.include_router(worktrees.router)
+    router.include_router(pull_requests.router)
     router.include_router(stream.router)
     router.include_router(approvals.router)
     router.include_router(costs.router)

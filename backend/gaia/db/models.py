@@ -287,6 +287,11 @@ class PullRequest(UUIDPrimaryKey, WorkspaceScoped, Timestamps, Base):
     url: Mapped[str] = mapped_column(String(URL))
     state: Mapped[str] = mapped_column(String(16), default=PullRequestState.OPEN.value)
     ci_status: Mapped[str] = mapped_column(String(16), default=CiStatus.UNKNOWN.value)
+    #: GitHub review rollup: ``changes_requested``, ``approved`` or ``none``.
+    #: ``NULL`` means the PR has not been synced since doc 15b added the column.
+    review_state: Mapped[str | None] = mapped_column(String(32), default=None)
+    #: The PR head SHA GitHub reported at the most recent sync (doc 15b).
+    head_sha: Mapped[str | None] = mapped_column(String(64), default=None)
 
 
 class Event(Base):

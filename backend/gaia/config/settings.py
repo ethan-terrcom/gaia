@@ -137,6 +137,18 @@ class Settings(BaseSettings):
     #: Register the dev-only fake-run publisher (doc 13 acceptance criterion).
     dev_routes: bool = False
 
+    #: How long ``watch_ci`` sleeps after a poll with no change (doc 15b).
+    ci_poll_interval_s: float = Field(default=30.0, gt=0)
+    #: Hard deadline for ``watch_ci`` before it reports CI as failed (doc 15b).
+    ci_watch_timeout_s: float = Field(default=7200.0, gt=0)
+    #: How long ``watch_ci`` keeps polling a repository that reports no CI at all
+    #: before recording ``unknown`` and treating the PR as passing (doc 15b).
+    ci_no_checks_grace_s: float = Field(default=120.0, ge=0)
+    #: Whether the background GitHub PR sync task runs in the API lifespan.
+    pr_sync_enabled: bool = True
+    #: How often the background PR sync task refreshes GitHub's view of open PRs.
+    pr_sync_interval_s: float = Field(default=60.0, ge=5)
+
     @field_validator("data_dir", "checkpoint_path", "worktrees_root")
     @classmethod
     def _expand_path(cls, value: Path) -> Path:
