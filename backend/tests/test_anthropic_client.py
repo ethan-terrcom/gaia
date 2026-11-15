@@ -176,6 +176,62 @@ async def test_constructor_builds_sdk_client_with_explicit_key() -> None:
     assert client._client is not None
 
 
+def test_constructor_passes_base_url_to_the_sdk(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: dict[str, Any] = {}
+
+    class FakeAsyncAnthropic:
+        def __init__(self, **kwargs: Any) -> None:
+            seen.update(kwargs)
+
+    monkeypatch.setattr(anthropic, "AsyncAnthropic", FakeAsyncAnthropic)
+    AnthropicClient(
+        api_key=SecretStr("sk-ant-test-1234567890"),
+        model="claude-opus-5-5",
+        recorder=RecordingRecorder(),
+        price_table=_price_table(),
+        base_url="http://127.0.0.1:8765/llm/anthropic",
+    )
+
+    assert seen["api_key"] == "sk-ant-test-1234567890"
+    assert seen["base_url"] == "http://127.0.0.1:8765/llm/anthropic"
+
+
+async def test_aclose_closes_the_underlying_client() -> None:
+    class CloseClient:
+        def __init__(self) -> None:
+            self.closed = False
+
+        async def close(self) -> None:
+            self.closed = True
+
+    stub = CloseClient()
+    client = AnthropicClient(
+        api_key=SecretStr("sk-ant-test-1234567890"),
+        model="claude-opus-5-5",
+        recorder=RecordingRecorder(),
+        price_table=_price_table(),
+        client=stub,
+    )
+
+    await client.aclose()
+
+    assert stub.closed is True
+
+
+async def test_aclose_is_a_noop_when_the_client_has_no_close_method() -> None:
+    client = AnthropicClient(
+        api_key=SecretStr("sk-ant-test-1234567890"),
+        model="claude-opus-5-5",
+        recorder=RecordingRecorder(),
+        price_table=_price_table(),
+        client=SimpleNamespace(),
+    )
+
+    await client.aclose()
+
+
 async def test_non_streaming_request_shape_and_recording() -> None:
     stub = StubAnthropic(_message())
     recorder = RecordingRecorder()

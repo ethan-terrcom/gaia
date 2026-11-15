@@ -119,3 +119,42 @@ nodes behind an interface for now.
 - `domain/plans.py`: 11's models are kept, plus the empty-title check.
 
 - [x] Acceptance (12a part): all the graph tests above pass, and `docs/graph.md` is generated (`make graph`).
+
+## Decisions and deviations (as built) — 12b-2
+
+- **Provider is settings, never graph code (ADR-001 P2).** `Settings.planner_provider`,
+  `planner_model` and `lead_call_timeout_s` are the only lead-side provider/model knobs.
+  `gaia/orchestrator/` imports neither `anthropic` nor `openai`.
+- **`gaia/llm/providers.py` is the composition seam.** `build_structured_llm` dispatches by
+  provider name to the two adapter classes; the orchestrator imports only this factory.
+- **`AnthropicClient` gained `base_url` and `aclose`.** The gateway route is
+  `http://<host>:<port>/llm/anthropic`, and the installed anthropic SDK appends `/v1/messages`.
+  `aclose` closes the underlying async client when it has a `close` method.
+- **`lead_llm` mints a run token per call and revokes it in `finally`.** The client recorder is
+  10b's in-memory `UsageTally`, never a DB writer, so the gateway remains the only writer of
+  `llm_usage` rows (P4). The token TTL is `lead_call_timeout_s + 300`.
+- **`GatewayPlanner` and `GatewayReviewer` hold no DB session during an LLM call.** They load
+  their rows in a short `session_scope`, close it, then enter `lead_llm`.
+- **The reviewer rebuilds the plan from rows.** `plan_from_rows(steps, approval_payload)` takes
+  `PlanStep`s from `run_step.spec_json` (ordered by `step_index`) and `summary`/`risks` from the
+  most recent plan approval's `payload_json["plan"]`, falling back to `""` and `[]`. "Most
+  recent" sorts by `created_at`, because UUIDv7 ids are not monotonic within one millisecond.
+- **Final review diff base.** `GatewayReviewer.final_review` runs
+  `GitService.diff(WorktreeLocation, worktree.base_sha, "HEAD")`, deriving `git_dir` from the
+  trusted repository when a worktree row predates that column.
+- **Portability test (P5/P6) falls back to stub clients for the two-provider drill.** Wiring the
+  anthropic SDK's streamed structured-output parser to the in-process ASGI app was not needed for
+  this package; the drill uses a provider-neutral `StructuredLLM` stub for both providers. One
+  gateway-path test drives the real `DeepSeekClient` through the app gateway and asserts a single
+  gateway-written `llm_usage` row, an increased `run.cost_usd`, and a revoked run token.
+
+### Lead review — 12b-2 (2026-11-14, [`review-12b2`](../reviews/2026-11-14-review-12b2.md))
+- No code changes. The junior's gateway-path test covers DeepSeek only, so the default provider
+  (Claude) was **verified live** instead. `GatewayPlanner.plan` and `GatewayReviewer.review_step`
+  ran through the real gateway on both providers. Each returned a valid plan, and a `revise`
+  verdict that asked for the missing test in a deliberately incomplete diff. Each call wrote
+  exactly one gateway `llm_usage` row, and every run token was revoked:
+  - Claude Opus 5.5: $0.045 for the plan and the review;
+  - DeepSeek v4 Pro: $0.005.
+
+  Neither provider key appears in the server log.
