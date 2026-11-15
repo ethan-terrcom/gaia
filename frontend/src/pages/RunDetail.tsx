@@ -1,5 +1,5 @@
-import { PagePlaceholder } from './Placeholder'
+import RunDetailView from '../views/run-detail/RunDetailView'
 
 export default function RunDetail() {
-  return <PagePlaceholder title="Run detail" arrivesIn="17c" />
+  return <RunDetailView />
 }
