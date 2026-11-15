@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager, suppress
+from contextlib import AsyncExitStack, asynccontextmanager, suppress
 from typing import Final
 
 import httpx
@@ -68,6 +68,11 @@ from gaia.config.settings import Settings, ensure_data_dir, get_settings
 from gaia.db.engine import create_engine_for, create_session_factory, session_scope
 from gaia.db.seed import Seeded, seed_initial_data
 from gaia.llm.gateway import router as llm_router
+from gaia.orchestrator.graph import build_graph
+from gaia.orchestrator.runner import RunManager, open_checkpointer
+from gaia.orchestrator.wiring import Wiring, build_wiring
+from gaia.runtimes.approvals import DbApprovalBroker
+from gaia.runtimes.orphans import OrphanRegistry, is_ours
 from gaia.services.costs import load_price_table
 from gaia.services.events import EventBus
 from gaia.services.git import GitService
@@ -197,6 +202,7 @@ def _lifespan(
             timeout=httpx.Timeout(connect=10, read=600, write=60, pool=10),
             transport=llm_transport,
         )
+        exit_stack = AsyncExitStack()
         try:
             seeded = await _seed(sessions, settings)
             principal = Principal(workspace_id=seeded.workspace.id, user_id=seeded.user.id)
@@ -204,6 +210,37 @@ def _lifespan(
             ensure_api_token(store)
             events = EventBus(sessions)
             stream_tickets = StreamTickets()
+
+            runs: RunManager | None = None
+            approvals: DbApprovalBroker | None = None
+            wiring: Wiring | None = None
+            if settings.orchestrator_enabled:
+                saver = await exit_stack.enter_async_context(open_checkpointer(settings))
+                wiring = build_wiring(
+                    settings=settings,
+                    sessions=sessions,
+                    bus=events,
+                    git=git,
+                    secrets=store,
+                    prices=prices,
+                )
+                graph = build_graph(wiring.deps, checkpointer=saver)
+                # Requirement 9: kill agent processes a crash left behind, but
+                # only those the registry can prove are ours (10a), before any
+                # run is resumed.
+                try:
+                    await OrphanRegistry(settings.data_dir / "runtime-pids.json").reap_stale(
+                        is_ours=is_ours
+                    )
+                except Exception:
+                    logger.exception("orchestrator.orphan_reap_failed")
+                runs = RunManager(graph, wiring.deps)
+                try:
+                    await runs.recover()
+                except Exception:
+                    logger.exception("orchestrator.recover_failed")
+                approvals = wiring.approvals
+
             app.state.services = AppServices(
                 settings=settings,
                 engine=engine,
@@ -216,6 +253,9 @@ def _lifespan(
                 stream_tickets=stream_tickets,
                 llm_http=llm_http,
                 prices=prices,
+                runs=runs,
+                approvals=approvals,
+                wiring=wiring,
             )
             if settings.pr_sync_enabled:
                 pr_sync = PRSyncService(
@@ -243,6 +283,11 @@ def _lifespan(
                 for task in tasks:
                     with suppress(asyncio.CancelledError):
                         await task
+                if services.runs is not None:
+                    await services.runs.aclose()
+            # Close the checkpointer before the engine, so its last writes land
+            # while the database pool is still open.
+            await exit_stack.aclose()
             await llm_http.aclose()
             # Closes the pool, so a second app in the same process (a test, or a
             # reload) does not inherit stale connections to the same file.

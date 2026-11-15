@@ -8,7 +8,7 @@ it imports the adapters, never ``anthropic`` or ``openai`` themselves (P1).
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import SecretStr
 
@@ -26,8 +26,14 @@ def build_structured_llm(
     base_url: str,
     recorder: UsageRecorder,
     price_table: PriceTable,
+    http_client: Any | None = None,
 ) -> StructuredLLM:
-    """Build the lead's structured-output client for one configured provider."""
+    """Build the lead's structured-output client for one configured provider.
+
+    ``http_client`` is a test seam: production passes ``None`` and gets each
+    SDK's default network client, while the in-process gateway tests pass an
+    ASGI transport for the real SDK client.
+    """
     if provider == "anthropic":
         return AnthropicClient(
             api_key=api_key,
@@ -35,6 +41,7 @@ def build_structured_llm(
             base_url=base_url,
             recorder=recorder,
             price_table=price_table,
+            http_client=http_client,
         )
     return DeepSeekClient(
         api_key=api_key,
@@ -42,4 +49,5 @@ def build_structured_llm(
         base_url=base_url,
         recorder=recorder,
         price_table=price_table,
+        http_client=http_client,
     )

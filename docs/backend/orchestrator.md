@@ -81,6 +81,44 @@ the run completing with no duplicate rows.
 - `cancel(run_id, workspace_id=…)` is workspace-scoped. Graph errors that aren't `RunFailed` are
   logged, not just stored.
 
+### From parts to a running app (12b)
+The graph's nodes call protocols (`deps.py`). Package 12b supplies the real implementations, and
+`gaia/orchestrator/wiring.py` assembles them. That file is the **one composition root**, built
+once in the app lifespan.
+
+| Protocol | Real implementation | What it does |
+|---|---|---|
+| `WorktreePreparer` | `impl/worktrees.py` `WorktreeSetup` | creates or reuses the ticket's worktree; runs the repo's setup command in `srt`, with registry-only network |
+| `Planner` | `impl/planning.py` `GatewayPlanner` | the lead's plan, through the gateway, on the configured provider |
+| `StepRunner` | `impl/steps.py` `RuntimeStepRunner` | runs the step on the role's runtime (`junior_runtime`; `lead_runtime` from attempt `lead_attempt_from`) |
+| `CheckRunner` | `impl/checks.py` `SandboxCheckRunner` | the step's test command in `srt`, no network, never asks |
+| `Reviewer` | `impl/review.py` `GatewayReviewer` | the lead's step and final reviews |
+| `Committer` | `impl/commits.py` `WorktreeCommitter` | `[gaia] <title>`, idempotent |
+| `PullRequests` | `services/pull_requests.py` | push, draft PR, CI watch, SHA-pinned merge (15a/15b) |
+
+`build_wiring(...)` also registers both runtimes under their `RuntimeKind` names
+(`native_deepseek`, `claude_agent_sdk`). It creates **one** `DbApprovalBroker`, shared by both
+runtimes and by the approvals API, because an agent waiting for a command approval is woken
+in-process by that exact object. It wraps `srt` lazily, so Gaia starts (and the UI works) even
+before `make sandbox-install`.
+
+**Lifespan:** open the checkpointer → `build_wiring` → `build_graph` → reap orphaned agent
+processes → `RunManager(...).recover()` → serve. Shutdown runs in reverse. Set
+`GAIA_ORCHESTRATOR_ENABLED=false` to run the API without the orchestrator; tests do this.
+
+### The swap drill: proof that Claude is replaceable (ADR-001 P5)
+`tests/test_swap_drill.py` runs one ticket from `pending` to `completed` through the **real**
+wiring, with `planner_provider=deepseek` and **both** `junior_runtime` and `lead_runtime` on the
+native DeepSeek runtime. The provider's HTTP is faked behind the real in-process gateway. The
+test asserts:
+- every request was DeepSeek `chat/completions`, with zero to Anthropic;
+- every usage row is DeepSeek's;
+- every token was revoked;
+- the commit exists, and the ticket is `done`;
+- the Claude runtime was never called: it is patched to fail.
+
+If this test passes, migrating away from Claude is a settings change.
+
 ## Changing it safely
 - **A new node:** add a file in `nodes/`, `add(...)` it in `graph.py`, declare its routes in a
   path map, add it to the node → status table in doc 12, and regenerate the diagram with

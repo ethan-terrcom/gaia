@@ -144,6 +144,11 @@ event or UI code changes.
 - **The bundled CLI honours `MCP_TOOL_TIMEOUT`** (verified live). Gaia sets it to cover an
   approval wait plus the longest allowed command.
 
+- **P5 delivered (12b-3):** `tests/test_swap_drill.py` runs a full ticket through the real
+  composition root with planning, junior and lead all on DeepSeek, and asserts that no request
+  went to Anthropic and that the Claude runtime was never called. P2 (role → runtime/model as
+  settings) lives in `gaia/orchestrator/wiring.py` and `Settings`.
+
 ## Owner sign-off
 - [x] Approved, with the portability condition above. Owner (chief architect), 2026-11-14, given
   in the lead's working session: "I am ok to proceed with your recommendations outlined in

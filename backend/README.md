@@ -29,7 +29,7 @@ come next, in the order given in [`docs/implementation/00-README.md`](../docs/im
 │ api/        FastAPI app: auth, middleware, error envelope, routes             │
 │             (every /api/v1 route requires the token; scoped to a workspace)   │
 ├──────────────────────────────────────────────────────────────────────────────┤
-│ orchestrator/  LangGraph workflow: plan → approve → implement → review → PR   │  11 + 12a built · 12b next
+│ orchestrator/  LangGraph workflow: plan → approve → implement → review → PR   │  built (11, 12a, 12b)
 │ runtimes/      the agents themselves (Claude lead, DeepSeek juniors)          │  10a, 10b, 10c built
 │ llm/           provider clients, cost accounting, LLM gateway (all built)     │  07a / 07b
 │ tools/         sandboxed file/shell/git tools, registry, audit                │  built (09a, 09b)
@@ -69,6 +69,7 @@ never imports FastAPI. `db/` knows nothing about HTTP or git.
 | 16 | `api/routes/{approvals,costs}.py`, `api/spa.py` | The approvals inbox list (for the nav badge), today's spend, and serving the built UI with its CSP. The UI itself: [frontend guide](../docs/frontend/README.md) | [API](../docs/backend/api.md) |
 | 15b | `services/{ci,pr_sync}.py`, `api/routes/pull_requests.py`, migration `0005` | CI watching pinned to the approved commit, a background PR sync for changes made on GitHub, and the PR list API | [GitHub](../docs/backend/github.md) |
 | 18b | `config/logging.py`, `api/routes/metrics.py` | Every log line (structlog and stdlib) redacted; rotating 0600 JSON log file under `data_dir/logs`; uvicorn access lines without query strings; metrics summary API | [config & secrets](../docs/backend/config-and-secrets.md) |
+| 12b | `orchestrator/impl/`, `orchestrator/wiring.py` | The real workflow: worktree and setup, steps on the configured runtimes, sandboxed checks, commits, lead planning and review through the gateway, one composition root in the app lifespan, and the swap drill (a full run with no Claude) | [orchestrator](../docs/backend/orchestrator.md) |
 | 13 | `services/events.py`, `api/routes/stream.py` | Durable event log plus live SSE stream with single-use tickets, replay and gap healing | [events](../docs/backend/events.md) |
 | 11 | `orchestrator/{lead,repo_context}.py`, `domain/plans.py` | The lead's plan and review calls: streamed structured outputs, policy-checked test commands, refusals escalate | [lead](../docs/backend/lead.md) |
 | 10a | `runtimes/`, `services/proc.py` (`stream_proc`) | The runtime seam: limits, scrubbed env, git-computed `files_changed`, in-turn approvals, orphan reaping, fake runtimes and a contract suite | [runtimes](../docs/backend/runtimes.md) |

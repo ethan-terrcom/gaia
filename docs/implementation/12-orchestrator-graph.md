@@ -202,3 +202,41 @@ nodes behind an interface for now.
     so the lead revises them once and the plan is refused if it insists.
 
   Checks already never ask, and they use the owner's command only.
+
+## Decisions and deviations (as built) — 12b-3
+
+- **One composition root.** `gaia/orchestrator/wiring.py` builds the real
+  `GraphDeps` and a `RuntimeRegistry` from settings and process services only.
+  It imports Gaia classes, never `anthropic`, `openai` or `claude_agent_sdk`.
+- **Both runtimes are always registered** under their `RuntimeKind` values
+  (`native_deepseek`, `claude_agent_sdk`); role selection is left to
+  `RuntimeStepRunner` reading `Settings.junior_runtime`/`lead_runtime`.
+- **The shared approval broker is created exactly once** by `build_wiring` and
+  stored on `AppServices.approvals`; both runtime context factories hold that
+  identical instance. A unit test asserts identity, not just equality.
+- **`srt` stays lazy.** `LazySrtRunner` calls `find_srt` on first `run`, not at
+  app startup. Three instances are built for setup, checks and tools, with the
+  setup runner carrying `setup_allowed_domains` and the other two no network.
+- **The app lifespan opens the LangGraph checkpointer through an
+  `AsyncExitStack`** and closes it after `RunManager.aclose()` but before the
+  engine. `orchestrator_enabled=False` keeps unrelated API tests from opening a
+  checkpoint file. `RunManager.recover()` failing is logged as
+  `orchestrator.recover_failed` and does not stop startup.
+- **`http_client` pass-through.** `build_structured_llm`, `lead_llm`,
+  `GatewayPlanner`, `GatewayReviewer` and `AnthropicClient` accept an optional
+  `http_client`; `DeepSeekClient` already did. Production passes `None`.
+- **Swap drill test seam.** The swap drill uses a reusable `httpx2.AsyncClient`
+  whose `aclose` is a no-op until the test explicitly closes it, because the
+  OpenAI SDK closes a supplied http client when each per-call `DeepSeekClient`
+  is closed. This is test-only; production passes `None`.
+
+### Lead review — 12b-3 (2026-11-14, [`review-12b3`](../reviews/2026-11-14-review-12b3.md))
+- **W1:** the approval wait was a hard-coded 600 s. It is now
+  `Settings.command_approval_timeout_s` (≥ 30), used by both runtimes' tool contexts and the
+  Claude runtime's tool-call timeout.
+- **W2:** nothing reaped orphaned agent processes at startup (doc 10, requirement 9). The
+  lifespan now calls `OrphanRegistry(...).reap_stale(is_ours=…)` before `recover()`, and a
+  failing reap is logged, not fatal. Test.
+- The swap drill was verified to run and pass (1 test; it asserts what the handoff asked).
+- [x] Acceptance (12b): the graph tests pass with real nodes (12b-1's real-execution integration
+  test plus the swap drill), and `docs/graph.md` is unchanged.

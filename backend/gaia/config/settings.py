@@ -193,6 +193,15 @@ class Settings(BaseSettings):
     #: How long ``watch_ci`` keeps polling a repository that reports no CI at all
     #: before recording ``unknown`` and treating the PR as passing (doc 15b).
     ci_no_checks_grace_s: float = Field(default=120.0, ge=0)
+    #: Whether the API lifespan builds the orchestrator and starts/recover runs.
+    #: Tests that build the app only for unrelated routes set this ``False`` so
+    #: they never open a checkpointer file or launch background run tasks.
+    orchestrator_enabled: bool = True
+
+    #: How long an agent waits, inside its turn, for a human to decide a command
+    #: approval before it counts as rejected (doc 10, requirement 8). The Claude
+    #: Agent SDK's own tool-call timeout is derived from it (10c, C3).
+    command_approval_timeout_s: float = Field(default=600, ge=30)
     #: Whether the background GitHub PR sync task runs in the API lifespan.
     pr_sync_enabled: bool = True
     #: How often the background PR sync task refreshes GitHub's view of open PRs.

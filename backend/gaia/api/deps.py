@@ -22,7 +22,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any
 
 import httpx
 from fastapi import Depends, Request
@@ -34,11 +34,16 @@ from gaia.config.settings import Settings
 from gaia.db.engine import session_scope
 from gaia.db.models import AuditLog, Base
 from gaia.db.repo import AuditLogRepo, ScopedRepo
+from gaia.orchestrator.runner import RunManager
+from gaia.runtimes.approvals import DbApprovalBroker
 from gaia.services.costs import PriceTable
 from gaia.services.events import EventBus
 from gaia.services.git import GitService
 from gaia.services.stream_tickets import StreamTickets
 from gaia.services.worktrees import WorktreeService
+
+if TYPE_CHECKING:
+    from gaia.orchestrator.wiring import Wiring
 
 
 @dataclass(frozen=True)
@@ -57,6 +62,9 @@ class AppServices:
     llm_http: httpx.AsyncClient
     prices: PriceTable
     background_tasks: set[asyncio.Task[None]] = field(default_factory=set)
+    runs: RunManager | None = None
+    approvals: DbApprovalBroker | None = None
+    wiring: Wiring | None = None
 
 
 def services_of(request: Request) -> AppServices:
