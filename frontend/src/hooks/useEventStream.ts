@@ -62,6 +62,7 @@ export const INVALIDATIONS: Record<string, readonly (readonly string[])[]> = {
   'worktree.': [['worktrees']],
   'agent.usage': [['costs']],
   'run.budget_exceeded': [['costs']],
+  'run.status_changed': [['admin']],
 }
 
 function backoffDelayMs(attempt: number): number {

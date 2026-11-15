@@ -275,6 +275,49 @@ describe('ApprovalsView', () => {
     })
   })
 
+  it('renders daily-scope budget figures and approves without budget_usd', async () => {
+    const posts: Record<string, unknown>[] = []
+    mockFetch(async (request) => {
+      if (request.method === 'POST') {
+        posts.push(await request.json())
+        return jsonResponse(202, {
+          approval_id: 'approval-1',
+          status: 'accepted',
+        })
+      }
+      return jsonResponse(200, {
+        items: [
+          approval({
+            kind: 'budget',
+            payload_json: {
+              scope: 'daily',
+              spent_today_usd: '3.75',
+              daily_budget_usd: '20.00',
+            },
+          }),
+        ],
+        total_pending: 1,
+      })
+    })
+
+    renderView()
+
+    expect(await screen.findByText('Spent today')).toBeTruthy()
+    expect(screen.getByText('$3.75')).toBeTruthy()
+    expect(screen.getByText('Daily cap')).toBeTruthy()
+    expect(screen.getByText('$20.00')).toBeTruthy()
+    expect(screen.getByText(/The daily cap is a hard limit/)).toBeTruthy()
+    expect(screen.queryByLabelText('New budget (USD, optional)')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
+
+    await waitFor(() => {
+      expect(posts).toHaveLength(1)
+    })
+    expect(posts[0]).toMatchObject({ decision: 'approve' })
+    expect(posts[0]?.budget_usd).toBeUndefined()
+  })
+
   it('renders escalation reason and feedback', async () => {
     mockFetch(() =>
       jsonResponse(200, {
@@ -565,6 +608,31 @@ describe('ApprovalsView', () => {
 
     expect(
       await screen.findByText("approval 'approval-1' is approved, not pending"),
+    ).toBeTruthy()
+  })
+
+  it('shows an orchestrator_paused 409 message inline', async () => {
+    mockFetch(async (request) => {
+      if (request.method === 'POST') {
+        return jsonResponse(409, {
+          error: {
+            code: 'orchestrator_paused',
+            message: 'the orchestrator is paused; resume it before deciding',
+          },
+        })
+      }
+      return jsonResponse(200, { items: [planApproval()], total_pending: 1 })
+    })
+
+    renderView()
+    await screen.findByText('Ship it')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
+
+    expect(
+      await screen.findByText(
+        'the orchestrator is paused; resume it before deciding',
+      ),
     ).toBeTruthy()
   })
 

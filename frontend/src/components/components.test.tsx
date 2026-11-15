@@ -103,6 +103,7 @@ describe('format', () => {
 describe('StatusBadge', () => {
   it('maps known statuses to tones and tolerates unknown ones', () => {
     expect(toneOf('failed')).toBe('bad')
+    expect(toneOf('paused')).toBe('warn')
     expect(toneOf('brand_new_status')).toBe('neutral')
     expect(toneOf(null)).toBe('neutral')
     render(<StatusBadge status="changes_requested" />)

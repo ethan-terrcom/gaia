@@ -229,16 +229,19 @@ async function decideApproval(
   approvalId: string,
   input: DecideAction & { comment: string | null },
 ): Promise<void> {
+  const body: components['schemas']['DecideRequest'] = {
+    decision: input.decision,
+    comment: input.comment,
+    edited_payload: input.editedPayload ?? null,
+    confirm: input.confirm ?? null,
+  }
+  if (input.budgetUsd !== undefined) {
+    body.budget_usd = input.budgetUsd
+  }
   const { error } = await api.POST('/api/v1/approvals/{approval_id}/decide', {
     fetch: globalThis.fetch,
     params: { path: { approval_id: approvalId } },
-    body: {
-      decision: input.decision,
-      comment: input.comment,
-      edited_payload: input.editedPayload ?? null,
-      confirm: input.confirm ?? null,
-      budget_usd: input.budgetUsd ?? null,
-    },
+    body,
   })
   if (error) {
     throw error
@@ -744,6 +747,36 @@ function BudgetKindDetail({
   budgetInput: string
   onBudgetChange: (value: string) => void
 }) {
+  const scope = asString(payload.scope) ?? 'run'
+
+  if (scope === 'daily') {
+    const spentToday = asNumber(payload.spent_today_usd)
+    const dailyBudget = asNumber(payload.daily_budget_usd)
+    return (
+      <div className="space-y-4">
+        <dl className="grid gap-2 sm:grid-cols-2">
+          <div>
+            <dt className="text-sm font-semibold text-gray-500 dark:text-gray-400">
+              Spent today
+            </dt>
+            <dd className="mt-1 text-lg">{formatUsd(spentToday)}</dd>
+          </div>
+          <div>
+            <dt className="text-sm font-semibold text-gray-500 dark:text-gray-400">
+              Daily cap
+            </dt>
+            <dd className="mt-1 text-lg">{formatUsd(dailyBudget)}</dd>
+          </div>
+        </dl>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          The daily cap is a hard limit. Approve after raising{' '}
+          <code className="font-mono">GAIA_DAILY_BUDGET_USD</code> or after
+          midnight UTC to try again; reject to cancel the run.
+        </p>
+      </div>
+    )
+  }
+
   const spent = asNumber(payload.cost_usd)
   const budget = asNumber(payload.budget_usd)
   return (
@@ -834,9 +867,17 @@ function ApprovalDetail({
       return
     }
     if (approval.kind === 'budget') {
+      const scope = asString(approval.payload_json.scope) ?? 'run'
       onDecide({
         decision: 'approve',
-        budgetUsd: budgetInput.trim() ? budgetInput.trim() : null,
+        // Daily scope changes no run budget; the user is approving "the cap
+        // changed or it is a new UTC day". Do not send budget_usd at all.
+        budgetUsd:
+          scope === 'daily'
+            ? undefined
+            : budgetInput.trim()
+              ? budgetInput.trim()
+              : null,
       })
       return
     }

@@ -23,6 +23,7 @@ const TONES: Record<string, Tone> = {
   reviewing: 'info',
   pr_open: 'info',
   awaiting_approval: 'warn',
+  paused: 'warn',
   paused_budget: 'warn',
   completed: 'good',
   cancelled: 'neutral',
