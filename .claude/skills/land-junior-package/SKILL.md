@@ -82,3 +82,9 @@ Merge one PR at a time. Rebase the next branch on `main` (`git rebase main` with
 - Regenerate artefacts after a rebase (`make openapi`, `make graph`) in case the other branch
   changed the API or the graph, then run **all** checks, frontend included, before
   `git push --force-with-lease`.
+
+## Gotcha: `GIT_DIR` in the same shell as pytest
+The pinned `export GIT_DIR=… GIT_WORK_TREE=…` used for committing leaks into anything run later in
+that shell. Before 18c, a `pytest` run in that shell failed the push tests intermittently. The
+test suite now strips those variables itself, but keep commits and test runs in separate
+commands anyway, and run tests with `-rf` so a failure names itself.

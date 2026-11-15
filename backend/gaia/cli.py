@@ -15,6 +15,7 @@ import getpass
 import json
 import sys
 from collections.abc import Callable, Sequence
+from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -30,6 +31,7 @@ from gaia.config.secrets import (
 )
 from gaia.config.settings import Settings, ensure_data_dir, get_settings
 from gaia.llm.base import LLMStop, StructuredLLM, UsageRecorder
+from gaia.services.cleanup import CleanupPlan
 from gaia.services.git import WorktreeLocation
 
 PROG = "gaia"
@@ -116,6 +118,35 @@ def _build_parser() -> argparse.ArgumentParser:
         "--repo",
         required=True,
         help="repository name in the local workspace",
+    )
+
+    worktrees = commands.add_parser(
+        "worktrees",
+        help="inspect and clean up run worktrees and scratch directories (doc 18c)",
+    )
+    worktrees_commands = worktrees.add_subparsers(
+        dest="worktrees_command", required=True, metavar="ACTION"
+    )
+    worktrees_cleanup = worktrees_commands.add_parser(
+        "cleanup",
+        help="plan or remove worktrees and scratch dirs of old finished runs",
+        description=(
+            "Prints a dry-run plan by default. Nothing is removed unless --apply "
+            "is given. Never removes dirty, tampered or unmerged-work worktrees."
+        ),
+    )
+    worktrees_cleanup.add_argument(
+        "--older-than",
+        type=int,
+        default=None,
+        metavar="DAYS",
+        help="only consider runs finished at least this many days ago "
+        "(default: cleanup_older_than_days from Settings)",
+    )
+    worktrees_cleanup.add_argument(
+        "--apply",
+        action="store_true",
+        help="remove the planned worktrees and scratch directories",
     )
 
     dev = commands.add_parser(
@@ -309,6 +340,100 @@ def _github_check(args: argparse.Namespace) -> int:
 def _github(args: argparse.Namespace) -> int:
     if args.github_command == "check":
         return _github_check(args)
+    return 2
+
+
+async def _worktrees_cleanup_async(args: argparse.Namespace) -> int:
+    """Async body of ``gaia worktrees cleanup``.
+
+    stdout carries the plan (and, with ``--apply``, the result); logs go to
+    stderr. The command opens the database like the other commands and builds the
+    real :class:`~gaia.services.git.GitService`, because the plan must look at
+    the actual worktrees rather than only their rows.
+    """
+    from gaia.config.logging import configure_logging
+    from gaia.db.engine import create_engine_for, create_session_factory, session_scope
+    from gaia.db.seed import seed_initial_data
+    from gaia.services.cleanup import CleanupService
+    from gaia.services.git import GitService
+
+    configure_logging()
+    settings = get_settings()
+    older_than = settings.cleanup_older_than_days if args.older_than is None else args.older_than
+    if older_than < 1:
+        print("error: --older-than must be at least 1", file=sys.stderr)
+        return 2
+
+    engine = create_engine_for(settings)
+    sessions = create_session_factory(engine)
+    try:
+        async with session_scope(sessions) as session:
+            await seed_initial_data(session, settings)
+
+        service = CleanupService(
+            sessions=sessions,
+            git=GitService(settings),
+            settings=settings,
+        )
+        plan = await service.plan(older_than_days=older_than)
+        _print_cleanup_plan(plan)
+
+        if not args.apply:
+            print("Dry run: nothing was removed. Pass --apply to remove the plan.")
+            return 0
+
+        result = await service.apply(plan)
+        print(
+            f"Removed {result.worktrees_removed} worktree(s) and "
+            f"{result.scratch_dirs_removed} scratch dir(s); "
+            f"{len(result.skips)} item(s) skipped."
+        )
+        for skip in result.skips:
+            print(f"  skipped {skip.path}: {skip.reason}")
+        return 0
+    finally:
+        await engine.dispose()
+
+
+def _print_cleanup_plan(plan: CleanupPlan) -> None:
+    """Print a ``CleanupPlan`` as a small fixed-width table."""
+    print("Worktrees")
+    print(f"{'PATH':<60} {'BRANCH':<40} {'LAST STATUS':<14} {'FINISHED':<20} SKIP")
+    for item in plan.worktrees:
+        print(
+            f"{item.path!s:<60} {item.worktree.branch:<40} "
+            f"{item.last_run.status:<14} {_fmt_dt(item.last_run.finished_at):<20}"
+        )
+    for skip in plan.skipped:
+        if skip.worktree is None:
+            continue
+        branch = skip.worktree.branch
+        status = skip.last_run.status if skip.last_run is not None else ""
+        finished = _fmt_dt(skip.last_run.finished_at) if skip.last_run is not None else ""
+        print(f"{skip.path!s:<60} {branch:<40} {status:<14} {finished:<20} {skip.reason}")
+    if plan.scratch_dirs:
+        print("Scratch directories")
+        for path in plan.scratch_dirs:
+            print(f"  {path}")
+    else:
+        print("Scratch directories: none")
+
+
+def _fmt_dt(value: datetime | None) -> str:
+    """Render an optional datetime for the plan table."""
+    if value is None:
+        return ""
+    return value.isoformat(timespec="seconds")
+
+
+def _worktrees_cleanup(args: argparse.Namespace) -> int:
+    """Run the cleanup async body."""
+    return asyncio.run(_worktrees_cleanup_async(args))
+
+
+def _worktrees(args: argparse.Namespace) -> int:
+    if args.worktrees_command == "cleanup":
+        return _worktrees_cleanup(args)
     return 2
 
 
@@ -832,6 +957,7 @@ def _dev(args: argparse.Namespace) -> int:
 _COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "secrets": _secrets,
     "github": _github,
+    "worktrees": _worktrees,
     "serve": _serve,
     "ui": _ui,
     "dev": _dev,

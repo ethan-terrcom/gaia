@@ -37,9 +37,10 @@ from gaia.db.models import (
     Run,
     RunToken,
     Ticket,
+    Worktree,
 )
 from gaia.db.types import utcnow
-from gaia.domain.enums import ApprovalStatus, PullRequestState, RunStatus
+from gaia.domain.enums import ApprovalStatus, PullRequestState, RunStatus, WorktreeStatus
 
 
 class WorkspaceMismatch(ValueError):
@@ -191,6 +192,108 @@ class ApprovalWaitStats:
     avg_s: float
     p50_s: float
     p90_s: float
+
+
+@dataclass(frozen=True)
+class CleanupWorktreeCandidate:
+    """One live worktree and the rows cleanup needs to decide its fate."""
+
+    worktree: Worktree
+    repository: Repository | None
+    runs: tuple[Run, ...]
+    merged_pr_run_ids: frozenset[str]
+
+
+class CleanupRepo:
+    """System-level cleanup queries used by doc 18c.
+
+    Like :class:`RunRepo.get_by_id` and :class:`PullRequestRepo.list_open`, these
+    are workspace-unscoped on purpose: cleanup runs across every workspace, so it
+    must never be handed to a route.
+    """
+
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def load_worktree_candidates(self) -> list[CleanupWorktreeCandidate]:
+        """Return every live worktree with its runs, repository and merged PR ids."""
+        live = (WorktreeStatus.READY.value, WorktreeStatus.IN_USE.value)
+        worktrees = list(
+            (
+                await self.session.scalars(
+                    select(Worktree).where(Worktree.status.in_(live)).order_by(Worktree.id)
+                )
+            ).all()
+        )
+        if not worktrees:
+            return []
+
+        repository_ids = {worktree.repo_id for worktree in worktrees}
+        repositories = list(
+            (
+                await self.session.scalars(
+                    select(Repository).where(Repository.id.in_(repository_ids))
+                )
+            ).all()
+        )
+        repositories_by_id = {repository.id: repository for repository in repositories}
+
+        worktree_ids = [worktree.id for worktree in worktrees]
+        runs = list(
+            (
+                await self.session.scalars(
+                    select(Run).where(Run.worktree_id.in_(worktree_ids)).order_by(Run.id)
+                )
+            ).all()
+        )
+        runs_by_worktree: dict[str, list[Run]] = {}
+        for run in runs:
+            # ``where(Run.worktree_id.in_(...))`` makes this non-null; the cast
+            # keeps mypy strict without an impossible branch.
+            runs_by_worktree.setdefault(cast(str, run.worktree_id), []).append(run)
+
+        merged_pr_run_ids: set[str] = set()
+        run_ids = [run.id for run in runs]
+        if run_ids:
+            merged_pr_run_ids = set(
+                (
+                    await self.session.scalars(
+                        select(PullRequest.run_id).where(
+                            PullRequest.run_id.in_(run_ids),
+                            PullRequest.state == PullRequestState.MERGED.value,
+                        )
+                    )
+                ).all()
+            )
+
+        return [
+            CleanupWorktreeCandidate(
+                worktree=worktree,
+                repository=repositories_by_id.get(worktree.repo_id),
+                runs=tuple(runs_by_worktree.get(worktree.id, ())),
+                merged_pr_run_ids=frozenset(merged_pr_run_ids),
+            )
+            for worktree in worktrees
+        ]
+
+    async def list_old_terminal_run_ids(self, cutoff: datetime) -> set[str]:
+        """Return terminal run ids finished before ``cutoff`` for scratch cleanup."""
+        terminal = (
+            RunStatus.COMPLETED.value,
+            RunStatus.FAILED.value,
+            RunStatus.CANCELLED.value,
+        )
+        return set(
+            (
+                await self.session.scalars(
+                    select(Run.id).where(
+                        Run.status.in_(terminal),
+                        Run.finished_at.is_not(None),
+                        Run.finished_at < cutoff,
+                    )
+                )
+            ).all()
+        )
 
 
 class PullRequestRepo:

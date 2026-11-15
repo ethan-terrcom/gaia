@@ -94,6 +94,24 @@ def clean_gaia_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in list(os.environ):
         if name.startswith("GAIA_"):
             monkeypatch.delenv(name)
+    # Git repository-location variables from the developer's shell would point
+    # every raw ``git`` call in a test fixture at the wrong repository. That
+    # happened during the lead's review: a ``GIT_DIR`` exported for a commit made
+    # three push tests fail in the same shell only.
+    for name in _GIT_LOCATION_ENV:
+        monkeypatch.delenv(name, raising=False)
+
+
+#: Variables that redirect git to another repository, index or object store.
+_GIT_LOCATION_ENV = (
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_COMMON_DIR",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_NAMESPACE",
+)
 
 
 @pytest.fixture(autouse=True)
@@ -185,6 +203,7 @@ async def api(
         db_url=database.url,
         orchestrator_enabled=False,
         pr_sync_enabled=False,
+        cleanup_enabled=False,
     )
     app = create_app(settings)
     async with app.router.lifespan_context(app):
