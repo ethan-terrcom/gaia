@@ -53,6 +53,7 @@ from gaia.api.routes import (
     costs,
     dev,
     health,
+    metrics,
     pull_requests,
     repositories,
     session,
@@ -272,6 +273,7 @@ def api_v1_router(*, dev_routes: bool = False) -> APIRouter:
     router.include_router(stream.router)
     router.include_router(approvals.router)
     router.include_router(costs.router)
+    router.include_router(metrics.router)
     if dev_routes:
         router.include_router(dev.router)
     # TODO(gaia-14): include the runs and approvals decision routers.

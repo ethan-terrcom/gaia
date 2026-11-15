@@ -156,3 +156,16 @@ browser's `EventSource` cannot send a bearer header. The details are in [events]
   with `index.html`. It sends the CSP from `frontend/csp.json` (a test keeps the copies equal),
   plus `no-store`, `nosniff` and `no-referrer`. `/api/...` paths keep the JSON 404 envelope.
   Set `GAIA_UI_ORIGIN` to the API's own origin in that mode so `gaia ui` prints the right link.
+
+## Metrics summary (package 18b)
+`GET /api/v1/metrics/summary?days=14` (1–90 UTC days, ending today) returns:
+- `runs_by_status`;
+- `success_rate` = completed / (completed + failed + cancelled), or `null` when nothing has
+  finished;
+- `avg_cost_per_run_usd` over finished runs;
+- `cost_by_model[]` and `cost_by_day[]` from `llm_usage`;
+- `approval_wait_s{count, avg, p50, p90}` for decided approvals, with nearest-rank percentiles
+  computed in Python.
+
+It is workspace-scoped, and an empty database gives zeros and nulls, never an error. It feeds the
+dashboard (17a).

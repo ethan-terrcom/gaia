@@ -213,6 +213,35 @@
         "title": "ApprovalStatus",
         "type": "string"
       },
+      "ApprovalWaitSummary": {
+        "description": "Human wait time for approvals over a window (doc 18b).",
+        "properties": {
+          "avg": {
+            "title": "Avg",
+            "type": "number"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "p50": {
+            "title": "P50",
+            "type": "number"
+          },
+          "p90": {
+            "title": "P90",
+            "type": "number"
+          }
+        },
+        "required": [
+          "count",
+          "avg",
+          "p50",
+          "p90"
+        ],
+        "title": "ApprovalWaitSummary",
+        "type": "object"
+      },
       "CiStatus": {
         "description": "The part of a GitHub checks rollup Gaia cares about (doc 15).",
         "enum": [
@@ -223,6 +252,50 @@
         ],
         "title": "CiStatus",
         "type": "string"
+      },
+      "CostByDay": {
+        "description": "LLM spend for one UTC day over a window (doc 18b).",
+        "properties": {
+          "cost_usd": {
+            "title": "Cost Usd",
+            "type": "string"
+          },
+          "day": {
+            "format": "date",
+            "title": "Day",
+            "type": "string"
+          }
+        },
+        "required": [
+          "day",
+          "cost_usd"
+        ],
+        "title": "CostByDay",
+        "type": "object"
+      },
+      "CostByModel": {
+        "description": "LLM spend for one provider/model pair over a window (doc 18b).",
+        "properties": {
+          "cost_usd": {
+            "title": "Cost Usd",
+            "type": "string"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "model",
+          "cost_usd"
+        ],
+        "title": "CostByModel",
+        "type": "object"
       },
       "EventHistory": {
         "description": "One page of a run's event history.",
@@ -385,6 +458,74 @@
           "status"
         ],
         "title": "Health",
+        "type": "object"
+      },
+      "MetricsSummary": {
+        "description": "The observability dashboard's workspace summary (doc 18b).",
+        "properties": {
+          "approval_wait_s": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ApprovalWaitSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "avg_cost_per_run_usd": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Cost Per Run Usd"
+          },
+          "cost_by_day": {
+            "items": {
+              "$ref": "#/components/schemas/CostByDay"
+            },
+            "title": "Cost By Day",
+            "type": "array"
+          },
+          "cost_by_model": {
+            "items": {
+              "$ref": "#/components/schemas/CostByModel"
+            },
+            "title": "Cost By Model",
+            "type": "array"
+          },
+          "runs_by_status": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Runs By Status",
+            "type": "object"
+          },
+          "success_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Success Rate"
+          }
+        },
+        "required": [
+          "runs_by_status",
+          "success_rate",
+          "avg_cost_per_run_usd",
+          "cost_by_model",
+          "cost_by_day",
+          "approval_wait_s"
+        ],
+        "title": "MetricsSummary",
         "type": "object"
       },
       "Principal": {
@@ -1542,6 +1683,57 @@
         "summary": "The authenticated caller",
         "tags": [
           "session"
+        ]
+      }
+    },
+    "/api/v1/metrics/summary": {
+      "get": {
+        "description": "Return runs, spend and approval wait metrics for the last UTC days.\n\nThe window covers ``days`` UTC calendar days ending today (UTC), which keeps\n\"last 1 day\" aligned to midnight UTC rather than a rolling 24 hours.",
+        "operationId": "get_metrics_summary_api_v1_metrics_summary_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 14,
+              "maximum": 90,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetricsSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Workspace metrics summary",
+        "tags": [
+          "metrics"
         ]
       }
     },

@@ -17,10 +17,11 @@ filter lives in a repository helper "never ad hoc", so:
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import Select, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -178,6 +179,20 @@ class PullRequestWithContext:
     repository: Repository
 
 
+@dataclass(frozen=True)
+class ApprovalWaitStats:
+    """Approval wait time over a window (doc 18b).
+
+    Percentiles are computed in Python over the fetched durations; that is fine
+    at this scale and keeps one percentile definition for SQLite and Postgres.
+    """
+
+    count: int
+    avg_s: float
+    p50_s: float
+    p90_s: float
+
+
 class PullRequestRepo:
     """System-level PR queries used by doc 15b.
 
@@ -297,6 +312,139 @@ async def daily_llm_usage_by_provider(
     )
     rows = (await session.execute(statement)).all()
     return [(str(provider), Decimal(str(cost or 0))) for provider, cost in rows]
+
+
+async def run_status_counts(session: AsyncSession, workspace_id: str) -> dict[str, int]:
+    """Return ``{status: count}`` for one workspace's runs (doc 18b).
+
+    Statuses with no rows are absent rather than zero; the route computes the
+    success-rate denominator from the statuses that exist.
+    """
+    statement = (
+        select(Run.status, func.count())
+        .where(Run.workspace_id == workspace_id)
+        .group_by(Run.status)
+    )
+    rows = (await session.execute(statement)).all()
+    return {str(status): int(count) for status, count in rows}
+
+
+async def finished_run_average_cost_usd(session: AsyncSession, workspace_id: str) -> Decimal | None:
+    """Return the average ``run.cost_usd`` over finished runs, or ``None``.
+
+    Finished means ``completed``, ``failed`` or ``cancelled``. SQLite returns
+    ``AVG`` over ``NUMERIC`` as a float, so the value goes through ``str``
+    before it becomes a ``Decimal``.
+    """
+    finished = (
+        RunStatus.COMPLETED.value,
+        RunStatus.FAILED.value,
+        RunStatus.CANCELLED.value,
+    )
+    statement = select(func.avg(Run.cost_usd)).where(
+        Run.workspace_id == workspace_id,
+        Run.status.in_(finished),
+    )
+    average = await session.scalar(statement)
+    if average is None:
+        return None
+    return Decimal(str(average))
+
+
+async def llm_usage_cost_by_model(
+    session: AsyncSession, workspace_id: str, *, start: datetime, end: datetime
+) -> list[tuple[str, str, Decimal]]:
+    """Return ``(provider, model, cost_usd)`` for the half-open window.
+
+    Rows are sorted by provider then model for a deterministic dashboard.
+    """
+    statement = (
+        select(
+            LlmUsage.provider,
+            LlmUsage.model,
+            func.coalesce(func.sum(LlmUsage.cost_usd), 0),
+        )
+        .where(
+            LlmUsage.workspace_id == workspace_id,
+            LlmUsage.created_at >= start,
+            LlmUsage.created_at < end,
+        )
+        .group_by(LlmUsage.provider, LlmUsage.model)
+        .order_by(LlmUsage.provider, LlmUsage.model)
+    )
+    rows = (await session.execute(statement)).all()
+    return [(str(provider), str(model), Decimal(str(cost or 0))) for provider, model, cost in rows]
+
+
+async def llm_usage_cost_by_day(
+    session: AsyncSession, workspace_id: str, *, start: datetime, end: datetime
+) -> list[tuple[date, Decimal]]:
+    """Return ``(day, cost_usd)`` for the half-open window, in UTC days.
+
+    ``func.date`` groups by the date part of the stored UTC timestamp, which is
+    exactly the "UTC days" doc 18b asks for. SQLite returns the group as a
+    string while Postgres returns a date; both are normalised to ``date`` here.
+    """
+    day_column = func.date(LlmUsage.created_at)
+    statement = (
+        select(day_column, func.coalesce(func.sum(LlmUsage.cost_usd), 0))
+        .where(
+            LlmUsage.workspace_id == workspace_id,
+            LlmUsage.created_at >= start,
+            LlmUsage.created_at < end,
+        )
+        .group_by(day_column)
+        .order_by(day_column)
+    )
+    rows = (await session.execute(statement)).all()
+    result: list[tuple[date, Decimal]] = []
+    for day_value, cost in rows:
+        day = date.fromisoformat(str(day_value)) if isinstance(day_value, str) else day_value
+        result.append((day, Decimal(str(cost or 0))))
+    return result
+
+
+def _percentile(sorted_values: list[float], percentile: int) -> float:
+    """Return the nearest-rank percentile over a non-empty sorted list."""
+    if not sorted_values:
+        raise ValueError("cannot take a percentile of an empty list")
+    index = math.ceil(percentile / 100 * len(sorted_values)) - 1
+    return sorted_values[index]
+
+
+async def approval_wait_stats(
+    session: AsyncSession, workspace_id: str, *, start: datetime, end: datetime
+) -> ApprovalWaitStats | None:
+    """Return wait-time statistics over decided approvals created in the window.
+
+    The duration is ``decided_at - created_at``. Percentiles are computed in
+    Python from the fetched durations (see :class:`ApprovalWaitStats`); the SQL
+    layer only fetches the two timestamps.
+    """
+    statement = (
+        select(Approval.created_at, Approval.decided_at)
+        .where(
+            Approval.workspace_id == workspace_id,
+            Approval.created_at >= start,
+            Approval.created_at < end,
+            Approval.decided_at.is_not(None),
+        )
+        .order_by(Approval.created_at, Approval.id)
+    )
+    rows = (await session.execute(statement)).all()
+    durations: list[float] = []
+    for created_at, decided_at in rows:
+        durations.append((cast(datetime, decided_at) - created_at).total_seconds())
+    if not durations:
+        return None
+    sorted_durations = sorted(durations)
+    count = len(sorted_durations)
+    return ApprovalWaitStats(
+        count=count,
+        avg_s=sum(sorted_durations) / count,
+        p50_s=_percentile(sorted_durations, 50),
+        p90_s=_percentile(sorted_durations, 90),
+    )
 
 
 class Repo[ModelT: Base]:

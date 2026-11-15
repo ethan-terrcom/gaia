@@ -15,7 +15,7 @@ bodies. Three rules keep the boundary safe:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -361,6 +361,41 @@ class TodayCosts(Schema):
     budget_usd: Decimal
     by_provider: list[ProviderCost]
     day_start: datetime
+
+
+class CostByModel(Schema):
+    """LLM spend for one provider/model pair over a window (doc 18b)."""
+
+    provider: str
+    model: str
+    cost_usd: Decimal
+
+
+class CostByDay(Schema):
+    """LLM spend for one UTC day over a window (doc 18b)."""
+
+    day: date
+    cost_usd: Decimal
+
+
+class ApprovalWaitSummary(Schema):
+    """Human wait time for approvals over a window (doc 18b)."""
+
+    count: int
+    avg: float
+    p50: float
+    p90: float
+
+
+class MetricsSummary(Schema):
+    """The observability dashboard's workspace summary (doc 18b)."""
+
+    runs_by_status: dict[str, int]
+    success_rate: float | None
+    avg_cost_per_run_usd: Decimal | None
+    cost_by_model: list[CostByModel]
+    cost_by_day: list[CostByDay]
+    approval_wait_s: ApprovalWaitSummary | None
 
 
 class AuditLogRead(WorkspaceScopedRead):

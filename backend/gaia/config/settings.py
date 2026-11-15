@@ -75,12 +75,18 @@ def _derive_worktrees_root(data: dict[str, Any]) -> Path:
     return Path(data["data_dir"]) / "worktrees"
 
 
+def _derive_log_dir(data: dict[str, Any]) -> Path:
+    """Keep JSON logs inside the data directory unless set explicitly."""
+    return Path(data["data_dir"]) / "logs"
+
+
 class Settings(BaseSettings):
     """Gaia's runtime configuration.
 
-    ``db_url``, ``checkpoint_path`` and ``worktrees_root`` follow ``data_dir``
-    when they are not supplied, which is why :attr:`data_dir` is declared first:
-    a ``default_factory`` only sees the fields validated before it.
+    ``db_url``, ``checkpoint_path``, ``worktrees_root`` and ``log_dir`` follow
+    ``data_dir`` when they are not supplied, which is why :attr:`data_dir` is
+    declared first: a ``default_factory`` only sees the fields validated before
+    it.
     """
 
     model_config = SettingsConfigDict(env_prefix="GAIA_", env_file=None)
@@ -89,6 +95,15 @@ class Settings(BaseSettings):
     db_url: str = Field(default_factory=_derive_db_url)
     checkpoint_path: Path = Field(default_factory=_derive_checkpoint_path)
     worktrees_root: Path = Field(default_factory=_derive_worktrees_root)
+
+    # --- logging (18b) ---
+    #: Directory for redacted JSON log files (``gaia.jsonl``). Created owner-only
+    #: (``0o700``) when ``gaia serve`` starts; derived from ``data_dir`` unless set.
+    log_dir: Path = Field(default_factory=_derive_log_dir)
+    #: Maximum size of ``gaia.jsonl`` before it rotates to ``gaia.jsonl.1``.
+    log_file_max_bytes: int = Field(default=10_000_000, ge=1)
+    #: Number of rotated JSON log files to keep, plus the active one.
+    log_file_backups: int = Field(default=5, ge=0)
 
     host: str = "127.0.0.1"
     allow_remote: bool = False
@@ -183,7 +198,7 @@ class Settings(BaseSettings):
     #: How often the background PR sync task refreshes GitHub's view of open PRs.
     pr_sync_interval_s: float = Field(default=60.0, ge=5)
 
-    @field_validator("data_dir", "checkpoint_path", "worktrees_root")
+    @field_validator("data_dir", "checkpoint_path", "worktrees_root", "log_dir")
     @classmethod
     def _expand_path(cls, value: Path) -> Path:
         """Expand ``~`` so the default ``~/.gaia`` is usable as it stands."""

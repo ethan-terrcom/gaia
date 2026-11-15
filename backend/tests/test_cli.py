@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.metadata
 import stat
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,7 @@ import pytest
 import gaia
 from gaia import cli
 from gaia.config import settings as settings_module
+from gaia.config.logging import _reset_for_tests
 from gaia.config.secrets import InMemorySecretStore, SecretName
 from gaia.config.settings import Settings
 
@@ -28,6 +30,15 @@ def data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     directory = tmp_path / "gaia-data"
     monkeypatch.setattr(cli, "get_settings", lambda: Settings(data_dir=directory))
     return directory
+
+
+@pytest.fixture(autouse=True)
+def restore_logging() -> Iterator[None]:
+    """``gaia serve`` configures global logging; do not leak it into later tests."""
+    try:
+        yield
+    finally:
+        _reset_for_tests()
 
 
 @pytest.fixture(autouse=True)
@@ -256,6 +267,7 @@ def test_serve_passes_the_settings_to_uvicorn(monkeypatch: pytest.MonkeyPatch) -
         "host": "127.0.0.1",
         "port": 8765,
         "reload": False,
+        "log_config": None,
     }
 
 
