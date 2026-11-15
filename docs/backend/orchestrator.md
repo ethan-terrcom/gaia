@@ -40,6 +40,11 @@ sends `Command(resume=decision)`, and LangGraph **re-runs the node from its firs
 why step 1 is an upsert, not an insert: on the re-run it finds the existing row, and
 `interrupt()` now returns the decision instead of stopping.
 
+**When a run ends early** (cancelled, or failed in a node), its pending approvals are set to
+`expired`, and `approval.decided {action: "expired"}` is published, so no inbox item points at a
+dead graph. A node guarded on a terminal run returns `{"route": "end"}`, never `{}`: an empty
+update keeps the previous node's `route` in state, and the next conditional edge would follow it.
+
 ```python
 {"action": "approve" | "reject" | "edit", "comment": str | None,
  "plan": dict | None,            # edit only: a replacement plan

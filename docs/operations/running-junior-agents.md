@@ -198,7 +198,9 @@ and the Alembic revision chain. Rerun `make check`, then push with `--force-with
 | A junior cannot prove "live" criteria (`curl`, a real sandbox, a real provider). | Ask for a test-level proof plus a dev hook (`GAIA_DEV_ROUTES`, `scripts/dev_*.py`) that the lead runs. |
 | macOS refuses to nest `sandbox-exec`, so a junior cannot run `srt` tests. | Mark them `skipif` without `GAIA_SRT_PATH`; the lead runs them. |
 | `httpx.ASGITransport` buffers whole responses. | Write SSE bodies as standalone async generators. |
-| Coverage does not trace SQLAlchemy's greenlets. | Add a direct-call test when a line inside a session shows as missed. |
+| Coverage did not trace SQLAlchemy's greenlets: it reported lines it had run as missed, and others as covered. | Fixed at the root: `[tool.coverage.run] concurrency = ["greenlet", "thread"]` (live E2E 1). If a line still shows as missed, believe it. |
+| Every package passed its tests, yet the first live run found four bugs between packages (a plan command that cannot run in the sandbox; a cancelled run's approval resuming a dead graph). | Run a live end-to-end pass after each group of packages lands, not only at the end. In review, ask "what happens to this row when the run ends early?" |
+| `export GIT_DIR=…` in the lead's shell leaked into pytest, and the git-repo tests failed against the wrong repository. | Commit in a subshell; conftest now strips git location variables. |
 | A missing `frontend/node_modules` makes the pre-commit hook fail silently. | Run `npm ci` in every worktree. |
 | Context caching makes long sessions cheap: about 99% of prompt tokens are cache hits. | Prefer one thorough session per package over many short ones. |
 | Destructive defaults (cascading deletes) pass every test. | Ask "what disappears with this row?" in every review. |

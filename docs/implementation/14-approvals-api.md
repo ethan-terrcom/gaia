@@ -73,5 +73,13 @@ UI (17).
   the run's latest PR row is kept as defence in depth.
 - The `AppServices.runs`/`approvals` fields the junior added locally were reconciled with 12b-3's
   at merge.
-- [ ] Acceptance ("a full run can be driven through the API alone, with `curl`"): verified live
-  by the lead after merge (see the review).
+- [x] Acceptance ("a full run can be driven through the API alone, with `curl`"): verified live
+  through the commit, in [live E2E run 1](../reviews/2026-11-14-live-e2e-1.md). The PR and merge
+  steps need a GitHub sandbox repo.
+
+### Live E2E fixes (2026-11-14, [`live-e2e-1`](../reviews/2026-11-14-live-e2e-1.md))
+- `POST /approvals/{id}/decide` returns **409 `run_not_active`** when the approval's run is
+  terminal, because deciding it would resume a graph that has ended.
+- Cancelling a run, or the run failing, expires its pending approvals (`status=expired`) and
+  publishes `approval.decided {action: "expired"}`.
+- The `pr_open` approval payload carries the lead's `review`, so the human sees what they approve.

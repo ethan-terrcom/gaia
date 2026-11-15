@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import gaia.api.routes.approvals as approvals_route
 from gaia.api.routes.approvals import decide_approval
 from gaia.db.engine import session_scope
-from gaia.db.models import Approval, PullRequest, Repository
+from gaia.db.models import Approval, PullRequest, Repository, Run
 from gaia.db.repo import ScopedRepo
 from gaia.domain.enums import (
     ApprovalKind,
@@ -958,3 +958,30 @@ async def test_decide_function_direct_merge_wrong_confirm(run_api: Api, database
             services,
         )
     assert response.status_code == 422
+
+
+async def test_deciding_for_a_finished_run_is_409(run_api: Api, database: Database) -> None:
+    """Live E2E fix B: an approval of a cancelled run must not resume its graph."""
+    workspace_id, run_id = await _repo_and_run_id(run_api, database)
+    approval_id = await _add_approval(
+        database,
+        workspace_id,
+        run_id,
+        idempotency_key="escalation:stale:1",
+        kind=ApprovalKind.ESCALATION,
+        payload={"kind": "escalation"},
+    )
+    async with database.sessions() as session:
+        run = await ScopedRepo(session, Run, workspace_id).get(run_id)
+        assert run is not None
+        run.status = RunStatus.CANCELLED.value
+        await session.commit()
+
+    response = await run_api.client.post(
+        f"/api/v1/approvals/{approval_id}/decide",
+        json={"decision": "approve"},
+        headers=run_api.auth,
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "run_not_active"

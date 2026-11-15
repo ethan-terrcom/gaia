@@ -123,6 +123,9 @@ markers = [
 [tool.coverage.run]
 source = ["gaia"]
 branch = true
+# SQLAlchemy's async engine switches greenlets on every await; without this the
+# tracer misattributes the lines that follow (found while landing the live E2E fixes).
+concurrency = ["greenlet", "thread"]
 
 [tool.coverage.report]
 show_missing = true

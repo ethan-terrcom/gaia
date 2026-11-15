@@ -31,7 +31,8 @@ async def approve_pr(state: RunState, deps: GraphDeps) -> dict[str, Any]:
             run_id=state["run_id"],
             idempotency_key=key,
             kind=ApprovalKind.PR_OPEN,
-            payload={"kind": ApprovalKind.PR_OPEN.value},
+            # What the human approves: the lead's final review (doc 14 task 3).
+            payload={"kind": ApprovalKind.PR_OPEN.value, "review": state.get("review")},
         )
         approval_id = approval.id
 

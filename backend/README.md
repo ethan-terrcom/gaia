@@ -118,6 +118,12 @@ and the related F2, F4 and F6 issues. All four were fixed in package 05b
 cross-workspace foreign keys (F5), and the low-priority items. Architecture-level decisions are recorded in
 [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) and the plan review.
 
+The first live end-to-end run ([live E2E 1](../docs/reviews/2026-11-14-live-e2e-1.md)) drove a
+ticket through plan, sandboxed implementation, tests, review and commit with real providers, for
+$0.068. Its four findings are fixed. **Open decision:** a repository without a GitHub remote
+currently ends its run as `failed` at `open_pr`; the recommendation is `completed`, with the
+branch left for a manual merge.
+
 ## Running it
 
 ```sh

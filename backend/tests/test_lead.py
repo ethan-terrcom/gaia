@@ -328,3 +328,36 @@ def test_a_test_command_that_would_need_approval_is_rejected() -> None:
         )
         == []
     )
+
+
+def test_plan_test_commands_must_start_with_the_registered_command() -> None:
+    """First live end-to-end run: a plan used bare ``pytest`` while the repo registered
+    ``uv run pytest -q``; the check then failed with "command not found"."""
+    engineer = LeadEngineer(FakeLLM([]), CommandPolicy.from_default())
+    registered = ("uv", "run", "pytest", "-q")
+
+    [reason] = engineer._denied_test_commands(
+        _plan(["pytest", "-q", "tests/test_greet.py"]), (registered,), registered
+    )
+    assert "must start with the repository's registered test command" in reason
+    assert (
+        engineer._denied_test_commands(
+            _plan(["uv", "run", "pytest", "-q", "tests/test_greet.py"]), (registered,), registered
+        )
+        == []
+    )
+
+
+async def test_plan_ticket_tells_the_lead_the_registered_test_command() -> None:
+    fake = FakeLLM([], parsed_responses=[_parsed_plan(_plan(["uv", "run", "pytest", "-q", "t"]))])
+    engineer = LeadEngineer(fake, CommandPolicy.from_default())
+
+    await engineer.plan_ticket(
+        _ticket(),
+        _repo_context(),
+        extra_allow=(("uv", "run", "pytest", "-q"),),
+        test_command=["uv", "run", "pytest", "-q"],
+    )
+
+    [call] = fake.parse_calls
+    assert '["uv", "run", "pytest", "-q"]' in call.messages[0].content

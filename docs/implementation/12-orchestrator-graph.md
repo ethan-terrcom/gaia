@@ -240,3 +240,13 @@ nodes behind an interface for now.
 - The swap drill was verified to run and pass (1 test; it asserts what the handoff asked).
 - [x] Acceptance (12b): the graph tests pass with real nodes (12b-1's real-execution integration
   test plus the swap drill), and `docs/graph.md` is unchanged.
+
+### Live E2E fixes (2026-11-14, [`live-e2e-1`](../reviews/2026-11-14-live-e2e-1.md))
+- **Plan test commands:** `plan_ticket(test_command=…)` tells the lead the repository's
+  registered test command. Validation rejects a step whose `test_command` does not start with it.
+  A bare `pytest` exits 127 in the sandbox.
+- **The guard routes a terminal run to `end`** (`{"route": "end"}`), and so does the budget-reject
+  path. Returning `{}` left the previous node's `route` in state, and the conditional edge raised
+  `KeyError`.
+- **Terminal runs expire their pending approvals:** `RunManager.cancel` and the guard's failure
+  path call `expire_pending_approvals` and publish `approval.decided {action: "expired"}`.

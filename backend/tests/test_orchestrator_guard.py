@@ -128,7 +128,7 @@ async def test_guard_does_nothing_for_a_terminal_run(database: Any, tmp_path: Pa
             return {"called": True}
 
         wrapped = with_guard(env.deps, "terminal_node")(node)
-        assert await wrapped(state_for(env)) == {}
+        assert await wrapped(state_for(env)) == {"route": "end"}
         assert calls == []
 
 
@@ -185,7 +185,7 @@ async def test_guard_budget_reject_cancels_the_run(database: Any, tmp_path: Path
             "gaia.orchestrator.guard.interrupt", lambda payload: {"action": "reject"}
         )
         wrapped = with_guard(env.deps, "budget_node")(node)
-        assert await wrapped(state_for(env)) == {}
+        assert await wrapped(state_for(env)) == {"route": "end"}
         monkeypatch.undo()
         assert calls == []
 
@@ -266,3 +266,34 @@ async def test_guard_budget_approve_rejects_a_budget_not_above_spend(
         with pytest.raises(ValueError, match="above what the run has spent"):
             await wrapped(state_for(env))
         monkeypatch.undo()
+
+
+async def test_guard_failure_expires_the_runs_pending_approvals(
+    database: Any, tmp_path: Path
+) -> None:
+    """Live E2E fix A: a failed run leaves no approval in the inbox."""
+    async with guard_env(database, tmp_path) as env:
+        async with session_scope(env.deps.sessions) as session:
+            approval = await ScopedRepo(session, Approval, env.workspace_id).create(
+                run_id=env.run_id,
+                idempotency_key="escalation:0:1",
+                kind=ApprovalKind.ESCALATION.value,
+                payload_json={"kind": "escalation"},
+                status=ApprovalStatus.PENDING.value,
+            )
+            approval_id = approval.id
+
+        async def node(state: RunState) -> dict[str, Any]:
+            raise RuntimeError("node exploded")
+
+        with pytest.raises(RunFailed):
+            await with_guard(env.deps, "failing_node")(node)(state_for(env))
+
+        async with session_scope(env.deps.sessions) as session:
+            row = await ScopedRepo(session, Approval, env.workspace_id).get(approval_id)
+            assert row is not None
+            assert row.status == ApprovalStatus.EXPIRED.value
+            assert row.comment == "run failed"
+            events = await EventRepo(session, Event, env.workspace_id).list_for_run(env.run_id)
+            decided = [e for e in events if e.type == EventType.APPROVAL_DECIDED.value]
+            assert decided[-1].payload_json == {"approval_id": approval_id, "action": "expired"}

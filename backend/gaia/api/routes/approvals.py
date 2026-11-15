@@ -14,7 +14,7 @@ from pydantic import ValidationError
 from gaia.api.deps import PrincipalDep, ScopedDep, ServicesDep, append_audit_log
 from gaia.api.errors import ErrorCode, error_response
 from gaia.db.engine import session_scope
-from gaia.db.models import Approval, PullRequest
+from gaia.db.models import Approval, PullRequest, Run
 from gaia.db.repo import ApprovalRepo, ScopedRepo
 from gaia.domain.enums import ApprovalKind, ApprovalStatus
 from gaia.domain.plans import Plan
@@ -25,6 +25,7 @@ from gaia.domain.schemas import (
     DecideRequest,
 )
 from gaia.orchestrator.approvals import Decision
+from gaia.orchestrator.guard import TERMINAL_RUN_STATUSES
 from gaia.orchestrator.runner import RunBusy, RunManager
 from gaia.runtimes.approvals import ApprovalNotPending, DbApprovalBroker
 
@@ -61,6 +62,15 @@ def _run_busy(request: Request, run_id: str) -> Response:
         status.HTTP_409_CONFLICT,
         ErrorCode.RUN_BUSY,
         f"run {run_id!r} is already executing",
+    )
+
+
+def _run_not_active(request: Request, run_id: str, run_status: str) -> Response:
+    return error_response(
+        request,
+        status.HTTP_409_CONFLICT,
+        ErrorCode.RUN_NOT_ACTIVE,
+        f"run {run_id!r} is {run_status}; its approvals can no longer be decided",
     )
 
 
@@ -186,6 +196,11 @@ async def _decide_locked(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "approval not found")
     if approval.status != ApprovalStatus.PENDING.value:
         return _approval_not_pending(request, approval_id, approval.status)
+    # A finished run acts on nothing: deciding would resume a graph that ended
+    # (found in the first live end-to-end run). Lead review fix B.
+    run = await scoped.repo(Run).get(approval.run_id)
+    if run is not None and run.status in TERMINAL_RUN_STATUSES:
+        return _run_not_active(request, approval.run_id, run.status)
 
     try:
         kind = ApprovalKind(approval.kind)

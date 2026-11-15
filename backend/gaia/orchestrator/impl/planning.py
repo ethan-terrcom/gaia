@@ -78,4 +78,5 @@ class GatewayPlanner:
                 ticket_input,
                 repo_context,
                 extra_allow=extra_allow,
+                test_command=test_command or None,
             )

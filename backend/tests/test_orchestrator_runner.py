@@ -311,3 +311,33 @@ async def test_graph_errors_are_logged_and_finished_tasks_pruned(
         assert [entry["error_class"] for entry in logged] == ["RuntimeError", "RuntimeError"]
         assert first not in env.manager._tasks
         assert isinstance(env.manager._errors[first], RuntimeError)
+
+
+async def test_cancel_expires_the_runs_pending_approvals(database: Any, tmp_path: Path) -> None:
+    """Live E2E fix A: a cancelled run's pending approvals leave the inbox."""
+    from gaia.db.models import Approval
+    from gaia.db.repo import ScopedRepo
+    from gaia.domain.enums import ApprovalKind, ApprovalStatus
+
+    async with runner_env(database, tmp_path) as env:
+        run_id = await add_run(env)
+        async with session_scope(env.deps.sessions) as session:
+            approval = await ScopedRepo(session, Approval, env.workspace_id).create(
+                run_id=run_id,
+                idempotency_key="escalation:0:1",
+                kind=ApprovalKind.ESCALATION.value,
+                payload_json={"kind": "escalation"},
+                status=ApprovalStatus.PENDING.value,
+            )
+            approval_id = approval.id
+
+        await env.manager.cancel(run_id, workspace_id=env.workspace_id)
+
+        async with session_scope(env.deps.sessions) as session:
+            row = await ScopedRepo(session, Approval, env.workspace_id).get(approval_id)
+            assert row is not None
+            assert row.status == ApprovalStatus.EXPIRED.value
+            assert row.comment == "run cancelled"
+            events = await EventRepo(session, Event, env.workspace_id).list_for_run(run_id)
+            decided = [e for e in events if e.type == EventType.APPROVAL_DECIDED.value]
+            assert decided[-1].payload_json == {"approval_id": approval_id, "action": "expired"}

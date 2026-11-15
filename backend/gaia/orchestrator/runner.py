@@ -21,6 +21,7 @@ from gaia.db.models import Run, Ticket
 from gaia.db.repo import RunRepo, ScopedRepo
 from gaia.domain.enums import EventType, RunStatus, RuntimeKind
 from gaia.domain.state import transition
+from gaia.orchestrator.approvals import expire_pending_approvals
 from gaia.orchestrator.deps import GraphDeps
 from gaia.orchestrator.state import RunState
 
@@ -153,6 +154,9 @@ class RunManager:
             if run is None:
                 raise ValueError(f"no run {run_id!r}")
             transition(run, RunStatus.CANCELLED)
+            expired = await expire_pending_approvals(
+                session, workspace_id=workspace_id, run_id=run_id, reason="run cancelled"
+            )
 
         await self.deps.events.publish(
             workspace_id=workspace_id,
@@ -160,6 +164,7 @@ class RunManager:
             payload={"run_id": run_id, "status": RunStatus.CANCELLED.value},
             run_id=run_id,
         )
+        await _publish_expired(self.deps, workspace_id, run_id, expired)
 
     async def recover(self) -> None:
         """Resume runs left active by a previous process, if they have no open interrupt."""
@@ -221,3 +226,16 @@ class RunManager:
         for done_id in [key for key, task in self._tasks.items() if task.done()]:
             del self._tasks[done_id]
         self._tasks[run_id] = asyncio.create_task(_drive())
+
+
+async def _publish_expired(
+    deps: GraphDeps, workspace_id: str, run_id: str, approval_ids: list[str]
+) -> None:
+    """Tell the UI each expired approval left the inbox."""
+    for approval_id in approval_ids:
+        await deps.events.publish(
+            workspace_id=workspace_id,
+            type=EventType.APPROVAL_DECIDED,
+            payload={"approval_id": approval_id, "action": "expired"},
+            run_id=run_id,
+        )

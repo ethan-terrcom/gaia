@@ -87,3 +87,22 @@ async def apply_decision(session: AsyncSession, approval: Approval, decision: De
     approval.decided_by = decision.decided_by
     approval.decided_at = utcnow()
     await session.flush()
+
+
+async def expire_pending_approvals(
+    session: AsyncSession, *, workspace_id: str, run_id: str, reason: str
+) -> list[str]:
+    """Mark every still-pending approval of a run ``expired`` and return their ids.
+
+    A cancelled or failed run will never act on them. Left pending, they sit in
+    the inbox, and deciding one would resume a graph that has ended (found in
+    the first live end-to-end run).
+    """
+    approvals = ScopedRepo(session, Approval, workspace_id)
+    expired: list[str] = []
+    for row in await approvals.list(run_id=run_id, status=ApprovalStatus.PENDING.value):
+        row.status = ApprovalStatus.EXPIRED.value
+        row.decided_at = utcnow()
+        row.comment = reason
+        expired.append(row.id)
+    return expired
