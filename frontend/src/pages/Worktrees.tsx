@@ -1,5 +1,5 @@
-import { PagePlaceholder } from './Placeholder'
+import WorktreesView from '../views/worktrees/WorktreesView'
 
 export default function Worktrees() {
-  return <PagePlaceholder title="Worktrees" arrivesIn="17f" />
+  return <WorktreesView />
 }

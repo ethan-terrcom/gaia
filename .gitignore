@@ -21,7 +21,7 @@ dist/
 *.sqlite-*
 *.sqlite3
 .gaia/
-worktrees/
+/worktrees/
 
 # OS and editors
 .DS_Store

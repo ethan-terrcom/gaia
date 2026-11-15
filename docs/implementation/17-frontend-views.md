@@ -63,3 +63,19 @@ self-contained task.
 - **Deviation:** the query passes the current global `fetch` per request. openapi-fetch captures
   `globalThis.fetch` when the client is created, and passing it per call lets tests stub `fetch`
   after import. In production it is the same function, and the middleware still applies.
+
+### 17f Worktrees & repositories (2026-11-14, [`review-17f`](../reviews/2026-11-14-review-17f.md))
+- The view lives in `src/views/worktrees/`, with two sections: repositories (list, register,
+  unregister) and worktrees (table, filters, remove).
+- **"All repositories" fans out**, with one `GET /api/v1/worktrees?repo_id=` per repository, merged
+  client-side: the endpoint requires `repo_id`. A server-side "all" would make the same per-repo
+  git calls, so this is not a performance regression. The query key stays `['worktrees', …]`, so
+  live `worktree.*` events still refresh it.
+- Commands are typed as one line and split on whitespace into argv (no shell); empty means none.
+- Removing a **dirty** worktree warns, sends `force=true`, and requires typing the branch name. A
+  clean one sends `force=false`.
+- The view passes the current global `fetch` per request, as 17e does (testability; identical in
+  production).
+- **Lead fix:** the root `.gitignore` had `worktrees/`, which also ignored
+  `frontend/src/views/worktrees/`. The view's files were invisible to git. It is now
+  `/worktrees/`, anchored to the repository root as intended.
