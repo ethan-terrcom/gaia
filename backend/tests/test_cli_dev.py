@@ -11,7 +11,12 @@ import pytest
 from gaia import cli
 from gaia.config.secrets import InMemorySecretStore, SecretName
 from gaia.config.settings import Settings
+from gaia.llm.base import LLMResponse, ToolCall
+from gaia.runtimes import native_llm
+from gaia.runtimes.native_llm import LlmHandle, UsageTally
+from gaia.security import sandbox
 from tests.conftest import Database
+from tests.llm_fakes import make_usage
 from tests.runtime_contract import make_worktree_location
 
 DUMMY_TOKEN = "dummy" + "-api-token-value"
@@ -139,6 +144,20 @@ def test_dev_run_task_dispatches(monkeypatch: pytest.MonkeyPatch) -> None:
     assert calls == [argparse.Namespace(dev_command="run-task")]
 
 
+def test_dev_run_task_dispatches_native(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[argparse.Namespace, Settings]] = []
+
+    async def fake_native_task(args: argparse.Namespace, settings: Settings) -> int:
+        calls.append((args, settings))
+        return 0
+
+    monkeypatch.setattr(cli, "_run_native_task", fake_native_task)
+    monkeypatch.setattr(cli, "get_settings", lambda: Settings(data_dir=Path("/tmp")))
+
+    assert cli._dev_run_task(argparse.Namespace(runtime="native")) == 0
+    assert calls[0][0] == argparse.Namespace(runtime="native")
+
+
 def test_dev_run_task_prints_errors(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -203,3 +222,61 @@ async def test_run_fake_task_end_to_end(
     captured = capsys.readouterr()
     assert "completed" in captured.out
     assert (worktree.work_tree / "hello.py").exists()
+
+
+async def test_run_native_task_end_to_end_with_scripted_llm(
+    database: Database,
+    git_repo: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    worktree = make_worktree_location(git_repo, tmp_path)
+    settings = Settings(data_dir=tmp_path / "gaia-data", db_url=database.url)
+    args = argparse.Namespace(
+        runtime="native",
+        worktree=str(worktree.work_tree),
+        instructions="finish immediately",
+        model="deepseek-v4-pro",
+        gateway_base=None,
+    )
+
+    monkeypatch.setattr(sandbox, "find_srt", lambda settings: tmp_path / "srt")
+
+    def fake_llm_factory(**kwargs: object):
+        del kwargs
+        from tests.llm_fakes import ScriptedToolChatLLM
+
+        llm = ScriptedToolChatLLM(
+            [
+                LLMResponse(
+                    text="done",
+                    usage=make_usage(),
+                    tool_calls=(
+                        ToolCall(
+                            id="call_finish",
+                            name="finish",
+                            arguments={"summary": "finished", "tests_passed": True},
+                        ),
+                    ),
+                )
+            ]
+        )
+
+        async def factory(task: object) -> LlmHandle:
+            del task
+            return LlmHandle(llm=llm, usage=UsageTally(), close=_noop_close)
+
+        return factory
+
+    monkeypatch.setattr(native_llm, "gateway_llm_factory", fake_llm_factory)
+
+    assert await cli._run_native_task(args, settings) == 0
+
+    captured = capsys.readouterr()
+    assert "completed" in captured.out
+    assert "finished" in captured.out
+
+
+async def _noop_close() -> None:
+    return None

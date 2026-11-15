@@ -112,3 +112,56 @@ Workflow logic (12) and planning prompts (11).
 - **L1:** structlog defaults to stderr (resolved lazily), so CLI stdout is clean JSON.
 - 10a's acceptance (`gaia dev run-task --runtime fake …`) was verified live. The doc's criterion for
   *each shipped runtime* is for 10b and 10c.
+
+## Decisions and deviations (as built) — 10b
+
+- ~~`NativeRuntime` re-raises `asyncio.CancelledError` on `cancel()`.~~ Superseded in lead review
+  (N1): `cancel(task_id)` returns `status="cancelled"`, like every other runtime.
+- **`finish` is the one tool the registry does not own.** It is built in `native.py` from
+  `FinishArgs` and handled directly by the loop. Invalid `finish` arguments become a tool-result
+  message and the loop continues (every other call in that turn is still answered, N2); valid `finish` returns a completed result. Tool calls after
+  `finish` in the same turn are ignored and noted in the summary.
+- **The native runtime emits `agent.usage` after every model turn and `run_with_limits` emits the
+  final task usage.** The contract-suite event-order expectation for native therefore contains two
+  `agent.usage` events at the end of a two-turn script.
+- **No second budget check in `NativeRuntime`.** Requirement 4's "native runtimes also check
+  `costs.remaining(run)` before each turn" is satisfied by the gateway's pre-call `ensure_budget`
+  check, which is the same call path and is the only writer of cost truth (P4). Adding a second
+  client-side check would duplicate the gateway's work and could drift from the DB row.
+- **The native runtime starts no subprocesses.** Requirement 9 (orphans) is satisfied by the 09b
+  tool layer's `run_proc` process groups; the native loop itself is in-process.
+- **`gateway_llm_factory` gains an optional `http_client` test seam.** Production leaves it `None`
+  and `DeepSeekClient` builds the OpenAI client; the in-process gateway test supplies an ASGI
+  transport so no network is used.
+- **`DeepSeekClient` gains `aclose()` and an optional `http_client` constructor argument.** Both
+  are only used by the native runtime and the in-process gateway test.
+- **`DeepSeekClient.parse` keeps thinking at the provider default.** DeepSeek's JSON mode has no
+  schema mode and its JSON-mode behaviour with thinking enabled is undocumented; the lead verifies
+  it live.
+
+### Lead review changes — 10b (2026-11-14, [`review-10b`](../reviews/2026-11-14-review-10b.md))
+- **N1 (high):** `NativeRuntime` registered `asyncio.current_task()`, which is the **caller's**
+  task, so `cancel(task_id)` cancelled whatever called the runtime: the graph node. The shared
+  contract test had been changed to accept a `CancelledError` for this runtime only. That defeats
+  the point of one contract for every runtime (ADR-001 P5).
+  - Fix: the loop runs in its own child task. `cancel()` cancels only that task, and `run_task`
+    returns `cancelled`.
+  - Cancelling the caller still propagates, after the loop has closed its LLM handle.
+  - The contract test is uniform again, and there are two new tests.
+- **N2 (high):** after an *invalid* `finish`, the loop `break`ed out of the turn, leaving the
+  turn's other tool calls without tool results. OpenAI-compatible APIs (DeepSeek) reject the next
+  request with 400 in that case. Every call is now answered; new test.
+- **N3:** `--gateway-base` and `gateway_base` mean the server origin; `/llm/deepseek` is always
+  appended, where before one path appended it and the other did not. The token is revoked even if
+  closing the client raises.
+- **Verified live:**
+  - **P6:** `LeadEngineer.plan_ticket` on `DeepSeekClient.parse` through the gateway, with a run
+    token only, returned a valid one-step plan on the first try. DeepSeek's JSON mode works with
+    thinking on (undocumented). The gateway wrote 1 `llm_usage` row, and `run.cost_usd` went up
+    once ($0.0025).
+  - **The native runtime end to end:** `gaia dev run-task --runtime native` on a toy uv project,
+    through the gateway and real `srt` 0.0.81, returned `completed` in 4 model turns ($0.0028).
+    `files_changed` came from git, the tests pass in the worktree, and the audit trail has 5 tool
+    rows with policy decisions. The DeepSeek key appears 0 times in all logs.
+- [x] Acceptance: `gaia dev run-task --runtime native --worktree <path> "…"` works end to end
+  (10b). 10c's run covers the Agent SDK.

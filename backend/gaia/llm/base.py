@@ -160,3 +160,27 @@ class StructuredLLM(Protocol):
     ) -> ParsedResponse[ModelT]:
         """Return one parsed structured output, recording usage first."""
         ...
+
+
+@runtime_checkable
+class ToolChatLLM(Protocol):
+    """The provider-neutral tool-loop seam the native runtime depends on."""
+
+    async def complete(
+        self,
+        *,
+        messages: Sequence[LLMMessage],
+        tools: Sequence[LLMTool] = (),
+        max_tokens: int = 4096,
+    ) -> LLMResponse:
+        """Return one chat completion, recording usage before returning."""
+        ...
+
+
+class LLMBudgetExceeded(Exception):
+    """A gateway refused an LLM call because a run or daily budget is spent.
+
+    Raised by provider clients after translating the gateway's 403
+    ``budget_exceeded`` response, so runtimes never import a vendor SDK to
+    recognise it (ADR-001 P1).
+    """

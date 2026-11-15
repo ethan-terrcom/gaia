@@ -146,9 +146,22 @@ def _build_parser() -> argparse.ArgumentParser:
     plan.add_argument("ticket_id", help="ticket id in the local workspace")
     run_task = dev_commands.add_parser(
         "run-task",
-        help="run one fake agent task in a worktree (real runtimes arrive in 10b)",
+        help="run one agent task in a worktree",
+        description=(
+            "The fake runtime is local and needs no server. The native runtime "
+            "calls the model through the LLM gateway, so `gaia serve` must "
+            "already be running on Settings.host:Settings.port."
+        ),
     )
-    run_task.add_argument("--runtime", choices=["fake"], default="fake", help="runtime to use")
+    run_task.add_argument(
+        "--runtime", choices=["fake", "native"], default="fake", help="runtime to use"
+    )
+    run_task.add_argument("--model", default="deepseek-v4-pro", help="model for native runtime")
+    run_task.add_argument(
+        "--gateway-base",
+        default=None,
+        help="Gaia server origin serving the gateway, e.g. http://127.0.0.1:8799 (native)",
+    )
     run_task.add_argument("--worktree", required=True, help="a Gaia worktree path to run in")
     run_task.add_argument("instructions", help="the task instructions")
 
@@ -577,11 +590,121 @@ async def _run_fake_task(args: argparse.Namespace, settings: Settings) -> int:
         return 0
 
 
+async def _run_native_task(args: argparse.Namespace, settings: Settings) -> int:
+    """Create a scratch run and execute the native runtime in a worktree."""
+    import shutil
+    import tempfile
+
+    from gaia.api.app import create_app
+    from gaia.db.engine import session_scope
+    from gaia.db.ids import uuid7
+    from gaia.db.models import Repository, Run, Ticket
+    from gaia.db.repo import ScopedRepo
+    from gaia.domain.enums import AgentRole
+    from gaia.runtimes.approvals import DbApprovalBroker
+    from gaia.runtimes.base import AgentTask
+    from gaia.runtimes.native import NativeRuntime
+    from gaia.runtimes.native_llm import gateway_llm_factory
+    from gaia.runtimes.support import run_with_limits
+    from gaia.security.audit import DbAuditSink
+    from gaia.security.commands import CommandPolicy
+    from gaia.security.sandbox import find_srt
+    from gaia.services.events import BusEventSink, EventSink
+    from gaia.tools.fs import find_rg
+    from gaia.tools.registry import JUNIOR_TOOLS, ToolContext, build_default_registry
+    from gaia.tools.shell import SrtCommandRunner
+
+    app = create_app(settings)
+    async with app.router.lifespan_context(app):
+        services = app.state.services
+        location = _worktree_location(Path(args.worktree))
+        base_sha = await services.git.current_sha(location)
+        async with session_scope(services.sessions) as session:
+            repos = ScopedRepo(session, Repository, services.principal.workspace_id)
+            repository = await repos.create(
+                name=f"dev-run-task-{uuid7()}",
+                local_path=str(location.work_tree),
+                created_by=services.principal.user_id,
+            )
+            tickets = ScopedRepo(session, Ticket, services.principal.workspace_id)
+            ticket = await tickets.create(
+                repo_id=repository.id,
+                title="Dev run-task",
+                created_by=services.principal.user_id,
+            )
+            runs = ScopedRepo(session, Run, services.principal.workspace_id)
+            run = await runs.create(
+                ticket_id=ticket.id,
+                repo_id=repository.id,
+                created_by=services.principal.user_id,
+                budget_usd=Decimal(str(settings.run_budget_usd)),
+            )
+
+        task = AgentTask(
+            task_id=uuid7(),
+            run_id=run.id,
+            run_step_id=None,
+            workspace_id=services.principal.workspace_id,
+            agent_id=None,
+            role=AgentRole.JUNIOR,
+            instructions=args.instructions,
+            worktree=location,
+            base_sha=base_sha,
+        )
+        task_dir = Path(tempfile.mkdtemp(prefix="gaia-native-task-"))
+        try:
+            srt_path = find_srt(settings)
+            registry = build_default_registry(
+                search_supports_regex=find_rg(settings) is not None
+            ).subset(JUNIOR_TOOLS)
+            broker = DbApprovalBroker(services.sessions, services.events)
+            audit = DbAuditSink(services.sessions)
+
+            async def context_factory(task: AgentTask, events: EventSink) -> ToolContext:
+                return ToolContext(
+                    task=task,
+                    git=services.git,
+                    policy=CommandPolicy.from_default(),
+                    approvals=broker,
+                    audit=audit,
+                    events=events,
+                    commands=SrtCommandRunner(settings, srt_path=srt_path),
+                    task_dir=task_dir,
+                    actor=f"agent:{task.agent_id or 'junior'}",
+                    rg_path=find_rg(settings),
+                )
+
+            llm_factory = gateway_llm_factory(
+                settings=settings,
+                sessions=services.sessions,
+                price_table=services.prices,
+                model=args.model,
+                gateway_base=args.gateway_base,
+            )
+            runtime = NativeRuntime(
+                tools=registry,
+                llm_factory=llm_factory,
+                context_factory=context_factory,
+            )
+            sink = BusEventSink(
+                services.events,
+                workspace_id=services.principal.workspace_id,
+                run_id=run.id,
+            )
+            result = await run_with_limits(runtime, task, sink, git=services.git)
+            print(result.model_dump_json(indent=2))
+            return 0
+        finally:
+            shutil.rmtree(task_dir, ignore_errors=True)
+
+
 def _dev_run_task(args: argparse.Namespace) -> int:
-    """Run one fake task through the real app lifespan."""
+    """Run one task through the real app lifespan (fake or native)."""
     try:
+        if getattr(args, "runtime", "fake") == "native":
+            return asyncio.run(_run_native_task(args, get_settings()))
         return asyncio.run(_run_fake_task(args, get_settings()))
-    except (OSError, ValueError) as error:
+    except (OSError, ValueError, RuntimeError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
 

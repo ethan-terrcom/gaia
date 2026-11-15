@@ -5,6 +5,8 @@ and tools to the Anthropic wire shape, streams large requests, turns on prompt
 caching for the stable system prompt, enables the server-side refusal fallback
 when asked, records usage at the model that actually served the request, and
 raises :class:`LLMStop` for stops that must not be returned as text.
+
+TODO(gaia-portability): Anthropic tool-loop adapter (ADR-001 P6).
 """
 
 from __future__ import annotations
