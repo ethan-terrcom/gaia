@@ -75,7 +75,7 @@ never imports FastAPI. `db/` knows nothing about HTTP or git.
 | 10c | `runtimes/claude_agent_sdk.py` | Claude (via the Agent SDK) for lead work, as a thin adapter: Gaia's tools over in-process MCP, an `env -i` + `srt` wrapper, run token only, Gaia-priced usage | [runtimes](../docs/backend/runtimes.md) |
 | 12a | `orchestrator/{graph,guard,runner,approvals}.py`, `nodes/` | The durable LangGraph ticket-run workflow on interfaces: idempotent human gates, budget guard, crash recovery, concurrency limit ([diagram](../docs/graph.md)) | [orchestrator](../docs/backend/orchestrator.md) |
 
-The whole suite (1402 backend tests and 28 frontend tests, 100% line and branch coverage) runs with `make check`, which is also what CI runs.
+The whole suite (1578 backend tests and 28 frontend tests, 100% line and branch coverage) runs with `make check`, which is also what CI runs.
 
 ## Five design rules that explain most of the code
 
