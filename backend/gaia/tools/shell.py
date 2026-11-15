@@ -104,9 +104,16 @@ async def _run_command_handler(input: BaseModel, ctx: ToolContext) -> ToolResult
 class SrtCommandRunner:
     """Run every command through the 09a sandbox profile."""
 
-    def __init__(self, settings: Settings, *, srt_path: Path) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        srt_path: Path,
+        allowed_domains: tuple[str, ...] = (),
+    ) -> None:
         self.settings = settings
         self.srt_path = srt_path
+        self.allowed_domains = allowed_domains
 
     async def run(
         self,
@@ -121,7 +128,7 @@ class SrtCommandRunner:
             tmp_dir=task_dir,
             data_dir=self.settings.data_dir,
             toolchain_read=self.settings.sandbox_toolchain_read,
-            allowed_domains=(),
+            allowed_domains=self.allowed_domains,
             gateway=None,
         )
         # The settings file lives under Gaia's data dir, never in ``task_dir``:

@@ -544,6 +544,55 @@ async def test_worktree_prune_forgets_a_directory_that_vanished(
     assert [entry.branch for entry in await git_service.worktree_list(git_repo)] == ["main"]
 
 
+async def _diff_since_worktree(
+    git_repo: Path, git_service: GitService, tmp_path: Path
+) -> WorktreeLocation:
+    """Create a linked worktree and return its trusted location."""
+    worktree = tmp_path / "diff-worktree"
+    await git_service.worktree_add(
+        git_repo, path=worktree, ref="main", new_branch="gaia/diff-since"
+    )
+    git_dir = await git_service.worktree_admin_dir(git_repo, worktree)
+    return WorktreeLocation(work_tree=worktree, git_dir=git_dir)
+
+
+async def test_diff_since_includes_modified_and_new_files(
+    git_repo: Path, git_service: GitService, tmp_path: Path
+) -> None:
+    location = await _diff_since_worktree(git_repo, git_service, tmp_path)
+    base_sha = await git_service.current_sha(location)
+
+    (location.work_tree / "README.md").write_text("# changed fixture\n", encoding="utf-8")
+    (location.work_tree / "new-file.txt").write_text("new\n", encoding="utf-8")
+
+    diff = await git_service.diff_since(location, base_sha)
+
+    assert "README.md" in diff
+    assert "new-file.txt" in diff
+    assert "+new" in diff
+
+
+async def test_diff_since_refuses_a_sha_git_would_read_as_an_option(
+    git_repo: Path, git_service: GitService, tmp_path: Path
+) -> None:
+    location = await _diff_since_worktree(git_repo, git_service, tmp_path)
+
+    with pytest.raises(InvalidRef, match="read as an option"):
+        await git_service.diff_since(location, "--not-a-sha")
+
+
+async def test_diff_since_notes_truncated_output(
+    git_repo: Path, git_service: GitService, tmp_path: Path
+) -> None:
+    location = await _diff_since_worktree(git_repo, git_service, tmp_path)
+    base_sha = await git_service.current_sha(location)
+    (location.work_tree / "README.md").write_text("x" * 200 + "\n", encoding="utf-8")
+
+    diff = await git_service.diff_since(location, base_sha, max_output_bytes=10)
+
+    assert diff.endswith("\n[diff truncated]")
+
+
 async def test_worktree_add_requires_an_absolute_path(
     git_repo: Path, git_service: GitService
 ) -> None:

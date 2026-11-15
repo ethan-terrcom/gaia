@@ -309,3 +309,22 @@ async def test_plan_retry_message_uses_trusted_wrapper_for_policy_reasons() -> N
     assert "The plan was rejected by the command policy" in retry
     assert '<untrusted_content source="gaia:command-policy">' in retry
     assert "</untrusted_content>" in retry
+
+
+def test_a_test_command_that_would_need_approval_is_rejected() -> None:
+    """Lead review 12b-1 X1: an ``ask`` test command is sent back for revision, and
+    rejected if the lead insists, so a plan cannot smuggle ``bash -c …`` into a run."""
+    engineer = LeadEngineer(FakeLLM([]), CommandPolicy.from_default())
+
+    [shell] = engineer._denied_test_commands(_plan(["bash", "-c", "make test"]), ())
+    assert "would need human approval" in shell
+    [script] = engineer._denied_test_commands(_plan(["python", "script.py"]), ())
+    assert "would need human approval" in script
+    assert engineer._denied_test_commands(_plan(["pytest", "-q"]), ()) == []
+    # The owner's registered command is still allowed through extra_allow.
+    assert (
+        engineer._denied_test_commands(
+            _plan(["python", "-m", "pytest", "-q"]), (("python", "-m", "pytest"),)
+        )
+        == []
+    )

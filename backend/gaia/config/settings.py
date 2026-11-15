@@ -19,6 +19,8 @@ from typing import Any, Literal, Self
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from gaia.domain.enums import RuntimeKind
+
 DEFAULT_DATA_DIR = Path("~/.gaia")
 
 #: Permissions enforced on the data directory: owner read/write/execute only.
@@ -112,6 +114,33 @@ class Settings(BaseSettings):
     #: doc 08 spike can point this at a local fake without touching real DNS.
     anthropic_base_url: str = "https://api.anthropic.com"
     junior_base_url: str = "https://api.deepseek.com"
+
+    #: Role → runtime/model settings (ADR-001 P2). The orchestrator reads these;
+    #: it never names a vendor or a model directly.
+    junior_runtime: RuntimeKind = RuntimeKind.NATIVE_DEEPSEEK
+    lead_runtime: RuntimeKind = RuntimeKind.CLAUDE_AGENT_SDK
+    #: From this attempt on, a step runs on the lead runtime; 0 disables the
+    #: lead escalation path so every attempt uses the junior runtime.
+    lead_attempt_from: int = Field(default=3, ge=0)
+    #: Wall-clock and turn limits for one implementation attempt (doc 12b).
+    step_timeout_s: float = Field(default=1800, gt=0)
+    junior_max_turns: int = Field(default=60, ge=1)
+    lead_max_turns: int = Field(default=60, ge=1)
+    #: Timeouts for the owner's setup command and for a step's check command.
+    setup_timeout_s: float = Field(default=900, gt=0)
+    check_timeout_s: float = Field(default=900, gt=0)
+    #: Domains the owner-registered setup command may reach (doc 12b). The check
+    #: runner never gets network access.
+    setup_allowed_domains: tuple[str, ...] = (
+        "pypi.org",
+        "files.pythonhosted.org",
+        "registry.npmjs.org",
+        "github.com",
+        "objects.githubusercontent.com",
+        "crates.io",
+        "static.crates.io",
+        "proxy.golang.org",
+    )
 
     run_budget_usd: float = Field(default=5.0, gt=0)
     daily_budget_usd: float = Field(default=20.0, gt=0)

@@ -718,6 +718,38 @@ class GitService:
         paths = {line for line in lines if line}
         return tuple(sorted(paths))
 
+    async def diff_since(
+        self,
+        location: WorktreeLocation,
+        base_sha: str,
+        *,
+        max_output_bytes: int = DEFAULT_MAX_OUTPUT_BYTES,
+        timeout_s: float | None = None,
+    ) -> str:
+        """The whole worktree change since ``base_sha``, including new files.
+
+        ``git add --intent-to-add --all`` makes untracked files visible to
+        ``git diff <base>`` without staging their content; that is harmless
+        here because the committer stages everything anyway. The diff runs
+        without external diff/textconv drivers, like every other diff in Gaia.
+        """
+        check_ref_argument(base_sha, what="revision")
+        cwd, env = self._command_context(location)
+        await self._run("add", "--intent-to-add", "--all", cwd=cwd, env=env, timeout_s=timeout_s)
+        result = await self._run(
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            base_sha,
+            cwd=cwd,
+            env=env,
+            timeout_s=timeout_s,
+            max_output_bytes=max_output_bytes,
+        )
+        if result.stdout_truncated:
+            return f"{result.stdout}\n[diff truncated]"
+        return result.stdout
+
     async def log(
         self,
         repo: Path | WorktreeLocation,

@@ -58,6 +58,9 @@ existing handoffs in that folder are worked examples.
 - **For anything cancellable, prescribe the child task.** "Run the work in `asyncio.create_task`,
   register *that*, and return `cancelled` when `cancel()` was yours" (10b and 10c both got this
   wrong when left open).
+- **Classify every value you route into a policy input.** Owner-supplied (a registered test
+  command) may relax a rule; model-supplied (a plan's test command, a reviewer's feedback) never
+  may. 12b-1's handoff got this wrong: a plan's command was added to `extra_allow`.
 - **Name parallel work.** If another package is being built at the same time, say what to stub and
   which `TODO(gaia-NN)` to leave. An example is 07b writing an event row because 13's bus did not
   exist yet.

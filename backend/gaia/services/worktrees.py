@@ -157,6 +157,18 @@ class WorktreeService:
         path = resolve_within(self.git.worktrees_root, Path(row.path))
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
+            await self.git.worktree_prune(repo_path)
+            if path.exists():
+                # A previous attempt may have left an empty directory. Gaia only
+                # removes what it can prove it made: an empty target directory is
+                # ours to clear, but a non-empty one is left untouched for a human.
+                if path.is_dir() and not any(path.iterdir()):
+                    path.rmdir()
+                else:
+                    raise WorktreeError(
+                        f"a previous attempt left files at {str(path)!r}; "
+                        "remove them or the worktree row"
+                    )
             if await self.git.branch_exists(repo_path, branch):
                 # A resumed run: check the branch out instead of recreating it.
                 await self.git.worktree_add(repo_path, path=path, ref=branch)
@@ -197,10 +209,11 @@ class WorktreeService:
                 status=WorktreeStatus.PREPARING.value,
             )
         row = existing[0]
-        if row.status != WorktreeStatus.REMOVED.value:
+        if row.status not in (WorktreeStatus.REMOVED.value, WorktreeStatus.FAILED.value):
             raise WorktreeAlreadyExists(row)
         # Revive the old row rather than breaking the (repo_id, branch) unique
-        # constraint with a second one for the same branch.
+        # constraint with a second one for the same branch. A ``failed`` row is
+        # revivable too (F7): leaving it terminal would wedge the branch forever.
         return await self.worktrees.update(
             row.id, base_sha=base_sha, status=WorktreeStatus.PREPARING.value
         )
