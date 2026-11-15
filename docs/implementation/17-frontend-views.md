@@ -49,3 +49,17 @@ self-contained task.
 ## Acceptance criteria (per view)
 - [ ] It works against a live backend with a fake run (backend `GAIA_FAKE_LLM=1` mode, which doc 18 adds; until then, use seeded data).
 - [ ] A Playwright smoke test for 17c and 17d.
+
+## Decisions and deviations (as built)
+
+### 17e Pull requests (2026-11-14, [`review-17e`](../reviews/2026-11-14-review-17e.md))
+- The view lives in `src/views/pull-requests/`; `src/pages/PullRequests.tsx` renders it.
+- The state filter (Open, the default; Merged; Closed; All) is kept in the URL (`?state=merged`),
+  so a filtered view can be linked and survives a reload. "All" omits `state` from the request.
+- The query key is `['pull-requests', {state}]`; the global stream's `pr.*`/`ci.*` invalidation
+  keeps it live.
+- PR numbers link to GitHub only when the URL starts with `https://github.com/`, with
+  `target="_blank" rel="noreferrer noopener"`; anything else renders as text.
+- **Deviation:** the query passes the current global `fetch` per request. openapi-fetch captures
+  `globalThis.fetch` when the client is created, and passing it per call lets tests stub `fetch`
+  after import. In production it is the same function, and the middleware still applies.
