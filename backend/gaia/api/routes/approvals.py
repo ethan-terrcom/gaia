@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse
@@ -111,9 +111,16 @@ async def list_approvals(
     scoped: ScopedDep,
     status_filter: Annotated[ApprovalStatus | None, Query(alias="status")] = None,
     run_id: Annotated[str | None, Query(max_length=36)] = None,
+    decided: Annotated[
+        bool, Query(description="Only approvals that are no longer pending.")
+    ] = False,
+    order: Annotated[Literal["oldest", "newest"], Query()] = "oldest",
     limit: Annotated[int, Query(ge=1, le=200)] = 100,
 ) -> ApprovalPage:
-    """Return approvals oldest first, optionally filtered by status or run.
+    """Return approvals, oldest first by default, optionally filtered.
+
+    ``decided=true`` with ``order=newest`` is the inbox's "recent decisions"
+    view (lead review of 17d: oldest-first made it show the oldest 50).
 
     ``total_pending`` always counts the workspace's pending approvals, whatever
     filters the caller passed: the badge makes one call and must not change with
@@ -124,6 +131,8 @@ async def list_approvals(
     rows = await approvals.list_inbox(
         status=status_filter.value if status_filter is not None else None,
         run_id=run_id,
+        decided=decided,
+        newest_first=order == "newest",
         limit=limit,
     )
     return ApprovalPage(

@@ -33,6 +33,18 @@ self-contained task.
   - `budget`: current and requested budget.
 - Keyboard: `j`/`k` to move, `a` to approve, `r` to reject (except merge, which always needs typing).
 
+
+**As built** ([`review-17d`](../reviews/2026-11-14-review-17d.md)): the view lives in
+`src/views/approvals/`. Details are shown per kind from `payload_json`:
+- an edited plan is validated with zod (1–10 steps) before it is sent;
+- each command argument gets its own `<code>`;
+- a merge needs `merge <n>` typed in `ConfirmDialog`;
+- `a` never merges.
+
+"Decided" uses `GET /approvals?decided=true&order=newest&limit=50`; both parameters were added in
+the lead review. Decided items show no decision controls. After a decision, the item is hidden at
+once and the selection moves to the next one.
+
 ### 17e Pull requests
 - A table: PR, ticket, run, CI status, review state, age. A link out to GitHub.
 
@@ -47,8 +59,11 @@ self-contained task.
 - Empty, loading and error states are required for every view.
 
 ## Acceptance criteria (per view)
-- [ ] It works against a live backend with a fake run (backend `GAIA_FAKE_LLM=1` mode, which doc 18 adds; until then, use seeded data).
-- [ ] A Playwright smoke test for 17c and 17d.
+- [x] It works against a live backend. 17a–17d were checked together in a real browser against
+  the API, with the data of live E2E run 1 plus seeded approvals (see the 17d review).
+- [ ] A Playwright smoke test for 17c and 17d. It was **run** by the lead (Playwright 1.64.1, all
+  checks green). The committed, self-contained version lands with 18b-2's `GAIA_FAKE_LLM=1` demo
+  mode, which produces a run's data without seeding.
 
 ## Decisions and deviations (as built)
 

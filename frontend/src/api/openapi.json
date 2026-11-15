@@ -2301,7 +2301,7 @@
     },
     "/api/v1/approvals": {
       "get": {
-        "description": "Return approvals oldest first, optionally filtered by status or run.\n\n``total_pending`` always counts the workspace's pending approvals, whatever\nfilters the caller passed: the badge makes one call and must not change with\nthe page. ``ApprovalRepo`` keeps every read inside the authenticated\nworkspace.",
+        "description": "Return approvals, oldest first by default, optionally filtered.\n\n``decided=true`` with ``order=newest`` is the inbox's \"recent decisions\"\nview (lead review of 17d: oldest-first made it show the oldest 50).\n\n``total_pending`` always counts the workspace's pending approvals, whatever\nfilters the caller passed: the badge makes one call and must not change with\nthe page. ``ApprovalRepo`` keeps every read inside the authenticated\nworkspace.",
         "operationId": "list_approvals_api_v1_approvals_get",
         "parameters": [
           {
@@ -2335,6 +2335,32 @@
                 }
               ],
               "title": "Run Id"
+            }
+          },
+          {
+            "description": "Only approvals that are no longer pending.",
+            "in": "query",
+            "name": "decided",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Only approvals that are no longer pending.",
+              "title": "Decided",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "default": "oldest",
+              "enum": [
+                "oldest",
+                "newest"
+              ],
+              "title": "Order",
+              "type": "string"
             }
           },
           {

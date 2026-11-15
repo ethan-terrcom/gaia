@@ -1,5 +1,5 @@
-import { PagePlaceholder } from './Placeholder'
+import { ApprovalsView } from '../views/approvals/ApprovalsView'
 
 export default function Approvals() {
-  return <PagePlaceholder title="Approvals" arrivesIn="17d" />
+  return <ApprovalsView />
 }
