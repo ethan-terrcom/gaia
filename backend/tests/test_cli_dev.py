@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
 
+import gaia.runtimes.claude_agent_sdk as claude_runtime
 from gaia import cli
 from gaia.config.secrets import InMemorySecretStore, SecretName
 from gaia.config.settings import Settings
@@ -18,6 +21,7 @@ from gaia.security import sandbox
 from tests.conftest import Database
 from tests.llm_fakes import make_usage
 from tests.runtime_contract import make_worktree_location
+from tests.sdk_fakes import FakeSdkClient, SdkToolCall, success_result
 
 DUMMY_TOKEN = "dummy" + "-api-token-value"
 
@@ -280,3 +284,84 @@ async def test_run_native_task_end_to_end_with_scripted_llm(
 
 async def _noop_close() -> None:
     return None
+
+
+class _PidWritingSdkClient(FakeSdkClient):
+    """A fake that writes the wrapper pid file after connect, like the wrapper."""
+
+    def __init__(self, options: Any, script: list[Any], *, runtime: Any) -> None:
+        super().__init__(options, script, runtime=runtime)
+        self.pid_file = runtime.active_pid_file if runtime is not None else None
+
+    async def __aenter__(self) -> FakeSdkClient:
+        if self.pid_file is not None:
+            self.pid_file.write_text(str(os.getpid()), encoding="ascii")
+        return await super().__aenter__()
+
+
+def test_dev_run_task_dispatches_claude_sdk(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[argparse.Namespace, Settings]] = []
+
+    async def fake_run_claude_sdk_task(args: argparse.Namespace, settings: Settings) -> int:
+        calls.append((args, settings))
+        return 0
+
+    monkeypatch.setattr(cli, "_run_claude_sdk_task", fake_run_claude_sdk_task)
+    settings = Settings(data_dir=Path("/tmp"))
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+
+    assert cli._dev_run_task(argparse.Namespace(runtime="claude_sdk")) == 0
+    assert calls == [(argparse.Namespace(runtime="claude_sdk"), settings)]
+
+
+async def test_run_claude_sdk_task_end_to_end(
+    database: Database,
+    git_repo: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    worktree = make_worktree_location(git_repo, tmp_path)
+    srt_path = tmp_path / "srt"
+    srt_path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    srt_path.chmod(0o700)
+    settings = Settings(
+        data_dir=tmp_path / "gaia-data",
+        db_url=database.url,
+        srt_path=srt_path,
+    )
+    args = argparse.Namespace(
+        runtime="claude_sdk",
+        worktree=str(worktree.work_tree),
+        instructions="write hello.py",
+    )
+
+    real_runtime = claude_runtime.ClaudeAgentSdkRuntime
+    script: list[Any] = [
+        SdkToolCall(
+            "finish",
+            {
+                "summary": "wrote hello.py",
+                "tests_run": ["pytest -q"],
+                "tests_passed": True,
+                "concerns": [],
+            },
+        ),
+        success_result(),
+    ]
+    runtime_holder: list[Any] = []
+
+    def client_factory(options: Any) -> _PidWritingSdkClient:
+        return _PidWritingSdkClient(options, script, runtime=runtime_holder[0])
+
+    def fake_runtime_cls(**kwargs: Any) -> Any:
+        runtime = real_runtime(**kwargs, client_factory=client_factory)
+        runtime_holder.append(runtime)
+        return runtime
+
+    monkeypatch.setattr(claude_runtime, "ClaudeAgentSdkRuntime", fake_runtime_cls)
+
+    assert await cli._run_claude_sdk_task(args, settings) == 0
+
+    captured = capsys.readouterr()
+    assert "completed" in captured.out

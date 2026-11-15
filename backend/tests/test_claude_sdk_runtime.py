@@ -9,13 +9,23 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+import claude_agent_sdk
 import pytest
-from claude_agent_sdk import HookMatcher, ResultMessage
+from claude_agent_sdk import (
+    AssistantMessage,
+    HookMatcher,
+    ResultMessage,
+    SystemMessage,
+    ThinkingBlock,
+)
 from pydantic import BaseModel, SecretStr
 
 import gaia.runtimes.claude_agent_sdk as claude_runtime
 from gaia.config.settings import Settings
+from gaia.db.engine import session_scope
 from gaia.db.ids import uuid7
+from gaia.db.models import Repository, Run, Ticket, User, Workspace
+from gaia.db.repo import ScopedRepo
 from gaia.domain.enums import EventType
 from gaia.runtimes.approvals import InMemoryApprovalBroker
 from gaia.runtimes.base import AgentTask
@@ -36,6 +46,7 @@ from gaia.services.costs import ModelPrice, PriceRates, PriceTable
 from gaia.services.git import GitService
 from gaia.services.proc import ProcResult
 from gaia.tools.registry import Tool, ToolContext, ToolInput, ToolRegistry, ToolResult
+from tests.conftest import Database
 from tests.runtime_contract import RecordingSink, base_sha, make_task, make_worktree_location
 from tests.sdk_fakes import (
     FakeSdkClient,
@@ -148,6 +159,26 @@ class _PidWritingClient(FakeSdkClient):
         return await super().__aenter__()
 
 
+class _CancelAfterQueryClient(_PidWritingClient):
+    """A fake that asks ``_run`` to return ``cancelled`` after the query."""
+
+    async def query(self, prompt: str, session_id: str = "default") -> None:
+        await super().query(prompt, session_id)
+        if self.runtime is not None and self.task_id:
+            self.runtime._cancel_requested.add(self.task_id)
+
+
+class _InterruptClient(FakeSdkClient):
+    """A fake that raises ``exc`` from :meth:`interrupt` for cancel tests."""
+
+    def __init__(self, exc: Exception) -> None:
+        super().__init__(None, [])
+        self._exc = exc
+
+    async def interrupt(self) -> None:
+        raise self._exc
+
+
 def _make_runtime(
     tmp_path: Path,
     git_service: GitService,
@@ -160,6 +191,8 @@ def _make_runtime(
     orphans: OrphanRegistry | None = None,
     client_factory: Any = None,
     settings: Settings | None = None,
+    sessions: Any = None,
+    mint_token: Any = _fake_mint,
 ) -> ClaudeAgentSdkRuntime:
     settings = settings or _make_settings(tmp_path)
 
@@ -187,16 +220,40 @@ def _make_runtime(
     runtime = ClaudeAgentSdkRuntime(
         registry=registry or _test_registry(),
         settings=settings,
-        sessions=None,
+        sessions=sessions,
         context_factory=context_factory,
         model=model,
         client_factory=client_factory or default_client_factory,
         price_table=price_table or _price_table(),
         orphans=orphans,
         budget_exhausted=budget_exhausted or _budget_false,
-        mint_token=_fake_mint,
+        mint_token=mint_token,
         revoke_token=_fake_revoke,
     )
+    return runtime
+
+
+def _make_runtime_with_pid_file(
+    tmp_path: Path,
+    git_service: GitService,
+    *,
+    script: list[Any],
+    **kwargs: Any,
+) -> ClaudeAgentSdkRuntime:
+    """Build a runtime whose fake client writes the wrapper pid file."""
+    holder: list[ClaudeAgentSdkRuntime] = []
+
+    def client_factory(options: Any) -> _PidWritingClient:
+        return _PidWritingClient(options, script, runtime=holder[0])
+
+    runtime = _make_runtime(
+        tmp_path,
+        git_service,
+        script=script,
+        client_factory=client_factory,
+        **kwargs,
+    )
+    holder.append(runtime)
     return runtime
 
 
@@ -577,3 +634,227 @@ async def test_best_effort_swallows_cleanup_errors() -> None:
         raise RuntimeError("boom")
 
     await _best_effort(boom())
+
+
+async def test_cancel_with_no_live_client(
+    worktree: Any,
+    git_repo: Path,
+    git_service: GitService,
+    tmp_path: Path,
+) -> None:
+    runtime = _make_runtime(tmp_path, git_service, script=[])
+    await runtime.cancel("missing-task")
+    assert "missing-task" in runtime._cancel_requested
+
+
+async def test_cancel_interrupt_timeout_branch(
+    worktree: Any,
+    git_repo: Path,
+    git_service: GitService,
+    tmp_path: Path,
+) -> None:
+    runtime = _make_runtime(tmp_path, git_service, script=[])
+    runtime._clients["timeout-task"] = _InterruptClient(TimeoutError())
+    await runtime.cancel("timeout-task")
+    assert "timeout-task" in runtime._cancel_requested
+
+
+async def test_cancel_interrupt_failure_branch(
+    worktree: Any,
+    git_repo: Path,
+    git_service: GitService,
+    tmp_path: Path,
+) -> None:
+    runtime = _make_runtime(tmp_path, git_service, script=[])
+    runtime._clients["raise-task"] = _InterruptClient(RuntimeError("boom"))
+    await runtime.cancel("raise-task")
+    assert "raise-task" in runtime._cancel_requested
+
+
+async def test_cancel_requested_before_result_returns_cancelled_result(
+    worktree: Any,
+    git_repo: Path,
+    git_service: GitService,
+    tmp_path: Path,
+) -> None:
+    holder: list[ClaudeAgentSdkRuntime] = []
+    script: list[Any] = [assistant_text("hi")]
+
+    def client_factory(options: Any) -> _CancelAfterQueryClient:
+        return _CancelAfterQueryClient(options, script, runtime=holder[0])
+
+    runtime = _make_runtime(
+        tmp_path,
+        git_service,
+        script=script,
+        client_factory=client_factory,
+    )
+    holder.append(runtime)
+
+    result = await runtime.run_task(_task(worktree, git_repo), RecordingSink())
+
+    assert result.status == "cancelled"
+
+
+async def test_run_task_without_result_uses_failed_or_budget_exceeded_both_ways(
+    worktree: Any,
+    git_repo: Path,
+    git_service: GitService,
+    tmp_path: Path,
+) -> None:
+    failed_runtime = _make_runtime_with_pid_file(
+        tmp_path,
+        git_service,
+        script=[],
+        budget_exhausted=_budget_false,
+    )
+    result = await failed_runtime.run_task(_task(worktree, git_repo), RecordingSink())
+    assert result.status == "failed"
+    assert result.error == "Claude Agent SDK ended without a result"
+
+    budget_runtime = _make_runtime_with_pid_file(
+        tmp_path,
+        git_service,
+        script=[],
+        budget_exhausted=_budget_true,
+    )
+    result = await budget_runtime.run_task(_task(worktree, git_repo), RecordingSink())
+    assert result.status == "budget_exceeded"
+    assert result.error == "LLM budget exceeded"
+
+
+async def test_mint_failure_skips_revoke_in_finally(
+    worktree: Any,
+    git_repo: Path,
+    git_service: GitService,
+    tmp_path: Path,
+) -> None:
+    async def boom(task: AgentTask) -> Any:
+        del task
+        raise RuntimeError("mint boom")
+
+    runtime = _make_runtime(tmp_path, git_service, script=[], mint_token=boom)
+    with pytest.raises(RuntimeError, match="mint boom"):
+        await runtime.run_task(_task(worktree, git_repo), RecordingSink())
+
+
+async def test_drain_messages_skips_non_text_blocks(
+    worktree: Any,
+    git_repo: Path,
+    git_service: GitService,
+    tmp_path: Path,
+) -> None:
+    runtime = _make_runtime(tmp_path, git_service, script=[])
+    message = AssistantMessage(
+        model="test-model",
+        content=[ThinkingBlock(thinking="hidden", signature="sig")],
+    )
+    result = await runtime._drain_messages(FakeSdkClient(None, [message]), RecordingSink())
+    assert result is None
+
+
+async def test_drain_messages_skips_non_result_messages(
+    worktree: Any,
+    git_repo: Path,
+    git_service: GitService,
+    tmp_path: Path,
+) -> None:
+    runtime = _make_runtime(tmp_path, git_service, script=[])
+    message = SystemMessage(subtype="init", data={})
+    result = await runtime._drain_messages(FakeSdkClient(None, [message]), RecordingSink())
+    assert result is None
+
+
+def test_bundled_cli_missing_raises_file_not_found(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        claude_agent_sdk,
+        "__file__",
+        str(tmp_path / "missing" / "__init__.py"),
+    )
+    with pytest.raises(FileNotFoundError, match="bundled Claude Code CLI"):
+        _bundled_cli()
+
+
+def test_short_result_error_uses_result_and_stop_reason_fallback() -> None:
+    message = ResultMessage(
+        subtype="error_during_execution",
+        duration_ms=1,
+        duration_api_ms=1,
+        is_error=True,
+        num_turns=1,
+        session_id="test-session",
+        result="sdk result text",
+    )
+    assert _short_result_error(message) == "sdk result text"
+
+    stopped = ResultMessage(
+        subtype="success",
+        duration_ms=1,
+        duration_api_ms=1,
+        is_error=False,
+        num_turns=1,
+        session_id="test-session",
+        stop_reason="stop reason text",
+    )
+    assert _short_result_error(stopped) == "stop reason text"
+
+
+async def test_default_token_and_budget_helpers_use_real_db(
+    database: Database,
+    worktree: Any,
+    git_repo: Path,
+    git_service: GitService,
+    tmp_path: Path,
+) -> None:
+    workspace_id = "ws-budget"
+    async with session_scope(database.sessions) as session:
+        session.add(Workspace(id=workspace_id, name="Budget", slug="budget"))
+        await session.flush()
+        session.add(
+            User(
+                id="test-user",
+                workspace_id=workspace_id,
+                email="test@example.com",
+                display_name="Test User",
+            )
+        )
+        await session.flush()
+        repos = ScopedRepo(session, Repository, workspace_id)
+        repository = await repos.create(
+            name="budget-repo",
+            local_path=str(worktree.work_tree),
+            created_by="test-user",
+        )
+        tickets = ScopedRepo(session, Ticket, workspace_id)
+        ticket = await tickets.create(
+            repo_id=repository.id,
+            title="budget-ticket",
+            created_by="test-user",
+        )
+        runs = ScopedRepo(session, Run, workspace_id)
+        run = await runs.create(
+            ticket_id=ticket.id,
+            repo_id=repository.id,
+            created_by="test-user",
+            budget_usd=Decimal(0),
+        )
+        run_id = run.id
+
+    runtime = _make_runtime(
+        tmp_path,
+        git_service,
+        script=[],
+        sessions=database.sessions,
+    )
+    task = _task(worktree, git_repo).model_copy(
+        update={"run_id": run_id, "workspace_id": workspace_id}
+    )
+
+    minted = await runtime._mint_token_default(task)
+    assert minted.token.get_secret_value().startswith("gaia_rt_")
+    await runtime._revoke_token_default(task, minted.token_id)
+    assert await runtime._budget_exhausted_default(task) is True
+    assert await runtime._budget_exhausted_default(_task(worktree, git_repo)) is False

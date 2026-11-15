@@ -531,29 +531,6 @@ class ClaudeAgentSdkRuntime:
                 transcript_ref=None,
             )
 
-        if message.is_error or finish is None:
-            if await self._budget_exhausted(task):
-                return AgentResult(
-                    status="budget_exceeded",
-                    summary="LLM budget exceeded",
-                    structured_output=None,
-                    files_changed=(),
-                    usage=usage,
-                    error="LLM budget exceeded",
-                    transcript_ref=None,
-                )
-            return AgentResult(
-                status="failed",
-                summary="task failed",
-                structured_output=None,
-                files_changed=(),
-                usage=usage,
-                error=_short_result_error(message),
-                transcript_ref=None,
-            )
-
-        # A successful result with a finish call was handled above; a successful
-        # result without one is still a failure by the runtime protocol.
         return await self._failed_or_budget_exceeded(task, message)
 
     async def _failed_or_budget_exceeded(
