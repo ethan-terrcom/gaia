@@ -52,6 +52,15 @@ self-contained task.
 
 ## Decisions and deviations (as built)
 
+### 17a Dashboard (2026-11-14, [`review-17a`](../reviews/2026-11-14-review-17a.md))
+- The view lives in `src/views/dashboard/`. It has five cards, each with its own query, loading,
+  error and empty state, so one failing endpoint never blanks the page.
+- Query keys use the stream's prefixes (`runs`, `approvals`, `pull-requests`, `costs`). The
+  14-day metrics card (`['metrics', …]`) is not live; it refreshes on focus.
+- Active runs: `GET /runs?limit=100`, with terminal statuses filtered out client-side.
+  **Deviation:** the step shows as "Step n: title", because the list has no step total.
+- The cost-per-day bars are plain divs; no chart library.
+
 ### 17e Pull requests (2026-11-14, [`review-17e`](../reviews/2026-11-14-review-17e.md))
 - The view lives in `src/views/pull-requests/`; `src/pages/PullRequests.tsx` renders it.
 - The state filter (Open, the default; Merged; Closed; All) is kept in the URL (`?state=merged`),
