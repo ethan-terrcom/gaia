@@ -14,7 +14,7 @@ from __future__ import annotations
 import functools
 import ipaddress
 from pathlib import Path
-from typing import Any, Self
+from typing import Any, Literal, Self
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -103,6 +103,11 @@ class Settings(BaseSettings):
 
     lead_model: str = "claude-opus-5-5"
     junior_model: str = "deepseek-v4-pro"
+    #: Provider and model for the lead's planning and review calls (ADR-001 P2).
+    planner_provider: Literal["anthropic", "deepseek"] = "anthropic"
+    planner_model: str = "claude-opus-5-5"
+    #: How long one lead planning/review LLM call may run before it is timed out.
+    lead_call_timeout_s: float = 600
     #: Base URL the gateway forwards Anthropic calls to (doc 07b). Tests and the
     #: doc 08 spike can point this at a local fake without touching real DNS.
     anthropic_base_url: str = "https://api.anthropic.com"

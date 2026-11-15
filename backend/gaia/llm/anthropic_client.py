@@ -107,6 +107,7 @@ class AnthropicClient:
         model: str,
         recorder: UsageRecorder,
         price_table: PriceTable,
+        base_url: str | None = None,
         # SDK clients are generated with narrow version-specific signatures;
         # accepting the concrete client here would make tests unable to use a
         # stub and would make this seam depend on one SDK minor version.
@@ -116,7 +117,16 @@ class AnthropicClient:
         self._model = model
         self._recorder = recorder
         self._price_table = price_table
-        self._client = client or anthropic.AsyncAnthropic(api_key=api_key.get_secret_value())
+        self._client = client or anthropic.AsyncAnthropic(
+            api_key=api_key.get_secret_value(),
+            base_url=base_url,
+        )
+
+    async def aclose(self) -> None:
+        """Close the underlying Anthropic client, if it has an async close method."""
+        close = getattr(self._client, "close", None)
+        if close is not None:
+            await close()
 
     async def complete(
         self,

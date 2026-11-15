@@ -52,6 +52,26 @@ mid-flight. `parse` therefore uses `messages.stream(..., output_format=Plan)` pl
 `get_final_message()`. The SDK still returns `parsed_output`. This also lifts the 16K
 `max_tokens` limit of the non-streaming helper.
 
+### In the running graph (12b-2): `GatewayPlanner` and `GatewayReviewer`
+The graph's `lead_plan`, `lead_review_step` and `lead_final_review` nodes call these two classes
+(`gaia/orchestrator/impl/{planning,review}.py`). Each lead call:
+1. loads what it needs (ticket, repo, worktree, plan rows) in a short DB session, then closes it;
+2. enters `lead_llm(...)`, which mints a **per-call run token**, builds the configured provider's
+   client pointed at the **gateway** (`/llm/anthropic` or `/llm/deepseek`), and revokes the token
+   afterwards;
+3. runs the same `LeadEngineer` method as in development.
+
+So lead calls are budgeted and metered exactly like agents' calls, and no provider key exists
+outside the gateway.
+
+**Which model plans and reviews is a setting:** `GAIA_PLANNER_PROVIDER=anthropic|deepseek`,
+`GAIA_PLANNER_MODEL`. Both were run live on the same ticket. Claude is the default, at about $0.02
+per call; DeepSeek costs about a tenth of that. `gaia/llm/providers.py` maps the provider name to
+its adapter, and nothing in `gaia/orchestrator/` names a vendor (ADR-001 P2).
+
+The reviewer rebuilds the approved plan from the DB: the steps come from `run_step` rows, so
+edits are honoured, and the summary and risks come from the newest plan approval.
+
 ## Try it
 ```sh
 gaia secrets set ANTHROPIC_API_KEY            # once
