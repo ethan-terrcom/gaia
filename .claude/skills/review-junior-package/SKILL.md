@@ -46,6 +46,9 @@ of the world** is wrong. Review against the real world, not against their tests.
 | **A bent contract test** | 10b: the junior added a per-runtime branch to the shared contract suite so its runtime could raise where the others return `cancelled`. | Any `if runtime_name == …` that changes an **assertion** in a contract test is a red flag. The implementation conforms to the contract, never the reverse. |
 | **Every tool call needs an answer** | 10b: after an invalid `finish`, the loop broke out of the turn, leaving other tool calls without results. OpenAI-compatible APIs return 400 on the next request. | In tool loops, check every `break`/`return` before all of a turn's `tool_call_id`s have a tool message. |
 | **A harness's own limits** | 10c: the Agent SDK's CLI enforces `MCP_TOOL_TIMEOUT` per tool call, shorter than the longest command Gaia allows. | When wrapping a harness, list its own timeouts and limits, and verify each one live with a deliberately tiny value. |
+| **Lifecycle gaps between packages** | Live E2E 1: cancelling a run (12a) left its pending approval in the inbox (16/14); deciding it resumed a dead graph, which crashed on a stale `route` left in state by a guard that returned `{}`. Every package's tests passed. | For every way a run ends (complete, fail, cancel, pause), ask what happens to its approvals, steps, ticket and worktree. A node that ends the run returns an explicit route, never `{}`. |
+| **"Recent" served oldest first** | 17d: the "Decided" list fetched the default order (oldest first) with no status filter, so it showed the oldest 50, pending included. The handoff (mine) specified it. | For every list the UI shows, check the server's sort order and filters against the label. "Recent" needs a server-side newest-first order. |
+| **Selection after a mutation** | 17d: after a decision the selection moved to `index + 1`; once the refetch dropped the decided item, the next one was skipped. | When a list item is acted on and leaves the list, test both refetch outcomes: the item gone, and still there (202, async). |
 | **Binding a global at the wrong time** | 11: `configure_logging(stream=sys.stderr)` pinned pytest's capture stream, which is closed after the test. | Pass a proxy that resolves the global at use time. |
 
 ## 3. Fix or flag
@@ -63,6 +66,15 @@ The junior cannot reach the network. Run the acceptance criterion yourself:
 - Check after a live run that the token or key appears **zero times** in the server log
   (`grep -c`).
 - Record the exact commands and their outcomes in the review doc.
+- **UI packages: run a real browser** against the **production build** (`vite build` then
+  `vite preview --port 5173 --strictPort`, so the CSP meta tag is live and the `/api` proxy works),
+  with the API on 8765 and realistic data. A copy of a live E2E data dir plus a few seeded rows is
+  ideal. Use Playwright from the scratchpad (`npm i playwright@<2-week-old version>`), open
+  `/#token=…`, and drive every view: data shown, navigation, hotkeys, one decision per API path.
+  Fail on any console error, page error or unexpected HTTP 4xx/5xx. Look at the screenshots
+  yourself; text checks miss layout and duplicated labels.
+- Make the smoke script's navigation explicit (go to the top before searching a list): a script
+  that acts on the wrong item reports a false UI bug, or hides a real one.
 
 ## 5. Document it (the owner reads this first)
 - `docs/reviews/<date>-review-<NN>.md` has these sections: summary verdict; a findings table with
