@@ -24,9 +24,9 @@ from typing import Any
 from sqlalchemy import Select, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from gaia.db.models import AuditLog, Base, Event, LlmUsage, Run, RunToken, Ticket
+from gaia.db.models import Approval, AuditLog, Base, Event, LlmUsage, Run, RunToken, Ticket
 from gaia.db.types import utcnow
-from gaia.domain.enums import RunStatus
+from gaia.domain.enums import ApprovalStatus, RunStatus
 
 
 class WorkspaceMismatch(ValueError):
@@ -175,6 +175,29 @@ async def daily_llm_usage_cost_usd(
     # SQLite returns a float for SUM over NUMERIC; go through str so the
     # Decimal is the value printed, not the float's binary expansion.
     return Decimal(str(total or 0))
+
+
+async def daily_llm_usage_by_provider(
+    session: AsyncSession, workspace_id: str, *, start: datetime, end: datetime
+) -> list[tuple[str, Decimal]]:
+    """Return ``(provider, cost_usd)`` rows for the half-open UTC day.
+
+    Providers are sorted by name so the top-bar tooltip is deterministic. Like
+    the daily total, SQLite may return SUM as a float, so every cost goes through
+    ``str`` before it becomes a ``Decimal``.
+    """
+    statement = (
+        select(LlmUsage.provider, func.coalesce(func.sum(LlmUsage.cost_usd), 0))
+        .where(
+            LlmUsage.workspace_id == workspace_id,
+            LlmUsage.created_at >= start,
+            LlmUsage.created_at < end,
+        )
+        .group_by(LlmUsage.provider)
+        .order_by(LlmUsage.provider)
+    )
+    rows = (await session.execute(statement)).all()
+    return [(str(provider), Decimal(str(cost or 0))) for provider, cost in rows]
 
 
 class Repo[ModelT: Base]:
@@ -365,6 +388,46 @@ class TicketRepo(ScopedRepo[Ticket]):
         if limit is not None:
             statement = statement.limit(limit)
         return list((await self.session.scalars(statement)).all())
+
+
+class ApprovalRepo(ScopedRepo[Approval]):
+    """Approval inbox queries (doc 16).
+
+    The inbox is ordered by ``(created_at, id)`` rather than ``id`` alone:
+    UUIDv7 sorts by time, but approvals created in the same millisecond would
+    otherwise be ordered by their random tail, which is not "oldest first".
+    """
+
+    async def list_inbox(
+        self,
+        *,
+        status: str | None = None,
+        run_id: str | None = None,
+        limit: int | None = None,
+    ) -> list[Approval]:
+        """Return approvals oldest first, optionally filtered by status/run."""
+        statement = self._select().order_by(None)
+        if status is not None:
+            statement = statement.where(self._table.status == status)
+        if run_id is not None:
+            statement = statement.where(self._table.run_id == run_id)
+        statement = statement.order_by(self._table.created_at, self._table.id)
+        if limit is not None:
+            statement = statement.limit(limit)
+        return list((await self.session.scalars(statement)).all())
+
+    async def count_pending(self) -> int:
+        """Return the workspace's pending approval count, ignoring page filters."""
+        statement = (
+            select(func.count())
+            .select_from(self._table)
+            .where(
+                self._table.workspace_id == self.workspace_id,
+                self._table.status == ApprovalStatus.PENDING.value,
+            )
+        )
+        total = await self.session.scalar(statement)
+        return int(total or 0)
 
 
 class AuditLogRepo(AppendOnlyRepo[AuditLog]):

@@ -269,6 +269,17 @@ class ApprovalRead(WorkspaceScopedRead):
     comment: str | None
 
 
+class ApprovalPage(Schema):
+    """The approval inbox list, plus the workspace's pending count.
+
+    ``total_pending`` ignores the list filters on purpose: the nav badge needs
+    one call that still shows the real count when the page is filtered.
+    """
+
+    items: list[ApprovalRead]
+    total_pending: int
+
+
 class PullRequestRead(WorkspaceScopedRead):
     """The PR a run opened, and GitHub's view of it (doc 15)."""
 
@@ -322,6 +333,22 @@ class LlmUsageRead(WorkspaceScopedRead):
     cache_creation_tokens: int
     price_tier: str | None
     cost_usd: Decimal
+
+
+class ProviderCost(Schema):
+    """Today's spend for one LLM provider."""
+
+    provider: str
+    cost_usd: Decimal
+
+
+class TodayCosts(Schema):
+    """The numbers for the top bar's daily spend meter (doc 16)."""
+
+    spent_usd: Decimal
+    budget_usd: Decimal
+    by_provider: list[ProviderCost]
+    day_start: datetime
 
 
 class AuditLogRead(WorkspaceScopedRead):

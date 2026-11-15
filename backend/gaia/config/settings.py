@@ -91,7 +91,15 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
     allow_remote: bool = False
     port: int = 8765
+    #: Printed by ``gaia ui`` as the login link. In dev this is Vite's origin;
+    #: when :attr:`ui_dist_dir` is set, the API serves the built UI itself, so the
+    #: operator should set ``GAIA_UI_ORIGIN`` to the API's own origin
+    #: (``http://127.0.0.1:<port>``). The default is deliberately left alone.
     ui_origin: str = "http://127.0.0.1:5173"
+    #: Directory containing the built frontend (``frontend/dist``). When set and
+    #: it contains an ``index.html``, ``create_app`` serves the SPA and its assets
+    #: from this process (doc 16). ``None`` keeps API-only serving.
+    ui_dist_dir: Path | None = None
 
     lead_model: str = "claude-opus-5-5"
     junior_model: str = "deepseek-v4-pro"
@@ -135,10 +143,10 @@ class Settings(BaseSettings):
         """Expand ``~`` so the default ``~/.gaia`` is usable as it stands."""
         return value.expanduser()
 
-    @field_validator("srt_path", "rg_path")
+    @field_validator("srt_path", "rg_path", "ui_dist_dir")
     @classmethod
     def _expand_optional_path(cls, value: Path | None) -> Path | None:
-        """Expand ``~`` when the owner supplies a custom executable path."""
+        """Expand ``~`` when the owner supplies a custom executable or directory path."""
         return value.expanduser() if value is not None else None
 
     @field_validator("agent_path")

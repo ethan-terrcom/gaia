@@ -1,9 +1,15 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: system-ui, sans-serif;
+}
+
 :root {
   color-scheme: light dark;
-  font-family: system-ui, sans-serif;
 }
 
 body {
   margin: 0;
-  padding: 2rem;
 }

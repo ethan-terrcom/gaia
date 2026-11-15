@@ -3,9 +3,9 @@
 > **Audience:** developers working in `backend/` who are comfortable with Python but not
 > necessarily with async code, FastAPI, SQLAlchemy 2 or process management. Start with the
 > one-page overview in [`backend/README.md`](../../backend/README.md), then read the guide for the
-> area you are about to touch.
+> area you are about to touch. The frontend has its own guide: [`docs/frontend/`](../frontend/README.md).
 >
-> **Status:** living document, current as of packages 07b, 09a, 09b, 10a, 11, 12a, 13 and 15a (2026-11-14).
+> **Status:** living document, current as of packages 07b, 09a, 09b, 10a, 11, 12a, 13, 15a and 16 (2026-11-14).
 
 ## How these guides are organised
 
@@ -26,7 +26,7 @@ day. It is the vocabulary for the rest of the guides.
 |---|---|---|
 | [Config & secrets](config-and-secrets.md) | `Settings`, the keychain `SecretStore`, redaction, logging, the `gaia` CLI | 02 |
 | [Database](database.md) | Models, migrations, `ScopedRepo`, status state machines, schemas | 03 |
-| [API](api.md) | The app factory, lifespan, middleware, auth, dependencies, errors, the domain and event routes | 04, 06, 13 |
+| [API](api.md) | The app factory, lifespan, middleware, auth, dependencies, errors, the domain and event routes, the approvals inbox, today's costs, serving the UI | 04, 06, 13, 16 |
 | [Git & processes](git-and-processes.md) | `run_proc`, `GitService`, `WorktreeService` | 05 |
 | [LLM clients & costs](llm.md) | `AnthropicClient`, `DeepSeekClient`, `FakeLLM`, pricing and usage recording | 07a |
 | [LLM gateway](gateway.md) | Run tokens, the streaming proxy, metering, budgets: why agents never hold a provider key | 07b |

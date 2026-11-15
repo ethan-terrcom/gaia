@@ -75,6 +75,144 @@
         "title": "AgentStatus",
         "type": "string"
       },
+      "ApprovalKind": {
+        "description": "What a human is being asked to approve (doc 03 task 3).\n\n``plan``, ``escalation``, ``budget``, ``pr_open`` and ``merge`` are graph\ninterrupts; ``command`` is asked *inside* an agent turn by the runtime's\npermission hook (2026-11-12 review, section 3.1).",
+        "enum": [
+          "plan",
+          "command",
+          "escalation",
+          "pr_open",
+          "merge",
+          "budget"
+        ],
+        "title": "ApprovalKind",
+        "type": "string"
+      },
+      "ApprovalPage": {
+        "description": "The approval inbox list, plus the workspace's pending count.\n\n``total_pending`` ignores the list filters on purpose: the nav badge needs\none call that still shows the real count when the page is filtered.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ApprovalRead"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total_pending": {
+            "title": "Total Pending",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total_pending"
+        ],
+        "title": "ApprovalPage",
+        "type": "object"
+      },
+      "ApprovalRead": {
+        "description": "An approval request and, once decided, its outcome.",
+        "properties": {
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decided_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided At"
+          },
+          "decided_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided By"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "idempotency_key": {
+            "title": "Idempotency Key",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ApprovalKind"
+          },
+          "payload_json": {
+            "additionalProperties": true,
+            "title": "Payload Json",
+            "type": "object"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ApprovalStatus"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "updated_at",
+          "workspace_id",
+          "run_id",
+          "idempotency_key",
+          "kind",
+          "payload_json",
+          "status",
+          "decided_by",
+          "decided_at",
+          "comment"
+        ],
+        "title": "ApprovalRead",
+        "type": "object"
+      },
+      "ApprovalStatus": {
+        "description": "The outcome of an approval request; ``expired`` is the default-deny timeout.",
+        "enum": [
+          "pending",
+          "approved",
+          "rejected",
+          "expired"
+        ],
+        "title": "ApprovalStatus",
+        "type": "string"
+      },
       "EventHistory": {
         "description": "One page of a run's event history.",
         "properties": {
@@ -255,6 +393,25 @@
           "workspace_id"
         ],
         "title": "Principal",
+        "type": "object"
+      },
+      "ProviderCost": {
+        "description": "Today's spend for one LLM provider.",
+        "properties": {
+          "cost_usd": {
+            "title": "Cost Usd",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "cost_usd"
+        ],
+        "title": "ProviderCost",
         "type": "object"
       },
       "RepositoryCreate": {
@@ -774,6 +931,39 @@
         "title": "TicketStatus",
         "type": "string"
       },
+      "TodayCosts": {
+        "description": "The numbers for the top bar's daily spend meter (doc 16).",
+        "properties": {
+          "budget_usd": {
+            "title": "Budget Usd",
+            "type": "string"
+          },
+          "by_provider": {
+            "items": {
+              "$ref": "#/components/schemas/ProviderCost"
+            },
+            "title": "By Provider",
+            "type": "array"
+          },
+          "day_start": {
+            "format": "date-time",
+            "title": "Day Start",
+            "type": "string"
+          },
+          "spent_usd": {
+            "title": "Spent Usd",
+            "type": "string"
+          }
+        },
+        "required": [
+          "spent_usd",
+          "budget_usd",
+          "by_provider",
+          "day_start"
+        ],
+        "title": "TodayCosts",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -1067,6 +1257,117 @@
         "summary": "List agents",
         "tags": [
           "agents"
+        ]
+      }
+    },
+    "/api/v1/approvals": {
+      "get": {
+        "description": "Return approvals oldest first, optionally filtered by status or run.\n\n``total_pending`` always counts the workspace's pending approvals, whatever\nfilters the caller passed: the badge makes one call and must not change with\nthe page. ``ApprovalRepo`` keeps every read inside the authenticated\nworkspace.",
+        "operationId": "list_approvals_api_v1_approvals_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/ApprovalStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "run_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 36,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Run Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApprovalPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List approval requests",
+        "tags": [
+          "approvals"
+        ]
+      }
+    },
+    "/api/v1/costs/today": {
+      "get": {
+        "description": "Return the UTC day's spend, budget and per-provider breakdown.",
+        "operationId": "get_today_costs_api_v1_costs_today_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TodayCosts"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Today's LLM spend",
+        "tags": [
+          "costs"
         ]
       }
     },

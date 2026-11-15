@@ -36,3 +36,44 @@ The feature views (17).
 
 ## Acceptance criteria
 - [ ] `make dev-frontend` plus `gaia ui` opens an authenticated shell that shows the pending-approvals badge.
+
+## Decisions and deviations (as built)
+- `GET /api/v1/approvals` is implemented in `gaia/api/routes/approvals.py` with a new
+  `ApprovalRepo.list_inbox`/`count_pending` query in `gaia/db/repo.py`. Inbox ordering is
+  `(created_at, id)`, not `id` alone, so same-millisecond approvals still read oldest first.
+- `GET /api/v1/costs/today` uses a module-level `_now()` clock (the same seam style as the LLM
+  gateway's `_now`) so tests can pin the UTC day.
+- The SPA fallback is a `/{full_path:path}` route with `include_in_schema=False`, added after the
+  API routers, rather than ASGI middleware. This keeps the existing middleware order untouched and
+  keeps the generated OpenAPI document free of a catch-all path.
+- `mount_spa` requires `dist_dir/assets` to exist and raises otherwise; the task only called for
+  mounting when `index.html` exists, but a built Vite app without `assets/` is malformed.
+- The CSP string lives in both `gaia/api/spa.py` and `frontend/csp.json`; a backend test asserts
+  they stay equal.
+- `frontend/tools/openapi/` (lead setup) holds `openapi-typescript` 7.13.0 with TypeScript 5.9.3, apart
+  from the app: openapi-typescript needs TypeScript 5's compiler API, and the app uses TypeScript 7,
+  which no longer exposes it. `npm run gen:api` and `make openapi` use it. `make setup` installs it.
+- `react-router` is v8 (8.5.1), the newest release that was at least two weeks old; the doc said v7+.
+
+### Lead review changes — 16 (2026-11-14, [`review-16`](../reviews/2026-11-14-review-16.md))
+- **U1 (high):** the server frames every SSE event with its type (`event: run.created`), and a
+  browser delivers named events **only** to `addEventListener(<type>)` listeners, never to
+  `onmessage`. The hook listened on `onmessage` only, so in a real browser it would have received
+  nothing. The tests' fake EventSource called `onmessage` directly, which hid it.
+  - Fix: the hook registers a listener per type from `frontend/src/api/event-types.json`, and
+    `backend/tests/test_frontend_contract.py` asserts that file equals the `EventType` enum.
+  - The fake EventSource now behaves like a browser.
+  - Proved live with Node's WHATWG `EventSource` against a running server: `onmessage` received
+    0 of 7 events, and the named listeners received all 7.
+- **U2:** `seq` and `id` are nullable in the event schema; the transport-only `stream.gap` marker
+  has both `null`, and was dropped.
+- **U3:** the nav badge asks for `status=pending&limit=1`; it needs only `total_pending`.
+- Verified live, through the backend serving `frontend/dist`:
+  - the SPA route sends the CSP, `no-store`, `nosniff` and `no-referrer` headers;
+  - assets are served as `text/javascript`;
+  - `--path-as-is /assets/../../etc/passwd` returns 404;
+  - an unknown `/api/…` path keeps the JSON 404 envelope;
+  - the new routes require the token (401 without it).
+- [ ] Acceptance ("`make dev-frontend` plus `gaia ui` opens an authenticated shell that shows the
+  pending-approvals badge"): the pieces are verified as above. A visual check in a browser is the
+  owner's first-run step in the user guide.
