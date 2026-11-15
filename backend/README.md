@@ -69,6 +69,7 @@ never imports FastAPI. `db/` knows nothing about HTTP or git.
 | 16 | `api/routes/{approvals,costs}.py`, `api/spa.py` | The approvals inbox list (for the nav badge), today's spend, and serving the built UI with its CSP. The UI itself: [frontend guide](../docs/frontend/README.md) | [API](../docs/backend/api.md) |
 | 15b | `services/{ci,pr_sync}.py`, `api/routes/pull_requests.py`, migration `0005` | CI watching pinned to the approved commit, a background PR sync for changes made on GitHub, and the PR list API | [GitHub](../docs/backend/github.md) |
 | 18b | `config/logging.py`, `api/routes/metrics.py` | Every log line (structlog and stdlib) redacted; rotating 0600 JSON log file under `data_dir/logs`; uvicorn access lines without query strings; metrics summary API | [config & secrets](../docs/backend/config-and-secrets.md) |
+| 18a | `orchestrator/{guard,runner,pause}.py`, `api/routes/admin.py` | The daily cap pauses runs and blocks new ones; the kill switch (`pause-all` / `resume-all`) with a durable flag and a `paused` run state that startup never resumes | [orchestrator](../docs/backend/orchestrator.md) |
 | 12b | `orchestrator/impl/`, `orchestrator/wiring.py` | The real workflow: worktree and setup, steps on the configured runtimes, sandboxed checks, commits, lead planning and review through the gateway, one composition root in the app lifespan, and the swap drill (a full run with no Claude) | [orchestrator](../docs/backend/orchestrator.md) |
 | 14 | `api/routes/runs.py`, `api/routes/approvals.py` (decide) | Start, list, inspect, cancel and diff runs; decide approvals (command answers wake the agent, gate decisions resume the graph; typed merge confirmation) | [API](../docs/backend/api.md) |
 | 13 | `services/events.py`, `api/routes/stream.py` | Durable event log plus live SSE stream with single-use tickets, replay and gap healing | [events](../docs/backend/events.md) |
@@ -78,7 +79,7 @@ never imports FastAPI. `db/` knows nothing about HTTP or git.
 | 10c | `runtimes/claude_agent_sdk.py` | Claude (via the Agent SDK) for lead work, as a thin adapter: Gaia's tools over in-process MCP, an `env -i` + `srt` wrapper, run token only, Gaia-priced usage | [runtimes](../docs/backend/runtimes.md) |
 | 12a | `orchestrator/{graph,guard,runner,approvals}.py`, `nodes/` | The durable LangGraph ticket-run workflow on interfaces: idempotent human gates, budget guard, crash recovery, concurrency limit ([diagram](../docs/graph.md)) | [orchestrator](../docs/backend/orchestrator.md) |
 
-The whole suite (1812 backend tests and 51 frontend tests, 100% line and branch coverage) runs with `make check`, which is also what CI runs.
+The whole suite (about 1850 backend tests and 70+ frontend tests, 100% line and branch coverage) runs with `make check`, which is also what CI runs.
 
 ## Five design rules that explain most of the code
 

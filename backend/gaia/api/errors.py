@@ -68,6 +68,8 @@ class ErrorCode(StrEnum):
     RUN_BUSY = "run_busy"
     RUN_NOT_ACTIVE = "run_not_active"
     MERGE_CONFIRMATION_REQUIRED = "merge_confirmation_required"
+    DAILY_BUDGET_EXHAUSTED = "daily_budget_exhausted"
+    ORCHESTRATOR_PAUSED = "orchestrator_paused"
 
 
 _CODES_BY_STATUS: Final[dict[int, ErrorCode]] = {

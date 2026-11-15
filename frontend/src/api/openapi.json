@@ -618,6 +618,82 @@
         "title": "MetricsSummary",
         "type": "object"
       },
+      "PauseAllRequest": {
+        "additionalProperties": false,
+        "description": "Reason for pausing every run. Global, not per workspace: Gaia is single-user.",
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "title": "PauseAllRequest",
+        "type": "object"
+      },
+      "PauseAllResult": {
+        "description": "The ids paused by this call (usually empty when already paused).",
+        "properties": {
+          "paused_run_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Paused Run Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "paused_run_ids"
+        ],
+        "title": "PauseAllResult",
+        "type": "object"
+      },
+      "PauseStatus": {
+        "description": "Whether the global kill switch is on (doc 18a).",
+        "properties": {
+          "paused": {
+            "title": "Paused",
+            "type": "boolean"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "since": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since"
+          }
+        },
+        "required": [
+          "paused",
+          "since",
+          "reason"
+        ],
+        "title": "PauseStatus",
+        "type": "object"
+      },
       "Principal": {
         "description": "The authenticated caller, and the workspace every query is scoped to.",
         "properties": {
@@ -1043,6 +1119,23 @@
         "title": "RepositoryRead",
         "type": "object"
       },
+      "ResumeAllResult": {
+        "description": "The ids that were ``paused`` and are now being relaunched.",
+        "properties": {
+          "resumed_run_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Resumed Run Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "resumed_run_ids"
+        ],
+        "title": "ResumeAllResult",
+        "type": "object"
+      },
       "RunCreate": {
         "additionalProperties": false,
         "description": "Start a run. The status starts at ``pending`` and cannot be set here.",
@@ -1392,6 +1485,7 @@
           "reviewing",
           "pr_open",
           "paused_budget",
+          "paused",
           "failed",
           "completed",
           "cancelled"
@@ -2265,6 +2359,107 @@
         "summary": "Liveness probe",
         "tags": [
           "health"
+        ]
+      }
+    },
+    "/api/v1/admin/pause": {
+      "get": {
+        "description": "Return whether the orchestrator is paused, and since when.",
+        "operationId": "get_pause_api_v1_admin_pause_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PauseStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Read the global pause state",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/pause-all": {
+      "post": {
+        "description": "Cancel every live graph task and pause every queued run.\n\nIdempotent: pausing again returns the runs it paused this time, which is\nusually an empty list.",
+        "operationId": "pause_all_api_v1_admin_pause_all_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PauseAllRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PauseAllResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Pause every run (global kill switch)",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/resume-all": {
+      "post": {
+        "description": "Clear the global flag and relaunch every run it paused.",
+        "operationId": "resume_all_api_v1_admin_resume_all_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResumeAllResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Resume every paused run",
+        "tags": [
+          "admin"
         ]
       }
     },

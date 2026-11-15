@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Annotated
 
@@ -12,6 +14,7 @@ from gaia.api.errors import ErrorCode, error_response
 from gaia.db.engine import session_scope
 from gaia.db.models import Repository, Run, Ticket, Worktree
 from gaia.db.repo import RunRepo, RunSummaryRow, ScopedRepo
+from gaia.db.types import utcnow
 from gaia.domain.enums import RunStatus
 from gaia.domain.schemas import (
     ApprovalRead,
@@ -27,6 +30,8 @@ from gaia.domain.schemas import (
     RunWorktreeSummary,
 )
 from gaia.domain.state import IllegalTransition
+from gaia.orchestrator.pause import OrchestratorPaused
+from gaia.services.costs import daily_spend
 from gaia.services.git import WorktreeLocation
 
 router = APIRouter(tags=["runs"])
@@ -50,6 +55,24 @@ def _orchestrator_unavailable(request: Request) -> Response:
         ErrorCode.ORCHESTRATOR_UNAVAILABLE,
         "the orchestrator is unavailable",
     )
+
+
+def _orchestrator_paused(request: Request) -> Response:
+    """The 409 shape for a start/cancel that the kill switch refuses."""
+    return error_response(
+        request,
+        status.HTTP_409_CONFLICT,
+        ErrorCode.ORCHESTRATOR_PAUSED,
+        "the orchestrator is paused",
+    )
+
+
+def _now() -> datetime:
+    """Return the current aware UTC time for the daily-budget check.
+
+    A function rather than a bare ``utcnow`` import so tests can patch the clock.
+    """
+    return utcnow()
 
 
 def _run_summary(row: RunSummaryRow) -> RunSummary:
@@ -104,6 +127,8 @@ async def start_run(
     """Start the graph for ``ticket_id`` and return the new run row."""
     if services.runs is None:
         return _orchestrator_unavailable(request)
+    if services.pause is not None and services.pause.is_paused():
+        return _orchestrator_paused(request)
 
     ticket = await scoped.repo(Ticket).get(payload.ticket_id)
     if ticket is None:
@@ -113,13 +138,26 @@ async def start_run(
     if any(run.status not in _TERMINAL_RUN_STATUSES for run in active):
         raise HTTPException(status.HTTP_409_CONFLICT, "ticket already has an active run")
 
-    run_id = await services.runs.start(
-        payload.ticket_id,
-        workspace_id=scoped.workspace_id,
-        created_by=principal.user_id,
-        junior_runtime=payload.junior_runtime,
-        budget_usd=payload.budget_usd,
-    )
+    daily_limit = Decimal(str(services.settings.daily_budget_usd))
+    spent_today = await daily_spend(scoped.session, scoped.workspace_id, now=_now())
+    if spent_today >= daily_limit:
+        return error_response(
+            request,
+            status.HTTP_409_CONFLICT,
+            ErrorCode.DAILY_BUDGET_EXHAUSTED,
+            f"daily LLM budget exhausted: {spent_today} of {daily_limit} USD spent",
+        )
+
+    try:
+        run_id = await services.runs.start(
+            payload.ticket_id,
+            workspace_id=scoped.workspace_id,
+            created_by=principal.user_id,
+            junior_runtime=payload.junior_runtime,
+            budget_usd=payload.budget_usd,
+        )
+    except OrchestratorPaused:
+        return _orchestrator_paused(request)
     # ``start`` commits on the manager's session; the request's session may have
     # opened a SQLite read transaction before that commit, so load the row in a
     # fresh session rather than from the request session.

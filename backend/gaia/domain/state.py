@@ -45,13 +45,20 @@ TICKET_TRANSITIONS: Mapping[TicketStatus, frozenset[TicketStatus]] = {
 
 RUN_TRANSITIONS: Mapping[RunStatus, frozenset[RunStatus]] = {
     RunStatus.PENDING: frozenset(
-        {RunStatus.PLANNING, RunStatus.PAUSED_BUDGET, RunStatus.FAILED, RunStatus.CANCELLED}
+        {
+            RunStatus.PLANNING,
+            RunStatus.PAUSED_BUDGET,
+            RunStatus.PAUSED,
+            RunStatus.FAILED,
+            RunStatus.CANCELLED,
+        }
     ),
     RunStatus.PLANNING: frozenset(
         {
             RunStatus.AWAITING_APPROVAL,
             RunStatus.IMPLEMENTING,
             RunStatus.PAUSED_BUDGET,
+            RunStatus.PAUSED,
             RunStatus.FAILED,
             RunStatus.CANCELLED,
         }
@@ -63,6 +70,7 @@ RUN_TRANSITIONS: Mapping[RunStatus, frozenset[RunStatus]] = {
             RunStatus.REVIEWING,
             RunStatus.PR_OPEN,
             RunStatus.PAUSED_BUDGET,
+            RunStatus.PAUSED,
             RunStatus.FAILED,
             RunStatus.CANCELLED,
         }
@@ -72,6 +80,7 @@ RUN_TRANSITIONS: Mapping[RunStatus, frozenset[RunStatus]] = {
             RunStatus.REVIEWING,
             RunStatus.AWAITING_APPROVAL,
             RunStatus.PAUSED_BUDGET,
+            RunStatus.PAUSED,
             RunStatus.FAILED,
             RunStatus.CANCELLED,
         }
@@ -82,6 +91,7 @@ RUN_TRANSITIONS: Mapping[RunStatus, frozenset[RunStatus]] = {
             RunStatus.AWAITING_APPROVAL,
             RunStatus.PR_OPEN,
             RunStatus.PAUSED_BUDGET,
+            RunStatus.PAUSED,
             RunStatus.FAILED,
             RunStatus.CANCELLED,
         }
@@ -90,6 +100,8 @@ RUN_TRANSITIONS: Mapping[RunStatus, frozenset[RunStatus]] = {
         {
             RunStatus.REVIEWING,
             RunStatus.AWAITING_APPROVAL,
+            RunStatus.PAUSED_BUDGET,
+            RunStatus.PAUSED,
             RunStatus.COMPLETED,
             RunStatus.FAILED,
             RunStatus.CANCELLED,
@@ -101,6 +113,19 @@ RUN_TRANSITIONS: Mapping[RunStatus, frozenset[RunStatus]] = {
             RunStatus.IMPLEMENTING,
             RunStatus.REVIEWING,
             RunStatus.AWAITING_APPROVAL,
+            RunStatus.PAUSED,
+            RunStatus.FAILED,
+            RunStatus.CANCELLED,
+        }
+    ),
+    RunStatus.PAUSED: frozenset(
+        {
+            RunStatus.PLANNING,
+            RunStatus.IMPLEMENTING,
+            RunStatus.REVIEWING,
+            RunStatus.PR_OPEN,
+            RunStatus.AWAITING_APPROVAL,
+            RunStatus.PAUSED_BUDGET,
             RunStatus.FAILED,
             RunStatus.CANCELLED,
         }

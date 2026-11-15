@@ -28,6 +28,69 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the global pause state
+         * @description Return whether the orchestrator is paused, and since when.
+         */
+        get: operations["get_pause_api_v1_admin_pause_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/pause-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pause every run (global kill switch)
+         * @description Cancel every live graph task and pause every queued run.
+         *
+         *     Idempotent: pausing again returns the runs it paused this time, which is
+         *     usually an empty list.
+         */
+        post: operations["pause_all_api_v1_admin_pause_all_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/resume-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resume every paused run
+         * @description Clear the global flag and relaunch every run it paused.
+         */
+        post: operations["resume_all_api_v1_admin_resume_all_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/agents": {
         parameters: {
             query?: never;
@@ -755,6 +818,34 @@ export interface components {
             success_rate: number | null;
         };
         /**
+         * PauseAllRequest
+         * @description Reason for pausing every run. Global, not per workspace: Gaia is single-user.
+         */
+        PauseAllRequest: {
+            /** Reason */
+            reason?: string | null;
+        };
+        /**
+         * PauseAllResult
+         * @description The ids paused by this call (usually empty when already paused).
+         */
+        PauseAllResult: {
+            /** Paused Run Ids */
+            paused_run_ids: string[];
+        };
+        /**
+         * PauseStatus
+         * @description Whether the global kill switch is on (doc 18a).
+         */
+        PauseStatus: {
+            /** Paused */
+            paused: boolean;
+            /** Reason */
+            reason: string | null;
+            /** Since */
+            since: string | null;
+        };
+        /**
          * Principal
          * @description The authenticated caller, and the workspace every query is scoped to.
          */
@@ -916,6 +1007,14 @@ export interface components {
             workspace_id: string;
         };
         /**
+         * ResumeAllResult
+         * @description The ids that were ``paused`` and are now being relaunched.
+         */
+        ResumeAllResult: {
+            /** Resumed Run Ids */
+            resumed_run_ids: string[];
+        };
+        /**
          * RunCreate
          * @description Start a run. The status starts at ``pending`` and cannot be set here.
          */
@@ -1038,7 +1137,7 @@ export interface components {
          *     revived by a status change.
          * @enum {string}
          */
-        RunStatus: "pending" | "planning" | "awaiting_approval" | "implementing" | "reviewing" | "pr_open" | "paused_budget" | "failed" | "completed" | "cancelled";
+        RunStatus: "pending" | "planning" | "awaiting_approval" | "implementing" | "reviewing" | "pr_open" | "paused_budget" | "paused" | "failed" | "completed" | "cancelled";
         /**
          * RunStepRead
          * @description One step of a run's plan.
@@ -1397,6 +1496,79 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Health"];
+                };
+            };
+        };
+    };
+    get_pause_api_v1_admin_pause_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PauseStatus"];
+                };
+            };
+        };
+    };
+    pause_all_api_v1_admin_pause_all_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PauseAllRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PauseAllResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resume_all_api_v1_admin_resume_all_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResumeAllResult"];
                 };
             };
         };

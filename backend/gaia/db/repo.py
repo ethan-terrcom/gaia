@@ -42,6 +42,7 @@ from gaia.db.models import (
 )
 from gaia.db.types import utcnow
 from gaia.domain.enums import (
+    ApprovalKind,
     ApprovalStatus,
     PullRequestState,
     RunStatus,
@@ -154,8 +155,9 @@ class RunRepo:
         """Return runs that may need to be resumed after a process restart.
 
         Terminal runs and runs already sitting at a human gate are left alone:
-        an interrupted run already has a pending checkpoint question, and a
-        ``paused_budget`` run has a budget question.
+        an interrupted run already has a pending checkpoint question, a
+        ``paused_budget`` run has a budget question, and a ``paused`` run is
+        only resumed by an explicit resume-all (the kill switch, doc 18a).
         """
         ignored = (
             RunStatus.FAILED.value,
@@ -163,8 +165,18 @@ class RunRepo:
             RunStatus.CANCELLED.value,
             RunStatus.AWAITING_APPROVAL.value,
             RunStatus.PAUSED_BUDGET.value,
+            RunStatus.PAUSED.value,
         )
         statement = select(Run).where(~Run.status.in_(ignored)).order_by(Run.id)
+        return list((await self.session.scalars(statement)).all())
+
+    async def list_by_status(self, status: str) -> list[Run]:
+        """Return every run in ``status``, process-wide.
+
+        Used by the kill switch to find the runs ``resume_all`` must relaunch.
+        Like the other system-level lookups here, it is deliberately unscoped.
+        """
+        statement = select(Run).where(Run.status == status).order_by(Run.id)
         return list((await self.session.scalars(statement)).all())
 
     async def list_summary(
@@ -587,6 +599,37 @@ async def daily_llm_usage_by_provider(
     )
     rows = (await session.execute(statement)).all()
     return [(str(provider), Decimal(str(cost or 0))) for provider, cost in rows]
+
+
+async def count_decided_budget_approvals(
+    session: AsyncSession,
+    *,
+    run_id: str,
+    workspace_id: str,
+    key_prefix: str,
+) -> int:
+    """Count decided budget approvals of one run whose key starts with ``key_prefix``.
+
+    The guard's daily-budget interrupt keys look like
+    ``budget:<node>:daily:<n>``. The next ``n`` is the number of rows that were
+    already decided under that node prefix, so a paused node re-running on
+    resume reuses its still-pending row (count 0), while a later daily pause
+    gets a fresh key. A prefix match on the controlled ``idempotency_key`` is
+    used instead of JSON-filtering ``payload_json["scope"]``: it stays portable
+    across SQLite and PostgreSQL.
+    """
+    statement = (
+        select(func.count())
+        .select_from(Approval)
+        .where(
+            Approval.workspace_id == workspace_id,
+            Approval.run_id == run_id,
+            Approval.kind == ApprovalKind.BUDGET.value,
+            Approval.status.in_((ApprovalStatus.APPROVED.value, ApprovalStatus.REJECTED.value)),
+            Approval.idempotency_key.startswith(key_prefix),
+        )
+    )
+    return int(await session.scalar(statement) or 0)
 
 
 async def run_status_counts(session: AsyncSession, workspace_id: str) -> dict[str, int]:

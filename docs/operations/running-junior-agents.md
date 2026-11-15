@@ -101,6 +101,7 @@ SP=<your session scratchpad>
 git worktree add -b impl/<NN>-<name> $SP/worktrees/<NN>-<name> main
 (cd $SP/worktrees/<NN>-<name>/backend  && uv sync)
 (cd $SP/worktrees/<NN>-<name>/frontend && npm ci)      # the pre-commit hook needs it at commit time
+(cd $SP/worktrees/<NN>-<name>/frontend/tools/openapi && npm ci)   # npm run gen:api (OpenAPI types)
 cp <handoff>.md $SP/worktrees/<NN>-<name>/docs/implementation/handoffs/
 ```
 If the package needs a new dependency, add it yourself on the branch **before** you dispatch.

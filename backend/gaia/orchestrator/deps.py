@@ -9,7 +9,9 @@ the methods a node actually calls, so a fake can be a small scriptable object.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -131,3 +133,6 @@ class GraphDeps:
     sessions: async_sessionmaker[AsyncSession]
     events: EventBus
     settings: Settings
+    #: Clock for budget checks. ``None`` uses the guard's default; tests can
+    #: inject a frozen clock through ``make_graph_deps``.
+    now: Callable[[], datetime] | None = None

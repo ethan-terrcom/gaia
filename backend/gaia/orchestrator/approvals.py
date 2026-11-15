@@ -89,6 +89,30 @@ async def apply_decision(session: AsyncSession, approval: Approval, decision: De
     await session.flush()
 
 
+async def expire_pending_command_approvals(
+    session: AsyncSession, *, workspace_id: str, run_id: str, reason: str
+) -> list[str]:
+    """Mark one run's pending *command* approvals ``expired`` and return their ids.
+
+    The kill switch uses this rather than :func:`expire_pending_approvals`:
+    graph-gate approvals stay pending because the run is still waiting for them
+    after a resume, while in-turn command approvals die with the cancelled agent
+    and must leave the inbox.
+    """
+    approvals = ScopedRepo(session, Approval, workspace_id)
+    expired: list[str] = []
+    for row in await approvals.list(
+        run_id=run_id,
+        status=ApprovalStatus.PENDING.value,
+        kind=ApprovalKind.COMMAND.value,
+    ):
+        row.status = ApprovalStatus.EXPIRED.value
+        row.decided_at = utcnow()
+        row.comment = reason
+        expired.append(row.id)
+    return expired
+
+
 async def expire_pending_approvals(
     session: AsyncSession, *, workspace_id: str, run_id: str, reason: str
 ) -> list[str]:
