@@ -101,6 +101,17 @@ app uses, is the native rewrite and doesn't expose that API, and npm cannot inst
 TypeScript versions. So the generator has its own small, pinned `package.json` with TypeScript 5.
 It is a build tool only; nothing in the app imports it.
 
+### Shared building blocks (`src/components/`)
+Every view uses these, so all views behave alike. Doc 17's shared rules require them.
+
+| Component | Use it for |
+|---|---|
+| `LoadingState`, `ErrorState`, `EmptyState` | the three states every view must handle. `ErrorState` shows an `ApiError`'s message and code, and a generic sentence for anything else, so raw exception text never reaches the screen |
+| `PageHeader` | the title row with optional actions |
+| `ConfirmDialog` | **every** destructive action. `requireText="merge 7"` makes the user type a phrase first: merge approvals, force-removing a dirty worktree. Escape cancels |
+| `StatusBadge` (+ `status.ts`) | any status string (run, PR, CI, review, worktree). Unknown values render neutrally |
+| `format.ts` | `formatUsd` (money arrives as decimal strings), `formatRelative`, `shortSha` |
+
 ## Checks
 `npm run lint` (oxlint with warnings as errors, plus prettier), `npm run typecheck`, `npm test`
 (Vitest, jsdom) and `npm run build`. `make check` runs them all with the backend checks.
