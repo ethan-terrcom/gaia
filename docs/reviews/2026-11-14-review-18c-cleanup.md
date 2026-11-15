@@ -32,5 +32,14 @@ or signs of tampering. It is **manual and dry-run by default**:
 Worktree removal runs git inside a DB session. That is `WorktreeService.remove`'s existing design
 (doc 05), not new code. Recorded only.
 
+## Also fixed: the "3 failed" flake seen on three branches
+Three times this session, one full run showed 3 failures that a rerun did not. With `-rf` the
+names came out: `test_git_push.py` (15a). Cause: each failing run happened in a shell where the
+lead had **exported `GIT_DIR`/`GIT_WORK_TREE`** to commit from a worktree. The tests' raw `git`
+fixture calls inherited them and acted on the wrong repository. Not a product bug, but tests
+should be immune to it: `tests/conftest.py` now strips git's repository-location variables for
+every test. Verified by running the full suite with `GIT_DIR` deliberately exported: 1739
+passed, 100%.
+
 ## Final checks
 `ruff` ✓ · `mypy` ✓ · `pytest`: 1731 passed, **100%** coverage.
