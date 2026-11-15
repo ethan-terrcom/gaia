@@ -79,3 +79,17 @@ self-contained task.
 - **Lead fix:** the root `.gitignore` had `worktrees/`, which also ignored
   `frontend/src/views/worktrees/`. The view's files were invisible to git. It is now
   `/worktrees/`, anchored to the repository root as intended.
+
+### 17c Run detail (2026-11-14, [`review-17c`](../reviews/2026-11-14-review-17c.md))
+- The view lives in `src/views/run-detail/`, and the timeline summaries in `events.ts`.
+- **The tab is in the URL** (`?tab=diff`), so the approvals inbox links straight to a run's diff
+  (lead fix).
+- Timeline: the history comes from `GET /runs/{id}/events` (pages of 500) and is merged with live
+  events by `seq`. It renders through a dependency-free windowed list with fixed 36 px rows. Tool
+  calls and results expand to the pretty-printed payload, as text.
+- The query keys are `['runs', id]` (live), plus `['run-events', id]` and `['run-diff', id]`. The
+  last two are deliberately outside the `runs` prefix, so a live event doesn't refetch the whole
+  history or diff.
+- The diff is shown as text with per-line classes; no diff library. The truncation marker shows a
+  note.
+- Cancel sits behind `ConfirmDialog` and is hidden for terminal runs.
