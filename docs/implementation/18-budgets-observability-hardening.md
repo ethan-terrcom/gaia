@@ -81,3 +81,18 @@ Make Gaia safe to leave running. **Split this into PRs 18a–18d.**
   that mode.
 - `GAIA_FAKE_LLM` (demo mode) and OpenTelemetry remain open: `TODO(gaia-18b-2)` and
   `TODO(gaia-18b-otel)`.
+
+## Decisions and deviations (as built) — 18c (partial)
+- **Dependency audit (done, lead):** `make audit` runs `pip-audit` 2.10.1 (pinned, run via `uvx`,
+  not added to the project) over `uv export --frozen` with hashes, plus `npm audit
+  --audit-level=high` on `frontend/` and `frontend/tools/openapi/`. CI runs it as a separate
+  **`dependency audit`** job. It is not required for merging, so a newly published advisory shows
+  up without blocking unrelated PRs; treat a red audit as a bug. First run (2026-11-14): no known
+  vulnerabilities in either ecosystem.
+- **Dependency pinning:** already enforced since doc 01. Exact pins, versions at least two weeks
+  old, and young transitive packages held back by `exclude-newer-package` (Python) and
+  `overrides` (npm).
+- **`DockerCommandRunner`: deferred.** Docker is not installed on the development machine, so the
+  runner cannot be verified live, and `srt` (D1) is the default boundary. Revisit if a user needs
+  container isolation.
+- **Worktree cleanup:** a separate package (18c-cleanup).
