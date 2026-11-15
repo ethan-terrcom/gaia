@@ -159,6 +159,12 @@ async def test_happy_path_completes_and_moves_ticket_to_done(database: Any, tmp_
             assert (
                 await _approval_count(session, workspace_id, run_id, ApprovalKind.MERGE.value) == 1
             )
+            # Lead review 14 (M1): the merge approval carries the PR number the
+            # human must type to confirm.
+            [merge_row] = await ScopedRepo(session, Approval, workspace_id).list(
+                run_id=run_id, kind=ApprovalKind.MERGE.value
+            )
+            assert merge_row.payload_json["pr_number"] == fakes.pull_requests.pr_number
             ticket = await ScopedRepo(session, Ticket, workspace_id).get(ticket_id)
             assert ticket is not None
             assert ticket.status == TicketStatus.IN_REVIEW.value

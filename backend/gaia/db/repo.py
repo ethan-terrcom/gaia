@@ -35,12 +35,19 @@ from gaia.db.models import (
     PullRequest,
     Repository,
     Run,
+    RunStep,
     RunToken,
     Ticket,
     Worktree,
 )
 from gaia.db.types import utcnow
-from gaia.domain.enums import ApprovalStatus, PullRequestState, RunStatus, WorktreeStatus
+from gaia.domain.enums import (
+    ApprovalStatus,
+    PullRequestState,
+    RunStatus,
+    RunStepStatus,
+    WorktreeStatus,
+)
 
 
 class WorkspaceMismatch(ValueError):
@@ -159,6 +166,146 @@ class RunRepo:
         )
         statement = select(Run).where(~Run.status.in_(ignored)).order_by(Run.id)
         return list((await self.session.scalars(statement)).all())
+
+    async def list_summary(
+        self,
+        workspace_id: str,
+        *,
+        status: str | None,
+        after_id: str | None,
+        limit: int,
+    ) -> list[RunSummaryRow]:
+        """Return one workspace's runs, newest first, with their dashboard fields.
+
+        One SQL statement only: the ticket is joined and the current step and PR
+        fields are correlated scalar subqueries, so the page limit applies to
+        runs rather than to joined child rows.
+        """
+        current_step_index = (
+            select(RunStep.step_index)
+            .where(
+                RunStep.run_id == Run.id,
+                RunStep.status != RunStepStatus.COMPLETED.value,
+            )
+            .order_by(RunStep.step_index)
+            .limit(1)
+            .correlate(Run)
+            .scalar_subquery()
+        )
+        current_step_title = (
+            select(RunStep.title)
+            .where(
+                RunStep.run_id == Run.id,
+                RunStep.status != RunStepStatus.COMPLETED.value,
+            )
+            .order_by(RunStep.step_index)
+            .limit(1)
+            .correlate(Run)
+            .scalar_subquery()
+        )
+        latest_pr = (
+            select(PullRequest.id)
+            .where(PullRequest.run_id == Run.id)
+            .order_by(PullRequest.created_at.desc(), PullRequest.id.desc())
+            .limit(1)
+            .correlate(Run)
+            .scalar_subquery()
+        )
+        pr_number = (
+            select(PullRequest.number)
+            .where(PullRequest.id == latest_pr)
+            .correlate(Run)
+            .scalar_subquery()
+        )
+        pr_url = (
+            select(PullRequest.url)
+            .where(PullRequest.id == latest_pr)
+            .correlate(Run)
+            .scalar_subquery()
+        )
+        pr_ci_status = (
+            select(PullRequest.ci_status)
+            .where(PullRequest.id == latest_pr)
+            .correlate(Run)
+            .scalar_subquery()
+        )
+        statement = (
+            select(
+                Run,
+                Ticket,
+                current_step_index.label("current_step_index"),
+                current_step_title.label("current_step_title"),
+                pr_number.label("pr_number"),
+                pr_url.label("pr_url"),
+                pr_ci_status.label("pr_ci_status"),
+            )
+            .join(Ticket, Ticket.id == Run.ticket_id)
+            .where(
+                Run.workspace_id == workspace_id,
+                Ticket.workspace_id == workspace_id,
+            )
+        )
+        if status is not None:
+            statement = statement.where(Run.status == status)
+        if after_id is not None:
+            statement = statement.where(Run.id < after_id)
+        statement = statement.order_by(Run.id.desc()).limit(limit)
+        rows = (await self.session.execute(statement)).all()
+        return [
+            RunSummaryRow(
+                run=run,
+                ticket=ticket,
+                current_step_index=current_step_index_value,
+                current_step_title=current_step_title_value,
+                pr_number=pr_number_value,
+                pr_url=pr_url_value,
+                pr_ci_status=pr_ci_status_value,
+            )
+            for (
+                run,
+                ticket,
+                current_step_index_value,
+                current_step_title_value,
+                pr_number_value,
+                pr_url_value,
+                pr_ci_status_value,
+            ) in rows
+        ]
+
+    async def get_detail(self, workspace_id: str, run_id: str) -> RunDetailRow | None:
+        """Return the rows behind ``GET /runs/{id}``, scoped to ``workspace_id``."""
+        run = await ScopedRepo(self.session, Run, workspace_id).get(run_id)
+        if run is None:
+            return None
+        ticket = await ScopedRepo(self.session, Ticket, workspace_id).get(run.ticket_id)
+        if ticket is None:
+            return None
+        worktree = (
+            await ScopedRepo(self.session, Worktree, workspace_id).get(run.worktree_id)
+            if run.worktree_id is not None
+            else None
+        )
+        steps = sorted(
+            await ScopedRepo(self.session, RunStep, workspace_id).list(run_id=run_id),
+            key=lambda step: step.step_index,
+        )
+        approvals = await ApprovalRepo(self.session, Approval, workspace_id).list_inbox(
+            run_id=run_id
+        )
+        pull_requests = await ScopedRepo(self.session, PullRequest, workspace_id).list(
+            run_id=run_id
+        )
+        pull_request = (
+            max(pull_requests, key=lambda pr: (pr.created_at, pr.id)) if pull_requests else None
+        )
+        return RunDetailRow(
+            run=run,
+            ticket=ticket,
+            worktree=worktree,
+            steps=steps,
+            approvals=approvals,
+            pull_request=pull_request,
+        )
 
 
 @dataclass(frozen=True)
@@ -294,6 +441,31 @@ class CleanupRepo:
                 )
             ).all()
         )
+
+
+@dataclass(frozen=True)
+class RunSummaryRow:
+    """One row of the runs list: the run plus its dashboard fields."""
+
+    run: Run
+    ticket: Ticket
+    current_step_index: int | None
+    current_step_title: str | None
+    pr_number: int | None
+    pr_url: str | None
+    pr_ci_status: str | None
+
+
+@dataclass(frozen=True)
+class RunDetailRow:
+    """The rows backing ``GET /runs/{id}`` (doc 14)."""
+
+    run: Run
+    ticket: Ticket
+    worktree: Worktree | None
+    steps: list[RunStep]
+    approvals: list[Approval]
+    pull_request: PullRequest | None
 
 
 class PullRequestRepo:

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -228,6 +228,54 @@ class RunRead(WorkspaceScopedRead):
     created_by: str | None
 
 
+class RunCreate(RequestSchema):
+    """Start a run. The status starts at ``pending`` and cannot be set here."""
+
+    ticket_id: str
+    junior_runtime: RuntimeKind | None = None
+    budget_usd: Decimal | None = Field(default=None, gt=0)
+
+
+class RunCurrentStep(Schema):
+    """The first not-yet-completed step of a run, for the dashboard list."""
+
+    index: int
+    title: str
+
+
+class RunSummary(RunRead):
+    """One row of the dashboard runs list (doc 14)."""
+
+    ticket_title: str
+    current_step: RunCurrentStep | None
+    pr_number: int | None
+    pr_url: str | None
+    ci_status: CiStatus | None
+
+
+class RunPage(Schema):
+    """One page of runs and the cursor for the next page."""
+
+    items: list[RunSummary]
+    next_cursor: str | None
+
+
+class RunTicketSummary(Schema):
+    """The ticket fields a run detail shows beside the run."""
+
+    id: str
+    title: str
+    status: TicketStatus
+
+
+class RunWorktreeSummary(Schema):
+    """The worktree fields a run detail shows."""
+
+    branch: str
+    path: str
+    status: WorktreeStatus
+
+
 class RunStepRead(WorkspaceScopedRead):
     """One step of a run's plan."""
 
@@ -300,6 +348,45 @@ class PullRequestPage(Schema):
     """One page of pull requests (doc 15b)."""
 
     items: list[PullRequestRead]
+
+
+class RunPullRequestRead(ReadSchema):
+    """The PR fields a run detail shows, without the list route's repo context."""
+
+    number: int
+    url: str
+    state: PullRequestState
+    ci_status: CiStatus
+    review_state: str | None
+    head_sha: str | None
+
+
+class RunDetail(Schema):
+    """Everything the run detail endpoint shows (doc 14)."""
+
+    run: RunRead
+    ticket: RunTicketSummary
+    steps: list[RunStepRead]
+    worktree: RunWorktreeSummary | None
+    approvals: list[ApprovalRead]
+    pull_request: RunPullRequestRead | None
+
+
+class DecideRequest(RequestSchema):
+    """A human decision on one approval (doc 14)."""
+
+    decision: Literal["approve", "reject", "edit"]
+    comment: str | None = Field(default=None, max_length=4000)
+    edited_payload: dict[str, Any] | None = None
+    confirm: str | None = None
+    budget_usd: Decimal | None = Field(default=None, gt=0)
+
+
+class DecideAccepted(Schema):
+    """The 202 acknowledgement for a graph-gate decision."""
+
+    approval_id: str
+    status: Literal["accepted"]
 
 
 class EventRead(WorkspaceScopedRead):

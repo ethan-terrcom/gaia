@@ -19,7 +19,7 @@ from gaia.db.engine import session_scope
 from gaia.db.ids import uuid7
 from gaia.db.models import Run, Ticket
 from gaia.db.repo import RunRepo, ScopedRepo
-from gaia.domain.enums import EventType, RunStatus
+from gaia.domain.enums import EventType, RunStatus, RuntimeKind
 from gaia.domain.state import transition
 from gaia.orchestrator.deps import GraphDeps
 from gaia.orchestrator.state import RunState
@@ -93,7 +93,15 @@ class RunManager:
         """Return the ids of runs whose graph task is still running."""
         return [run_id for run_id, task in self._tasks.items() if not task.done()]
 
-    async def start(self, ticket_id: str, *, workspace_id: str, created_by: str) -> str:
+    async def start(
+        self,
+        ticket_id: str,
+        *,
+        workspace_id: str,
+        created_by: str,
+        junior_runtime: RuntimeKind | None = None,
+        budget_usd: Decimal | None = None,
+    ) -> str:
         """Create the run row and launch the graph in the background."""
         run_id = uuid7()
         async with session_scope(self.deps.sessions) as session:
@@ -106,7 +114,12 @@ class RunManager:
                 id=run_id,
                 ticket_id=ticket_id,
                 repo_id=ticket.repo_id,
-                budget_usd=Decimal(str(self.deps.settings.run_budget_usd)),
+                junior_runtime=junior_runtime.value if junior_runtime is not None else None,
+                budget_usd=(
+                    budget_usd
+                    if budget_usd is not None
+                    else Decimal(str(self.deps.settings.run_budget_usd))
+                ),
                 graph_thread_id=run_id,
                 created_by=created_by,
             )

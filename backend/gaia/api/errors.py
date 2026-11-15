@@ -63,6 +63,10 @@ class ErrorCode(StrEnum):
     VALIDATION_ERROR = "validation_error"
     INTERNAL_ERROR = "internal_error"
     HTTP_ERROR = "http_error"
+    ORCHESTRATOR_UNAVAILABLE = "orchestrator_unavailable"
+    APPROVAL_NOT_PENDING = "approval_not_pending"
+    RUN_BUSY = "run_busy"
+    MERGE_CONFIRMATION_REQUIRED = "merge_confirmation_required"
 
 
 _CODES_BY_STATUS: Final[dict[int, ErrorCode]] = {

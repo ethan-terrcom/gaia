@@ -41,3 +41,37 @@ UI (17).
 
 ## Acceptance criteria
 - [ ] A full run can be driven through the API alone, with `curl`.
+
+## Decisions and deviations (as built)
+
+- **SQLite has no `SELECT ... FOR UPDATE`.** Double-decide protection is a
+  process-wide `asyncio.Lock` per approval id, held across the read/validate/
+  resume step and cleaned up after use. A second concurrent request sees either
+  `RunBusy` or the already-decided row and gets 409.
+- **`AppServices.runs` and `AppServices.approvals` were added here** with `None`
+  defaults because 12b-3 had not landed on this branch. When either is `None`,
+  the runs and decide routes return 503
+  `{"error":{"code":"orchestrator_unavailable"}}`.
+- **The merge confirmation reads `payload_json["pr_number"]` when present.**
+  The 12a `approve_merge` node currently stores only `kind`, so the route falls
+  back to the run's latest `pull_request` row. This keeps the typed confirmation
+  working with the 12a fakes; 12b should add `pr_number` to the payload.
+- **Command approvals are answered by `DbApprovalBroker.decide` and the graph is
+  not resumed.** Graph gates return 202 because the resumed node applies the
+  decision asynchronously.
+- **The diff route never calls `diff_since`.** It runs
+  `GitService.diff(location, base_sha, "HEAD")`, then a blank line, then
+  `GitService.diff_worktree(location)`, outside any DB session. The combined
+  output is capped at `max_bytes` and gets a trailing `\n[diff truncated]`.
+- **Run summaries are one joined SQL statement** (`RunRepo.list_summary`): the
+  ticket is joined, and the current step and PR fields are correlated scalar
+  subqueries so the page limit applies to runs, not child rows.
+
+### Lead review — 14 (2026-11-14, [`review-14`](../reviews/2026-11-14-review-14.md))
+- **M1:** the `approve_merge` node now stores `pr_number` in the approval payload, so the inbox
+  shows it and the typed confirmation (`merge <n>`) reads it directly. The route's fallback to
+  the run's latest PR row is kept as defence in depth.
+- The `AppServices.runs`/`approvals` fields the junior added locally were reconciled with 12b-3's
+  at merge.
+- [ ] Acceptance ("a full run can be driven through the API alone, with `curl`"): verified live
+  by the lead after merge (see the review).
