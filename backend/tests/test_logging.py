@@ -14,7 +14,7 @@ from collections.abc import Iterator
 import pytest
 import structlog
 
-from gaia.config.logging import configure_logging
+from gaia.config.logging import _reset_for_tests, configure_logging
 from gaia.security.redaction import REDACTED, register_secret
 
 DUMMY_SECRET = "dummy" + "-logged-value"
@@ -32,7 +32,7 @@ def restore_structlog() -> Iterator[None]:
     try:
         yield
     finally:
-        structlog.reset_defaults()
+        _reset_for_tests()
 
 
 def test_a_logged_secret_is_redacted(output: io.StringIO) -> None:

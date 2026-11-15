@@ -342,13 +342,21 @@ def _serve(args: argparse.Namespace) -> int:
     # stack (uvicorn pulls in a lot of it).
     import uvicorn
 
+    from gaia.config.logging import configure_logging
+
     settings = get_settings()
+    configure_logging(
+        log_dir=settings.log_dir,
+        max_bytes=settings.log_file_max_bytes,
+        backups=settings.log_file_backups,
+    )
     uvicorn.run(
         APP_TARGET,
         factory=True,
         host=settings.host,
         port=settings.port,
         reload=args.reload,
+        log_config=None,
     )
     return 0
 

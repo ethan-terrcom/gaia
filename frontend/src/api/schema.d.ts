@@ -113,6 +113,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/metrics/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Workspace metrics summary
+         * @description Return runs, spend and approval wait metrics for the last UTC days.
+         *
+         *     The window covers ``days`` UTC calendar days ending today (UTC), which keeps
+         *     "last 1 day" aligned to midnight UTC rather than a rolling 24 hours.
+         */
+        get: operations["get_metrics_summary_api_v1_metrics_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/pull-requests": {
         parameters: {
             query?: never;
@@ -453,11 +476,50 @@ export interface components {
          */
         ApprovalStatus: "pending" | "approved" | "rejected" | "expired";
         /**
+         * ApprovalWaitSummary
+         * @description Human wait time for approvals over a window (doc 18b).
+         */
+        ApprovalWaitSummary: {
+            /** Avg */
+            avg: number;
+            /** Count */
+            count: number;
+            /** P50 */
+            p50: number;
+            /** P90 */
+            p90: number;
+        };
+        /**
          * CiStatus
          * @description The part of a GitHub checks rollup Gaia cares about (doc 15).
          * @enum {string}
          */
         CiStatus: "unknown" | "pending" | "passed" | "failed";
+        /**
+         * CostByDay
+         * @description LLM spend for one UTC day over a window (doc 18b).
+         */
+        CostByDay: {
+            /** Cost Usd */
+            cost_usd: string;
+            /**
+             * Day
+             * Format: date
+             */
+            day: string;
+        };
+        /**
+         * CostByModel
+         * @description LLM spend for one provider/model pair over a window (doc 18b).
+         */
+        CostByModel: {
+            /** Cost Usd */
+            cost_usd: string;
+            /** Model */
+            model: string;
+            /** Provider */
+            provider: string;
+        };
         /**
          * EventHistory
          * @description One page of a run's event history.
@@ -523,6 +585,25 @@ export interface components {
              * @constant
              */
             status: "ok";
+        };
+        /**
+         * MetricsSummary
+         * @description The observability dashboard's workspace summary (doc 18b).
+         */
+        MetricsSummary: {
+            approval_wait_s: components["schemas"]["ApprovalWaitSummary"] | null;
+            /** Avg Cost Per Run Usd */
+            avg_cost_per_run_usd: string | null;
+            /** Cost By Day */
+            cost_by_day: components["schemas"]["CostByDay"][];
+            /** Cost By Model */
+            cost_by_model: components["schemas"]["CostByModel"][];
+            /** Runs By Status */
+            runs_by_status: {
+                [key: string]: number;
+            };
+            /** Success Rate */
+            success_rate: number | null;
         };
         /**
          * Principal
@@ -1034,6 +1115,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Principal"];
+                };
+            };
+        };
+    };
+    get_metrics_summary_api_v1_metrics_summary_get: {
+        parameters: {
+            query?: {
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MetricsSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

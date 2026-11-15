@@ -75,6 +75,21 @@ and lists. `configure_logging()` puts it after exception formatting (so tracebac
 just before the renderer (so nothing prints an unmasked event). The API error envelope and
 `GitError` messages call `redact()` directly.
 
+### Logs: console and file, every line redacted (18b)
+- **One pipeline for every log line.** structlog events and plain standard-library `logging`
+  records (httpx, uvicorn, SQLAlchemy and any library) all pass through a
+  `structlog.stdlib.ProcessorFormatter` on the root logger. Its chain runs `redaction_processor`
+  after exception formatting, so a secret is masked even inside a third-party traceback. This
+  closed review findings F8 and E4.
+- **Console:** human-readable, on stderr (stdout stays clean for `gaia dev … | jq`).
+- **File:** `gaia serve` also writes `{data_dir}/logs/gaia.jsonl`, one JSON object per line
+  (`timestamp`, `level`, `event` and any bound fields). The directory is `0700`, the file `0600`,
+  including after rotation. Rotation is at `GAIA_LOG_FILE_MAX_BYTES` (10 MB), keeping
+  `GAIA_LOG_FILE_BACKUPS` (5). Read it with `jq . ~/.gaia/logs/gaia.jsonl`.
+- **uvicorn's access line drops the query string:** `GET /api/v1/stream`, never `?ticket=…`.
+- Verified live: the stream ticket and the API token appeared 0 times in the file and the
+  console.
+
 ## Why it's built this way
 
 - **No `.env` support, on purpose.** A plaintext key file next to a repo is exactly what Gaia
