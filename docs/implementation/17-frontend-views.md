@@ -64,6 +64,15 @@ self-contained task.
   `globalThis.fetch` when the client is created, and passing it per call lets tests stub `fetch`
   after import. In production it is the same function, and the middleware still applies.
 
+### 17b Tickets (2026-11-14, [`review-17b`](../reviews/2026-11-14-review-17b.md))
+- The view lives in `src/views/tickets/`. The board (default) and table are toggled with
+  `?view=table`; the repository filter and search are `?repo=` and `?q=`. Search uses the API's
+  `q` parameter, and typing replaces the history entry (lead fix).
+- Create and edit happen in a modal (`POST`/`PATCH /tickets`). "Start run" sends only the fields
+  that were set (`junior_runtime`, `budget_usd` > 0) and navigates to `/runs/<id>`. A 409 (active
+  run) and a 503 (orchestrator off) show inline.
+- Pagination is cursor-based, with "Load more".
+
 ### 17f Worktrees & repositories (2026-11-14, [`review-17f`](../reviews/2026-11-14-review-17f.md))
 - The view lives in `src/views/worktrees/`, with two sections: repositories (list, register,
   unregister) and worktrees (table, filters, remove).
