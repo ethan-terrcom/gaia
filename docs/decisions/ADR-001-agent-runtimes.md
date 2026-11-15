@@ -134,6 +134,16 @@ event or UI code changes.
    updated, `00-README.md` has 10b (native loop) and 10c (Agent SDK) rows, and Cline is out of
    scope for v1.
 
+## Implementation notes (added as built)
+- **10b and 10c shipped on 2026-11-14.** Both pass the same contract suite. Both were verified
+  live on the same toy ticket: the native loop on DeepSeek for $0.003, the Agent SDK on Claude
+  Opus 5.5 for $0.042. The lead's planning also ran live on DeepSeek (P6).
+- **An accepted exception to "only `services/proc.py` spawns processes":** the Agent SDK starts
+  its bundled CLI itself. Gaia controls what it starts (the `cli_path` wrapper: `env -i`, srt)
+  and records its pid for orphan cleanup.
+- **The bundled CLI honours `MCP_TOOL_TIMEOUT`** (verified live). Gaia sets it to cover an
+  approval wait plus the longest allowed command.
+
 ## Owner sign-off
 - [x] Approved, with the portability condition above. Owner (chief architect), 2026-11-14, given
   in the lead's working session: "I am ok to proceed with your recommendations outlined in

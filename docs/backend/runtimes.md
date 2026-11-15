@@ -120,6 +120,38 @@ finally: close the handle (revokes the token)
   call. `tests/test_lead_portability.py` runs the lead's planning and review on it, and it was
   verified live: DeepSeek planned a real ticket through the gateway.
 
+## The Claude Agent SDK runtime (10c): Claude as a thin adapter
+`ClaudeAgentSdkRuntime` runs the lead role (ADR-001). Claude Code's agent loop is excellent, but
+the owner's condition was that Gaia must be able to walk away from it. So the SDK supplies **only
+the loop and the model**; everything else is Gaia's:
+
+| Concern | How 10c keeps it Gaia's |
+|---|---|
+| Tools (P3) | `tools=[]` turns every built-in tool off, plus a `disallowed_tools` list. Gaia's 09b registry is served as one in-process MCP server, `gaia`, and `allowed_tools` is the exact `mcp__gaia__*` list. A `PreToolUse` hook denies anything else |
+| Policy, approvals, audit, events | the same `registry.call` the native loop uses |
+| Configuration | `setting_sources=[]` (no `.claude/`, `CLAUDE.md` or user settings), `strict_mcp_config=True` (no repo `.mcp.json`), and Gaia's own Markdown system prompt, never the `claude_code` preset |
+| State and cost (P4) | no SDK sessions, `resume` or checkpointing. Usage is the result's token counts priced by Gaia, never `total_cost_usd`. A test greps the module for the banned names |
+| Credentials | a per-task run token; the gateway holds the real key |
+| Environment and sandbox | see the wrapper, below |
+
+**The wrapper.** The SDK merges its `env` option onto Gaia's own environment, so the CLI is never
+started directly. `cli_path` points at a per-task script that:
+1. writes its pid, for orphan cleanup;
+2. `env -i` rebuilds the environment from nothing (`PATH`, `HOME`/`TMPDIR` = the task dir, the
+   gateway URL, the run token renamed to `ANTHROPIC_API_KEY`, `MCP_TOOL_TIMEOUT`);
+3. enters `srt` (network only to the gateway), then `env -u NO_PROXY` so traffic uses srt's proxy;
+4. execs the SDK's bundled CLI.
+
+The wrapper and the srt settings live in a control dir under `{data_dir}/sandbox/`, which the
+CLI cannot write.
+
+**Two timeouts.** The CLI enforces its own per-tool-call timeout (`MCP_TOOL_TIMEOUT`, verified
+live to be honoured). One Gaia tool call can wait for an approval and then run a command for up to
+30 minutes, so the value is the approval timeout + 1,800 s + 120 s.
+
+**What migrating away costs:** this one file. Nothing else in Gaia imports the SDK
+(`tests/test_vendor_boundaries.py`), and the same contract suite proves a replacement.
+
 ## Try it
 ```sh
 git -C <repo> worktree add <wt> -b gaia/try main

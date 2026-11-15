@@ -7,6 +7,7 @@ dependencies = [
     "aiosqlite>=0.22.1",
     "alembic>=1.20.1",
     "anthropic>=2.8.0,<3",
+    "claude-agent-sdk==0.2.175",
     "fastapi>=0.162.5",
     "httpx>=0.28.1",
     "keyring>=25.7.0",
@@ -40,10 +41,11 @@ build-backend = "uv_build"
 
 [tool.uv]
 # Supply-chain rule: a dependency version must be at least two weeks old when it
-# is adopted. These transitive packages of langgraph (doc 12a) had releases
+# is adopted. These transitive packages of langgraph (doc 12a) and claude-agent-sdk
+# (doc 10c, sse-starlette) had releases
 # newer than that on 2026-11-14, so they are held to versions uploaded by
 # 2026-10-31. Remove an entry once the newer release has aged.
-exclude-newer-package = { jsonpatch = "2026-10-31T00:00:00Z", jsonpointer = "2026-10-31T00:00:00Z", langchain-core = "2026-10-31T00:00:00Z", langchain-protocol = "2026-10-31T00:00:00Z", langgraph-prebuilt = "2026-10-31T00:00:00Z", langgraph-sdk = "2026-10-31T00:00:00Z", langsmith = "2026-10-31T00:00:00Z", ormsgpack = "2026-10-31T00:00:00Z", xxhash = "2026-10-31T00:00:00Z" }
+exclude-newer-package = { jsonpatch = "2026-10-31T00:00:00Z", jsonpointer = "2026-10-31T00:00:00Z", langchain-core = "2026-10-31T00:00:00Z", langchain-protocol = "2026-10-31T00:00:00Z", langgraph-prebuilt = "2026-10-31T00:00:00Z", langgraph-sdk = "2026-10-31T00:00:00Z", langsmith = "2026-10-31T00:00:00Z", ormsgpack = "2026-10-31T00:00:00Z", sse-starlette = "2026-10-31T00:00:00Z", xxhash = "2026-10-31T00:00:00Z" }
 
 [tool.uv.build-backend]
 # Flat layout: the package lives at backend/gaia, as ARCHITECTURE.md section 2 shows.

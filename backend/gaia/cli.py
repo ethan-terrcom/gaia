@@ -154,7 +154,7 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     run_task.add_argument(
-        "--runtime", choices=["fake", "native"], default="fake", help="runtime to use"
+        "--runtime", choices=["fake", "native", "claude_sdk"], default="fake", help="runtime to use"
     )
     run_task.add_argument("--model", default="deepseek-v4-pro", help="model for native runtime")
     run_task.add_argument(
@@ -698,11 +698,113 @@ async def _run_native_task(args: argparse.Namespace, settings: Settings) -> int:
             shutil.rmtree(task_dir, ignore_errors=True)
 
 
+async def _run_claude_sdk_task(args: argparse.Namespace, settings: Settings) -> int:
+    """Run one lead task through the Claude Agent SDK runtime."""
+    from gaia.api.app import create_app
+    from gaia.db.engine import session_scope
+    from gaia.db.ids import uuid7
+    from gaia.db.models import Repository, Run, Ticket
+    from gaia.db.repo import ScopedRepo
+    from gaia.domain.enums import AgentRole
+    from gaia.runtimes.approvals import DbApprovalBroker
+    from gaia.runtimes.base import AgentTask
+    from gaia.runtimes.claude_agent_sdk import ClaudeAgentSdkRuntime
+    from gaia.runtimes.support import run_with_limits
+    from gaia.security.audit import DbAuditSink
+    from gaia.security.commands import CommandPolicy
+    from gaia.security.sandbox import find_srt
+    from gaia.services.events import BusEventSink, EventSink
+    from gaia.tools.fs import find_rg
+    from gaia.tools.registry import ALL_TOOLS, ToolContext, build_default_registry
+    from gaia.tools.shell import SrtCommandRunner
+
+    app = create_app(settings)
+    async with app.router.lifespan_context(app):
+        services = app.state.services
+        location = _worktree_location(Path(args.worktree))
+        base_sha = await services.git.current_sha(location)
+        rg_path = find_rg(settings)
+        registry = build_default_registry(search_supports_regex=rg_path is not None).subset(
+            ALL_TOOLS
+        )
+
+        async with session_scope(services.sessions) as session:
+            repos = ScopedRepo(session, Repository, services.principal.workspace_id)
+            repository = await repos.create(
+                name=f"dev-run-task-claude-sdk-{uuid7()}",
+                local_path=str(location.work_tree),
+                created_by=services.principal.user_id,
+            )
+            tickets = ScopedRepo(session, Ticket, services.principal.workspace_id)
+            ticket = await tickets.create(
+                repo_id=repository.id,
+                title="Dev run-task (claude_sdk)",
+                created_by=services.principal.user_id,
+            )
+            runs = ScopedRepo(session, Run, services.principal.workspace_id)
+            # A run's budget defaults to 0, which the gateway refuses on the
+            # first call; a dev run gets the configured per-run budget.
+            run = await runs.create(
+                ticket_id=ticket.id,
+                repo_id=repository.id,
+                created_by=services.principal.user_id,
+                budget_usd=Decimal(str(settings.run_budget_usd)),
+            )
+
+        async def context_factory(
+            task: AgentTask, events: EventSink, task_dir: Path
+        ) -> ToolContext:
+            return ToolContext(
+                task=task,
+                git=services.git,
+                policy=CommandPolicy.from_default(),
+                approvals=DbApprovalBroker(services.sessions, services.events),
+                audit=DbAuditSink(services.sessions),
+                events=events,
+                commands=SrtCommandRunner(settings, srt_path=find_srt(settings)),
+                task_dir=task_dir,
+                actor=f"dev:{task.agent_id or task.task_id}",
+                approval_timeout_s=600,
+                rg_path=rg_path,
+            )
+
+        task = AgentTask(
+            task_id=uuid7(),
+            run_id=run.id,
+            run_step_id=None,
+            workspace_id=services.principal.workspace_id,
+            agent_id=None,
+            role=AgentRole.LEAD,
+            instructions=args.instructions,
+            worktree=location,
+            base_sha=base_sha,
+        )
+        runtime = ClaudeAgentSdkRuntime(
+            registry=registry,
+            settings=settings,
+            sessions=services.sessions,
+            context_factory=context_factory,
+            model=settings.lead_model,
+            price_table=services.prices,
+        )
+        sink = BusEventSink(
+            services.events,
+            workspace_id=services.principal.workspace_id,
+            run_id=run.id,
+        )
+        result = await run_with_limits(runtime, task, sink, git=services.git)
+        print(result.model_dump_json(indent=2))
+        return 0
+
+
 def _dev_run_task(args: argparse.Namespace) -> int:
-    """Run one task through the real app lifespan (fake or native)."""
+    """Run one task through the real app lifespan (fake, native or claude_sdk)."""
     try:
-        if getattr(args, "runtime", "fake") == "native":
+        runtime = getattr(args, "runtime", "fake")
+        if runtime == "native":
             return asyncio.run(_run_native_task(args, get_settings()))
+        if runtime == "claude_sdk":
+            return asyncio.run(_run_claude_sdk_task(args, get_settings()))
         return asyncio.run(_run_fake_task(args, get_settings()))
     except (OSError, ValueError, RuntimeError) as error:
         print(f"error: {error}", file=sys.stderr)

@@ -165,3 +165,56 @@ Workflow logic (12) and planning prompts (11).
     rows with policy decisions. The DeepSeek key appears 0 times in all logs.
 - [x] Acceptance: `gaia dev run-task --runtime native --worktree <path> "…"` works end to end
   (10b). 10c's run covers the Agent SDK.
+
+## Decisions and deviations (as built) — 10c
+
+- **`build_wrapper_script` takes the values the script interpolates.** The lead note's four-argument
+  signature could not produce the documented script; the function additionally takes `agent_path`,
+  `task_dir` and `approval_timeout_s` as keyword arguments. It remains pure and testable.
+- **`context_factory` has the signature `(task, events, task_dir)`.** `ToolContext` must receive the
+  same `EventSink` as `run_task`, so the sink is part of the factory signature. This is the natural
+  10b-compatible shape and will be reconciled when 10b lands.
+- **`run_task` does not itself emit `agent.usage`.** `run_with_limits` already owns the final
+  `agent.usage` event for every runtime. The SDK result is mapped into `AgentResult.usage` (token
+  counts, priced by Gaia) and the shared wrapper emits the event once.
+- **Max-turns is detected as `subtype == "error_max_turns"` or `terminal_reason == "max_turns"`.**
+  The installed Python SDK does not define a constant for the wire subtype, so the runtime accepts
+  both signals the CLI can send.
+- **Run-token mint/revoke and budget check are injectable callables.** Production defaults call
+  `gaia.llm.run_tokens` and `gaia.services.costs` in their own transactions; contract tests inject
+  fakes so the runtime suite does not need a database for every case.
+- **The test fake reaches the real SDK MCP handler through `runtime.sdk_tool`.** This keeps the
+  test client independent of how `create_sdk_mcp_server` exposes its internal MCP server instance.
+- **Orphan tracking records the wrapper pid with `argv0="srt"`.** The SDK does not start a new
+  process group, so orphan cleanup kills the wrapper/srt leader pid; srt's own child handling is a
+  live-run check.
+
+### Lead review changes — 10c (2026-11-14, [`review-10c`](../reviews/2026-11-14-review-10c.md))
+- **C1 (high):** the same bug as 10b's N1. `run_task` registered `asyncio.current_task()`, and
+  `cancel()` cancelled it, which is the caller's task. The resulting `CancelledError` was then
+  swallowed without `uncancel()`, which corrupts the caller's cancellation state. The SDK session
+  now runs in its own child task; `cancel()` interrupts the client, then cancels that child, and
+  `run_task` returns `cancelled`.
+- **C2 (high):** the wrapper script, the srt settings and the pid file were written into
+  `task_dir`, which is the sandboxed CLI's own `HOME` and `TMPDIR`. They now live in a 0700
+  control dir under `{data_dir}/sandbox/` (09b's rule: a boundary's config lives where the
+  bounded process cannot write), removed after the task.
+- **C3 (medium):** `MCP_TOOL_TIMEOUT` was the approval timeout + 120 s (720 s), but `run_command`
+  allows commands of up to 1,800 s, so the CLI would abandon a long test run that Gaia was still
+  executing. It is now approval timeout + `MAX_COMMAND_TIMEOUT_S` + 120 s. Verified live first:
+  with the value squeezed to 10 s, the CLI reported "tool run_command timed out after 10s", so
+  the bundled CLI honours the variable.
+- The runtime's default name is `claude_agent_sdk`, the `RuntimeKind` value. The dev CLI's run
+  gets `budget_usd = settings.run_budget_usd`: the default 0 made the gateway refuse the first
+  call.
+- **Part 2** (a second junior session, 74 turns): tests for the remaining 58 lines, back to 100%,
+  and one unreachable fallback deleted.
+- **Verified live** (Claude Opus 5.5 through the gateway; srt 0.0.81; the bundled CLI behind
+  the wrapper):
+  - `gaia dev run-task --runtime claude_sdk` completed the toy ticket ($0.042);
+  - every tool call was a Gaia MCP tool (5 audit rows);
+  - only `v1/messages` reached the gateway, with 4 metered calls whose cost matched the runtime's
+    own pricing;
+  - the token was revoked, and the control dirs were removed;
+  - neither provider key appears in any log.
+- [x] Acceptance: `gaia dev run-task --runtime claude_sdk --worktree <path> "…"` works end to end.
