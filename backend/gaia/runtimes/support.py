@@ -41,6 +41,7 @@ def build_agent_env(
     gateway_url: str | None,
     run_token: SecretStr | None,
     provider: Literal["anthropic", "deepseek"] | None,
+    path: str = AGENT_PATH,
 ) -> dict[str, str]:
     """Build the environment for an agent process from scratch.
 
@@ -50,7 +51,7 @@ def build_agent_env(
     absent by construction, not by denylist.
     """
     env = {
-        "PATH": AGENT_PATH,
+        "PATH": path,
         "HOME": str(home),
         "LANG": "C.UTF-8",
         "TMPDIR": str(home),

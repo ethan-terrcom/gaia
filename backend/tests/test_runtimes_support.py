@@ -56,6 +56,18 @@ def test_build_agent_env_never_reads_os_environ(
     assert "OPENAI_API_KEY" not in env
 
 
+def test_build_agent_env_accepts_a_custom_path(tmp_path: Path) -> None:
+    env = build_agent_env(
+        home=tmp_path,
+        gateway_url=None,
+        run_token=None,
+        provider=None,
+        path="/opt/homebrew/bin:/usr/bin",
+    )
+
+    assert env["PATH"] == "/opt/homebrew/bin:/usr/bin"
+
+
 def test_build_agent_env_adds_provider_gateway_variables(tmp_path: Path) -> None:
     anthropic = build_agent_env(
         home=tmp_path,

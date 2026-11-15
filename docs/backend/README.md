@@ -5,7 +5,7 @@
 > one-page overview in [`backend/README.md`](../../backend/README.md), then read the guide for the
 > area you are about to touch.
 >
-> **Status:** living document, current as of packages 07b, 09a, 10a, 11, 12a and 13 (2026-11-14).
+> **Status:** living document, current as of packages 07b, 09a, 09b, 10a, 11, 12a and 13 (2026-11-14).
 
 ## How these guides are organised
 
@@ -31,14 +31,14 @@ day. It is the vocabulary for the rest of the guides.
 | [LLM clients & costs](llm.md) | `AnthropicClient`, `DeepSeekClient`, `FakeLLM`, pricing and usage recording | 07a |
 | [LLM gateway](gateway.md) | Run tokens, the streaming proxy, metering, budgets: why agents never hold a provider key | 07b |
 | [Security core](security.md) | `confine`, the command policy, the `srt` sandbox profile: tripwire versus boundary | 09a |
+| [Agent tools](tools.md) | `ToolRegistry`, file/search/command/git tools, `SrtCommandRunner`, the audit trail | 09b |
 | [Lead planning & review](lead.md) | `LeadEngineer`, repo context, structured outputs, byte-stable prompts | 11 |
 | [Agent runtimes](runtimes.md) | `AgentRuntime`, `run_with_limits`, approval brokers, orphans, fakes, the contract suite | 10a |
 | [Orchestrator](orchestrator.md) | The LangGraph run: gates as interrupts, `with_guard`, path maps, `RunManager`, crash recovery | 12a |
 | [Events & live stream](events.md) | `EventBus`, `EventSink`, stream tickets, SSE replay and gap healing | 13 |
 | [Python concepts](python-concepts.md) | Explainers for the techniques the code relies on | – |
 
-Guides for `tools/` will be added as
-those packages land (07b–15).
+Each later package adds or extends a guide here when it lands.
 
 ## Tooling and conventions
 

@@ -15,7 +15,7 @@ what an agent may touch:
 | "What can a command it runs actually reach?" | `sandbox.build_srt_settings()` | an `srt` settings dict (the OS boundary) |
 
 None of these modules perform I/O beyond reading the filesystem to resolve paths. The tools that
-use them (09b) and the runtimes (10) call them before every action and write an audit row with the
+use them ([09b, tools guide](tools.md)) and the runtimes (10) call them before every action and write an audit row with the
 `Decision.reason`.
 
 ## The one idea to hold on to: tripwire versus boundary
