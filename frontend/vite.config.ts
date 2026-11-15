@@ -12,6 +12,17 @@ const csp: string = (
   ) as CspFile
 ).value
 
+// Browsers ignore `frame-ancestors` in a <meta> CSP and log a console error for
+// it. The backend sends the full policy, including `frame-ancestors 'none'`, as
+// an HTTP header (gaia/api/spa.py), which is where it takes effect.
+const metaCsp: string = csp
+  .split(';')
+  .map((directive) => directive.trim())
+  .filter(
+    (directive) => directive !== '' && !directive.startsWith('frame-ancestors'),
+  )
+  .join('; ')
+
 // The production build is the only place the CSP meta tag is allowed. Vite's
 // dev server and React refresh inject inline scripts, which this policy blocks.
 function cspMeta(): Plugin {
@@ -26,7 +37,7 @@ function cspMeta(): Plugin {
             tag: 'meta',
             attrs: {
               'http-equiv': 'Content-Security-Policy',
-              content: csp,
+              content: metaCsp,
             },
             injectTo: 'head-prepend',
           },

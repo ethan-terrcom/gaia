@@ -128,7 +128,7 @@ async def test_demo_init_is_idempotent_and_its_tests_pass_on_the_host(
 
     output = capsys.readouterr().out
     assert "demo repository:" in output
-    assert "GAIA_FAKE_LLM=1 gaia serve" in output
+    assert "make demo" in output
 
 
 async def _demo_ids(database: Any, repo_path: Path) -> tuple[str, str]:
