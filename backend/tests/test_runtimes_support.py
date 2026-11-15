@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 from pydantic import SecretStr
 
-from gaia.domain.enums import AgentRole
+from gaia.domain.enums import AgentRole, EventType
 from gaia.runtimes.approvals import InMemoryApprovalBroker
 from gaia.runtimes.base import (
     AgentResult,
@@ -225,3 +225,20 @@ async def test_run_with_limits_bounds_a_hanging_cancel(
     )
 
     assert result.status == "timeout"
+
+
+async def test_run_with_limits_starts_with_an_agent_message_in_the_shared_shape(
+    worktree: WorktreeLocation,
+    git_repo: Path,
+    git_service: GitService,
+) -> None:
+    """Every ``agent.message`` carries its text under ``content`` (17c review, R3)."""
+    task = make_task(worktree, base_sha=base_sha(git_repo))
+    runtime = FakeRuntime([Finish("done", None)], InMemoryApprovalBroker())
+    sink = RecordingSink()
+
+    await run_with_limits(runtime, task, sink, git=git_service)
+
+    first_type, first_payload = sink.events[0]
+    assert first_type is EventType.AGENT_MESSAGE
+    assert first_payload == {"role": task.role.value, "content": task.instructions}

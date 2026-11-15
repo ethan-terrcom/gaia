@@ -103,7 +103,7 @@ async def run_with_limits(
     started = now()
     await events.emit(
         EventType.AGENT_MESSAGE,
-        {"role": task.role.value, "message": task.instructions},
+        {"role": task.role.value, "content": task.instructions},
     )
     try:
         async with asyncio.timeout(task.timeout_s):
