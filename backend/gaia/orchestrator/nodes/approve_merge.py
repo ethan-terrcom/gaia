@@ -31,7 +31,9 @@ async def approve_merge(state: RunState, deps: GraphDeps) -> dict[str, Any]:
             run_id=state["run_id"],
             idempotency_key=key,
             kind=ApprovalKind.MERGE,
-            payload={"kind": ApprovalKind.MERGE.value},
+            # The PR number is what the human must type to confirm (doc 14 task
+            # 2) and what the inbox shows (lead review 14, M1).
+            payload={"kind": ApprovalKind.MERGE.value, "pr_number": state.get("pr_number")},
         )
         approval_id = approval.id
 

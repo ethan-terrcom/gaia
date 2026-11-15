@@ -73,6 +73,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/approvals/{approval_id}/decide": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Decide an approval
+         * @description Record a human decision and, for graph gates, resume the run.
+         *
+         *     Command approvals are answered inside the runtime's turn and do not resume
+         *     the graph (doc 14). Graph-gate decisions are applied asynchronously by the
+         *     resumed node, so this route returns 202 and never marks the row decided
+         *     itself.
+         */
+        post: operations["decide_approval_api_v1_approvals__approval_id__decide_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/costs/today": {
         parameters: {
             query?: never;
@@ -203,6 +228,93 @@ export interface paths {
          *     ticket, run, approval and usage record that hangs off it (lead review of 06).
          */
         delete: operations["unregister_repository_api_v1_repositories__repository_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List runs
+         * @description Return the workspace's runs, newest first.
+         */
+        get: operations["list_runs_api_v1_runs_get"];
+        put?: never;
+        /**
+         * Start a run
+         * @description Start the graph for ``ticket_id`` and return the new run row.
+         */
+        post: operations["start_run_api_v1_runs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a run
+         * @description Return one run with its steps, worktree, approvals and PR.
+         */
+        get: operations["get_run_api_v1_runs__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel a run
+         * @description Cancel a live run, keep its worktree, and mark the run cancelled.
+         */
+        post: operations["cancel_run_api_v1_runs__run_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/diff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a run diff
+         * @description Return the committed plus uncommitted diff, capped at ``max_bytes``.
+         *
+         *     Git runs after the database rows are loaded and the session is closed: a GET
+         *     must not change git state, and no git call may sit inside a DB transaction.
+         */
+        get: operations["get_run_diff_api_v1_runs__run_id__diff_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -521,6 +633,40 @@ export interface components {
             provider: string;
         };
         /**
+         * DecideAccepted
+         * @description The 202 acknowledgement for a graph-gate decision.
+         */
+        DecideAccepted: {
+            /** Approval Id */
+            approval_id: string;
+            /**
+             * Status
+             * @constant
+             */
+            status: "accepted";
+        };
+        /**
+         * DecideRequest
+         * @description A human decision on one approval (doc 14).
+         */
+        DecideRequest: {
+            /** Budget Usd */
+            budget_usd?: number | string | null;
+            /** Comment */
+            comment?: string | null;
+            /** Confirm */
+            confirm?: string | null;
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "approve" | "reject" | "edit";
+            /** Edited Payload */
+            edited_payload?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /**
          * EventHistory
          * @description One page of a run's event history.
          */
@@ -767,6 +913,119 @@ export interface components {
             workspace_id: string;
         };
         /**
+         * RunCreate
+         * @description Start a run. The status starts at ``pending`` and cannot be set here.
+         */
+        RunCreate: {
+            /** Budget Usd */
+            budget_usd?: number | string | null;
+            junior_runtime?: components["schemas"]["RuntimeKind"] | null;
+            /** Ticket Id */
+            ticket_id: string;
+        };
+        /**
+         * RunCurrentStep
+         * @description The first not-yet-completed step of a run, for the dashboard list.
+         */
+        RunCurrentStep: {
+            /** Index */
+            index: number;
+            /** Title */
+            title: string;
+        };
+        /**
+         * RunDetail
+         * @description Everything the run detail endpoint shows (doc 14).
+         */
+        RunDetail: {
+            /** Approvals */
+            approvals: components["schemas"]["ApprovalRead"][];
+            pull_request: components["schemas"]["RunPullRequestRead"] | null;
+            run: components["schemas"]["RunRead"];
+            /** Steps */
+            steps: components["schemas"]["RunStepRead"][];
+            ticket: components["schemas"]["RunTicketSummary"];
+            worktree: components["schemas"]["RunWorktreeSummary"] | null;
+        };
+        /**
+         * RunPage
+         * @description One page of runs and the cursor for the next page.
+         */
+        RunPage: {
+            /** Items */
+            items: components["schemas"]["RunSummary"][];
+            /** Next Cursor */
+            next_cursor: string | null;
+        };
+        /**
+         * RunPullRequestRead
+         * @description The PR fields a run detail shows, without the list route's repo context.
+         */
+        RunPullRequestRead: {
+            ci_status: components["schemas"]["CiStatus"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Head Sha */
+            head_sha: string | null;
+            /** Id */
+            id: string;
+            /** Number */
+            number: number;
+            /** Review State */
+            review_state: string | null;
+            state: components["schemas"]["PullRequestState"];
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Url */
+            url: string;
+        };
+        /**
+         * RunRead
+         * @description A run, including the money that has been spent on it so far.
+         */
+        RunRead: {
+            /** Budget Usd */
+            budget_usd: string;
+            /** Cost Usd */
+            cost_usd: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Created By */
+            created_by: string | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Graph Thread Id */
+            graph_thread_id: string | null;
+            /** Id */
+            id: string;
+            junior_runtime: components["schemas"]["RuntimeKind"] | null;
+            /** Repo Id */
+            repo_id: string;
+            /** Started At */
+            started_at: string | null;
+            status: components["schemas"]["RunStatus"];
+            /** Ticket Id */
+            ticket_id: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Workspace Id */
+            workspace_id: string;
+            /** Worktree Id */
+            worktree_id: string | null;
+        };
+        /**
          * RunStatus
          * @description Where a run is in the graph of ARCHITECTURE section 4.
          *
@@ -777,6 +1036,119 @@ export interface components {
          * @enum {string}
          */
         RunStatus: "pending" | "planning" | "awaiting_approval" | "implementing" | "reviewing" | "pr_open" | "paused_budget" | "failed" | "completed" | "cancelled";
+        /**
+         * RunStepRead
+         * @description One step of a run's plan.
+         */
+        RunStepRead: {
+            /** Assigned Agent Id */
+            assigned_agent_id: string | null;
+            /** Attempts */
+            attempts: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Id */
+            id: string;
+            /** Result Summary */
+            result_summary: string | null;
+            /** Run Id */
+            run_id: string;
+            /** Spec Json */
+            spec_json: {
+                [key: string]: unknown;
+            };
+            status: components["schemas"]["RunStepStatus"];
+            /** Step Index */
+            step_index: number;
+            /** Title */
+            title: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Workspace Id */
+            workspace_id: string;
+        };
+        /**
+         * RunStepStatus
+         * @description Where a single step of the plan is (``run_step.status``).
+         * @enum {string}
+         */
+        RunStepStatus: "pending" | "running" | "completed" | "failed" | "cancelled";
+        /**
+         * RunSummary
+         * @description One row of the dashboard runs list (doc 14).
+         */
+        RunSummary: {
+            /** Budget Usd */
+            budget_usd: string;
+            ci_status: components["schemas"]["CiStatus"] | null;
+            /** Cost Usd */
+            cost_usd: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Created By */
+            created_by: string | null;
+            current_step: components["schemas"]["RunCurrentStep"] | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Graph Thread Id */
+            graph_thread_id: string | null;
+            /** Id */
+            id: string;
+            junior_runtime: components["schemas"]["RuntimeKind"] | null;
+            /** Pr Number */
+            pr_number: number | null;
+            /** Pr Url */
+            pr_url: string | null;
+            /** Repo Id */
+            repo_id: string;
+            /** Started At */
+            started_at: string | null;
+            status: components["schemas"]["RunStatus"];
+            /** Ticket Id */
+            ticket_id: string;
+            /** Ticket Title */
+            ticket_title: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Workspace Id */
+            workspace_id: string;
+            /** Worktree Id */
+            worktree_id: string | null;
+        };
+        /**
+         * RunTicketSummary
+         * @description The ticket fields a run detail shows beside the run.
+         */
+        RunTicketSummary: {
+            /** Id */
+            id: string;
+            status: components["schemas"]["TicketStatus"];
+            /** Title */
+            title: string;
+        };
+        /**
+         * RunWorktreeSummary
+         * @description The worktree fields a run detail shows.
+         */
+        RunWorktreeSummary: {
+            /** Branch */
+            branch: string;
+            /** Path */
+            path: string;
+            status: components["schemas"]["WorktreeStatus"];
+        };
         /**
          * RuntimeKind
          * @description The harness behind an agent; ADR-001 (doc 08) picks which ones ship.
@@ -1079,6 +1451,50 @@ export interface operations {
             };
         };
     };
+    decide_approval_api_v1_approvals__approval_id__decide_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                approval_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecideRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalRead"];
+                };
+            };
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DecideAccepted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_today_costs_api_v1_costs_today_get: {
         parameters: {
             query?: never;
@@ -1283,6 +1699,167 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_runs_api_v1_runs_get: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["RunStatus"] | null;
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_run_api_v1_runs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_run_api_v1_runs__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_run_api_v1_runs__run_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_run_diff_api_v1_runs__run_id__diff_get: {
+        parameters: {
+            query?: {
+                max_bytes?: number;
+            };
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
             };
             /** @description Validation Error */
             422: {

@@ -169,3 +169,23 @@ browser's `EventSource` cannot send a bearer header. The details are in [events]
 
 It is workspace-scoped, and an empty database gives zeros and nulls, never an error. It feeds the
 dashboard (17a).
+## Runs and approvals (package 14)
+| Route | What it does |
+|---|---|
+| `POST /api/v1/runs` `{ticket_id, junior_runtime?, budget_usd?}` | Starts a run (201). 404 for an unknown ticket, 409 if the ticket already has an active run, 503 if the orchestrator is off |
+| `GET /api/v1/runs?status=&limit=&cursor=` | Runs, newest first, with the ticket title, current step, PR and CI, in one query |
+| `GET /api/v1/runs/{id}` | The run with its steps, worktree, approvals and PR |
+| `POST /api/v1/runs/{id}/cancel` | Cancels the run (the worktree is kept); 409 if it has already finished |
+| `GET /api/v1/runs/{id}/diff` | The committed (`base..HEAD`) plus uncommitted diff as `text/x-diff`, capped. Read-only: it never stages anything |
+| `POST /api/v1/approvals/{id}/decide` `{decision, comment?, edited_payload?, confirm?, budget_usd?}` | See below |
+
+**Deciding an approval:**
+- **Command approvals** (asked inside an agent's turn) are answered through the shared
+  `DbApprovalBroker`, which wakes the waiting agent → 200.
+- **Graph gates** (`plan`, `escalation`, `budget`, `pr_open`, `merge`) resume the run with a
+  validated `Decision` → 202; the node records the decision on the row. For these gates:
+  - `edit` is valid only for a plan, and the edited plan is validated (422 if invalid);
+  - a merge needs `confirm: "merge <pr_number>"` (422 otherwise);
+  - a second decision gets 409.
+
+Every mutation writes an audit row.

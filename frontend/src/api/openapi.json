@@ -297,6 +297,96 @@
         "title": "CostByModel",
         "type": "object"
       },
+      "DecideAccepted": {
+        "description": "The 202 acknowledgement for a graph-gate decision.",
+        "properties": {
+          "approval_id": {
+            "title": "Approval Id",
+            "type": "string"
+          },
+          "status": {
+            "const": "accepted",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "approval_id",
+          "status"
+        ],
+        "title": "DecideAccepted",
+        "type": "object"
+      },
+      "DecideRequest": {
+        "additionalProperties": false,
+        "description": "A human decision on one approval (doc 14).",
+        "properties": {
+          "budget_usd": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Budget Usd"
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          },
+          "confirm": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirm"
+          },
+          "decision": {
+            "enum": [
+              "approve",
+              "reject",
+              "edit"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "edited_payload": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edited Payload"
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "title": "DecideRequest",
+        "type": "object"
+      },
       "EventHistory": {
         "description": "One page of a run's event history.",
         "properties": {
@@ -953,6 +1043,345 @@
         "title": "RepositoryRead",
         "type": "object"
       },
+      "RunCreate": {
+        "additionalProperties": false,
+        "description": "Start a run. The status starts at ``pending`` and cannot be set here.",
+        "properties": {
+          "budget_usd": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Budget Usd"
+          },
+          "junior_runtime": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RuntimeKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ticket_id": {
+            "title": "Ticket Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket_id"
+        ],
+        "title": "RunCreate",
+        "type": "object"
+      },
+      "RunCurrentStep": {
+        "description": "The first not-yet-completed step of a run, for the dashboard list.",
+        "properties": {
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "index",
+          "title"
+        ],
+        "title": "RunCurrentStep",
+        "type": "object"
+      },
+      "RunDetail": {
+        "description": "Everything the run detail endpoint shows (doc 14).",
+        "properties": {
+          "approvals": {
+            "items": {
+              "$ref": "#/components/schemas/ApprovalRead"
+            },
+            "title": "Approvals",
+            "type": "array"
+          },
+          "pull_request": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunPullRequestRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "run": {
+            "$ref": "#/components/schemas/RunRead"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/RunStepRead"
+            },
+            "title": "Steps",
+            "type": "array"
+          },
+          "ticket": {
+            "$ref": "#/components/schemas/RunTicketSummary"
+          },
+          "worktree": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunWorktreeSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "run",
+          "ticket",
+          "steps",
+          "worktree",
+          "approvals",
+          "pull_request"
+        ],
+        "title": "RunDetail",
+        "type": "object"
+      },
+      "RunPage": {
+        "description": "One page of runs and the cursor for the next page.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RunSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "RunPage",
+        "type": "object"
+      },
+      "RunPullRequestRead": {
+        "description": "The PR fields a run detail shows, without the list route's repo context.",
+        "properties": {
+          "ci_status": {
+            "$ref": "#/components/schemas/CiStatus"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "head_sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Head Sha"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "number": {
+            "title": "Number",
+            "type": "integer"
+          },
+          "review_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review State"
+          },
+          "state": {
+            "$ref": "#/components/schemas/PullRequestState"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "updated_at",
+          "number",
+          "url",
+          "state",
+          "ci_status",
+          "review_state",
+          "head_sha"
+        ],
+        "title": "RunPullRequestRead",
+        "type": "object"
+      },
+      "RunRead": {
+        "description": "A run, including the money that has been spent on it so far.",
+        "properties": {
+          "budget_usd": {
+            "title": "Budget Usd",
+            "type": "string"
+          },
+          "cost_usd": {
+            "title": "Cost Usd",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "graph_thread_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Graph Thread Id"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "junior_runtime": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RuntimeKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "repo_id": {
+            "title": "Repo Id",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RunStatus"
+          },
+          "ticket_id": {
+            "title": "Ticket Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          },
+          "worktree_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worktree Id"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "updated_at",
+          "workspace_id",
+          "ticket_id",
+          "repo_id",
+          "worktree_id",
+          "junior_runtime",
+          "status",
+          "graph_thread_id",
+          "cost_usd",
+          "budget_usd",
+          "started_at",
+          "finished_at",
+          "created_by"
+        ],
+        "title": "RunRead",
+        "type": "object"
+      },
       "RunStatus": {
         "description": "Where a run is in the graph of ARCHITECTURE section 4.\n\n``awaiting_approval`` covers every human gate between agent turns, and\n``paused_budget`` the budget interrupt. ``failed`` and ``completed`` are\nterminal; a failed run is resumed from its checkpoint instead of being\nrevived by a status change.",
         "enum": [
@@ -969,6 +1398,328 @@
         ],
         "title": "RunStatus",
         "type": "string"
+      },
+      "RunStepRead": {
+        "description": "One step of a run's plan.",
+        "properties": {
+          "assigned_agent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assigned Agent Id"
+          },
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "result_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Summary"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "spec_json": {
+            "additionalProperties": true,
+            "title": "Spec Json",
+            "type": "object"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RunStepStatus"
+          },
+          "step_index": {
+            "title": "Step Index",
+            "type": "integer"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "updated_at",
+          "workspace_id",
+          "run_id",
+          "step_index",
+          "title",
+          "spec_json",
+          "status",
+          "assigned_agent_id",
+          "attempts",
+          "result_summary"
+        ],
+        "title": "RunStepRead",
+        "type": "object"
+      },
+      "RunStepStatus": {
+        "description": "Where a single step of the plan is (``run_step.status``).",
+        "enum": [
+          "pending",
+          "running",
+          "completed",
+          "failed",
+          "cancelled"
+        ],
+        "title": "RunStepStatus",
+        "type": "string"
+      },
+      "RunSummary": {
+        "description": "One row of the dashboard runs list (doc 14).",
+        "properties": {
+          "budget_usd": {
+            "title": "Budget Usd",
+            "type": "string"
+          },
+          "ci_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CiStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cost_usd": {
+            "title": "Cost Usd",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "current_step": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunCurrentStep"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "graph_thread_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Graph Thread Id"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "junior_runtime": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RuntimeKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pr_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pr Number"
+          },
+          "pr_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pr Url"
+          },
+          "repo_id": {
+            "title": "Repo Id",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RunStatus"
+          },
+          "ticket_id": {
+            "title": "Ticket Id",
+            "type": "string"
+          },
+          "ticket_title": {
+            "title": "Ticket Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          },
+          "worktree_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worktree Id"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "updated_at",
+          "workspace_id",
+          "ticket_id",
+          "repo_id",
+          "worktree_id",
+          "junior_runtime",
+          "status",
+          "graph_thread_id",
+          "cost_usd",
+          "budget_usd",
+          "started_at",
+          "finished_at",
+          "created_by",
+          "ticket_title",
+          "current_step",
+          "pr_number",
+          "pr_url",
+          "ci_status"
+        ],
+        "title": "RunSummary",
+        "type": "object"
+      },
+      "RunTicketSummary": {
+        "description": "The ticket fields a run detail shows beside the run.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TicketStatus"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "status"
+        ],
+        "title": "RunTicketSummary",
+        "type": "object"
+      },
+      "RunWorktreeSummary": {
+        "description": "The worktree fields a run detail shows.",
+        "properties": {
+          "branch": {
+            "title": "Branch",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/WorktreeStatus"
+          }
+        },
+        "required": [
+          "branch",
+          "path",
+          "status"
+        ],
+        "title": "RunWorktreeSummary",
+        "type": "object"
       },
       "RuntimeKind": {
         "description": "The harness behind an agent; ADR-001 (doc 08) picks which ones ship.\n\n``native_claude`` and ``native_deepseek`` are the raw-API runtimes,\n``claude_agent_sdk`` and ``cline_cli`` the harnesses. The values are stored\non ``agent.runtime`` and ``run.junior_runtime``, so they must not change\nafter the first migration without one.",
@@ -1632,6 +2383,74 @@
         ]
       }
     },
+    "/api/v1/approvals/{approval_id}/decide": {
+      "post": {
+        "description": "Record a human decision and, for graph gates, resume the run.\n\nCommand approvals are answered inside the runtime's turn and do not resume\nthe graph (doc 14). Graph-gate decisions are applied asynchronously by the\nresumed node, so this route returns 202 and never marks the row decided\nitself.",
+        "operationId": "decide_approval_api_v1_approvals__approval_id__decide_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "approval_id",
+            "required": true,
+            "schema": {
+              "title": "Approval Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecideRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApprovalRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecideAccepted"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Decide an approval",
+        "tags": [
+          "approvals"
+        ]
+      }
+    },
     "/api/v1/costs/today": {
       "get": {
         "description": "Return the UTC day's spend, budget and per-provider breakdown.",
@@ -1964,6 +2783,289 @@
         "summary": "Get one repository",
         "tags": [
           "repositories"
+        ]
+      }
+    },
+    "/api/v1/runs": {
+      "get": {
+        "description": "Return the workspace's runs, newest first.",
+        "operationId": "list_runs_api_v1_runs_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/RunStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 36,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List runs",
+        "tags": [
+          "runs"
+        ]
+      },
+      "post": {
+        "description": "Start the graph for ``ticket_id`` and return the new run row.",
+        "operationId": "start_run_api_v1_runs_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Start a run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{run_id}": {
+      "get": {
+        "description": "Return one run with its steps, worktree, approvals and PR.",
+        "operationId": "get_run_api_v1_runs__run_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get a run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{run_id}/cancel": {
+      "post": {
+        "description": "Cancel a live run, keep its worktree, and mark the run cancelled.",
+        "operationId": "cancel_run_api_v1_runs__run_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Cancel a run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{run_id}/diff": {
+      "get": {
+        "description": "Return the committed plus uncommitted diff, capped at ``max_bytes``.\n\nGit runs after the database rows are loaded and the session is closed: a GET\nmust not change git state, and no git call may sit inside a DB transaction.",
+        "operationId": "get_run_diff_api_v1_runs__run_id__diff_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "max_bytes",
+            "required": false,
+            "schema": {
+              "default": 512000,
+              "maximum": 2097152,
+              "minimum": 1024,
+              "title": "Max Bytes",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get a run diff",
+        "tags": [
+          "runs"
         ]
       }
     },

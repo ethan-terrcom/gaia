@@ -70,6 +70,7 @@ never imports FastAPI. `db/` knows nothing about HTTP or git.
 | 15b | `services/{ci,pr_sync}.py`, `api/routes/pull_requests.py`, migration `0005` | CI watching pinned to the approved commit, a background PR sync for changes made on GitHub, and the PR list API | [GitHub](../docs/backend/github.md) |
 | 18b | `config/logging.py`, `api/routes/metrics.py` | Every log line (structlog and stdlib) redacted; rotating 0600 JSON log file under `data_dir/logs`; uvicorn access lines without query strings; metrics summary API | [config & secrets](../docs/backend/config-and-secrets.md) |
 | 12b | `orchestrator/impl/`, `orchestrator/wiring.py` | The real workflow: worktree and setup, steps on the configured runtimes, sandboxed checks, commits, lead planning and review through the gateway, one composition root in the app lifespan, and the swap drill (a full run with no Claude) | [orchestrator](../docs/backend/orchestrator.md) |
+| 14 | `api/routes/runs.py`, `api/routes/approvals.py` (decide) | Start, list, inspect, cancel and diff runs; decide approvals (command answers wake the agent, gate decisions resume the graph; typed merge confirmation) | [API](../docs/backend/api.md) |
 | 13 | `services/events.py`, `api/routes/stream.py` | Durable event log plus live SSE stream with single-use tickets, replay and gap healing | [events](../docs/backend/events.md) |
 | 11 | `orchestrator/{lead,repo_context}.py`, `domain/plans.py` | The lead's plan and review calls: streamed structured outputs, policy-checked test commands, refusals escalate | [lead](../docs/backend/lead.md) |
 | 10a | `runtimes/`, `services/proc.py` (`stream_proc`) | The runtime seam: limits, scrubbed env, git-computed `files_changed`, in-turn approvals, orphan reaping, fake runtimes and a contract suite | [runtimes](../docs/backend/runtimes.md) |
@@ -77,7 +78,7 @@ never imports FastAPI. `db/` knows nothing about HTTP or git.
 | 10c | `runtimes/claude_agent_sdk.py` | Claude (via the Agent SDK) for lead work, as a thin adapter: Gaia's tools over in-process MCP, an `env -i` + `srt` wrapper, run token only, Gaia-priced usage | [runtimes](../docs/backend/runtimes.md) |
 | 12a | `orchestrator/{graph,guard,runner,approvals}.py`, `nodes/` | The durable LangGraph ticket-run workflow on interfaces: idempotent human gates, budget guard, crash recovery, concurrency limit ([diagram](../docs/graph.md)) | [orchestrator](../docs/backend/orchestrator.md) |
 
-The whole suite (1578 backend tests and 28 frontend tests, 100% line and branch coverage) runs with `make check`, which is also what CI runs.
+The whole suite (1812 backend tests and 51 frontend tests, 100% line and branch coverage) runs with `make check`, which is also what CI runs.
 
 ## Five design rules that explain most of the code
 

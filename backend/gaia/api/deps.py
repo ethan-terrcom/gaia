@@ -43,7 +43,9 @@ from gaia.services.stream_tickets import StreamTickets
 from gaia.services.worktrees import WorktreeService
 
 if TYPE_CHECKING:
+    from gaia.orchestrator.runner import RunManager
     from gaia.orchestrator.wiring import Wiring
+    from gaia.runtimes.approvals import DbApprovalBroker
 
 
 @dataclass(frozen=True)
