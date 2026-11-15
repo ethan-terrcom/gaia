@@ -66,6 +66,7 @@ class ErrorCode(StrEnum):
     ORCHESTRATOR_UNAVAILABLE = "orchestrator_unavailable"
     APPROVAL_NOT_PENDING = "approval_not_pending"
     RUN_BUSY = "run_busy"
+    RUN_NOT_ACTIVE = "run_not_active"
     MERGE_CONFIRMATION_REQUIRED = "merge_confirmation_required"
 
 

@@ -136,6 +136,8 @@ async def test_full_run_can_be_driven_through_the_api(run_api: Api) -> None:
     assert decided_plan.json()["status"] == "accepted"
 
     pr = await _wait_for_approval(run_api, "pr_open")
+    # The human approves the lead's final review, so the payload must show it.
+    assert pr["payload_json"]["review"]["verdict"]
     decided_pr = await run_api.client.post(
         f"/api/v1/approvals/{pr['id']}/decide",
         json={"decision": "approve"},

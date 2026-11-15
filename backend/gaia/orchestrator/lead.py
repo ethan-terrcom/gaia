@@ -7,6 +7,7 @@ prompt cache can keep hitting it. Everything volatile goes in the user message.
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Sequence
 from pathlib import Path
@@ -130,16 +131,33 @@ class LeadEngineer:
         repo_context: RepoContext,
         *,
         extra_allow: Sequence[Sequence[str]] = (),
+        test_command: Sequence[str] | None = None,
     ) -> Plan:
-        """Turn one ticket into a :class:`Plan`, retrying denied commands once."""
+        """Turn one ticket into a :class:`Plan`, retrying denied commands once.
+
+        ``test_command`` is the owner's registered test command. When it is
+        set, every step's ``test_command`` must **start with it**: the bare
+        program it wraps (``pytest`` behind ``uv run pytest``) is usually not on
+        the sandbox's ``PATH``, so a plan that drops the prefix fails its checks
+        with "command not found" (found in the first live end-to-end run).
+        """
+        required = tuple(test_command) if test_command else ()
         user_content = (
             wrap_untrusted(_render_ticket(ticket), f"ticket:{ticket.id}")
             + "\n\n"
             + wrap_untrusted(repo_context.render(), "repo-context")
         )
+        if required:
+            # Gaia's own instruction, not repository content, so it is not wrapped.
+            user_content += (
+                "\n\nThe repository's registered test command is "
+                f"`{json.dumps(list(required))}`. Every step's `test_command` must "
+                "start with exactly these elements; append test paths or options "
+                "after them."
+            )
         messages = [LLMMessage(role="user", content=user_content)]
         plan = await self._parse_structured(PLAN_SYSTEM_PROMPT, messages, Plan)
-        denied = self._denied_test_commands(plan, extra_allow)
+        denied = self._denied_test_commands(plan, extra_allow, required)
         if not denied:
             return plan
 
@@ -157,7 +175,7 @@ class LeadEngineer:
             )
         )
         plan = await self._parse_structured(PLAN_SYSTEM_PROMPT, messages, Plan)
-        denied = self._denied_test_commands(plan, extra_allow)
+        denied = self._denied_test_commands(plan, extra_allow, required)
         if denied:
             raise PlanRejected(denied)
         return plan
@@ -225,7 +243,12 @@ class LeadEngineer:
             raise
         return response.output
 
-    def _denied_test_commands(self, plan: Plan, extra_allow: Sequence[Sequence[str]]) -> list[str]:
+    def _denied_test_commands(
+        self,
+        plan: Plan,
+        extra_allow: Sequence[Sequence[str]],
+        required: Sequence[str] = (),
+    ) -> list[str]:
         """Return one human-readable reason per ``test_command`` the policy does not allow.
 
         A test command must be plainly **allowed**: one that would need
@@ -237,6 +260,12 @@ class LeadEngineer:
         denied: list[str] = []
         for index, step in enumerate(plan.steps, start=1):
             if step.test_command is None:
+                continue
+            if required and tuple(step.test_command[: len(required)]) != tuple(required):
+                denied.append(
+                    f"step {index} test_command {step.test_command!r} must start with the "
+                    f"repository's registered test command {list(required)!r}"
+                )
                 continue
             decision = self._policy.evaluate(step.test_command, extra_allow=extra_allow)
             if decision.action == "deny":

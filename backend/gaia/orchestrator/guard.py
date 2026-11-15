@@ -26,7 +26,12 @@ from gaia.db.models import Approval, Run
 from gaia.db.repo import ScopedRepo
 from gaia.domain.enums import ApprovalKind, EventType, RunStatus
 from gaia.domain.state import transition
-from gaia.orchestrator.approvals import Decision, apply_decision, upsert_approval
+from gaia.orchestrator.approvals import (
+    Decision,
+    apply_decision,
+    expire_pending_approvals,
+    upsert_approval,
+)
 from gaia.orchestrator.deps import GraphDeps
 from gaia.orchestrator.state import RunState
 from gaia.security.redaction import redact
@@ -67,12 +72,22 @@ async def _mark_failed(deps: GraphDeps, node_name: str, state: RunState, exc: Ex
     async with session_scope(deps.sessions) as session:
         run = await _load_run(session, state)
         transition(run, RunStatus.FAILED)
+        expired = await expire_pending_approvals(
+            session, workspace_id=workspace_id, run_id=run_id, reason="run failed"
+        )
     await deps.events.publish(
         workspace_id=workspace_id,
         type=EventType.RUN_FAILED,
         payload={"node": node_name, "error": error},
         run_id=run_id,
     )
+    for approval_id in expired:
+        await deps.events.publish(
+            workspace_id=workspace_id,
+            type=EventType.APPROVAL_DECIDED,
+            payload={"approval_id": approval_id, "action": "expired"},
+            run_id=run_id,
+        )
     return error
 
 
@@ -96,7 +111,10 @@ def with_guard(
             async with session_scope(deps.sessions) as session:
                 run = await _load_run(session, state)
                 if run.status in TERMINAL_RUN_STATUSES:
-                    return {}
+                    # Route to the end explicitly: returning nothing would leave the
+                    # previous node's ``route`` in state, and a conditional edge whose
+                    # path map lacks it raises (live E2E: KeyError 'escalation').
+                    return {"route": "end"}
 
             # 2. Budget check. The approval row is upserted before interrupting,
             # because this whole wrapper re-runs from its first line on resume.
@@ -172,7 +190,8 @@ def with_guard(
                     run_id=run_id,
                 )
                 if decision.action == "reject":
-                    return {}
+                    # The run is cancelled now; end the graph (same reason as step 1).
+                    return {"route": "end"}
 
             # 3. Run the node inside the event envelope.
             await deps.events.publish(

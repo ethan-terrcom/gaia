@@ -32,7 +32,7 @@ PLAN = Plan(
             instructions="Add a failing test and make it pass.",
             files_likely_touched=["tests/test_x.py"],
             acceptance=["pytest passes"],
-            test_command=["pytest", "-q"],
+            test_command=["uv", "run", "pytest", "-q"],
         )
     ],
 )

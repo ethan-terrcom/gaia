@@ -187,5 +187,8 @@ dashboard (17a).
   - `edit` is valid only for a plan, and the edited plan is validated (422 if invalid);
   - a merge needs `confirm: "merge <pr_number>"` (422 otherwise);
   - a second decision gets 409.
+- An approval whose run has finished (completed, failed or cancelled) cannot be decided:
+  **409 `run_not_active`**. Ending a run normally expires its pending approvals, so this is a
+  guard against a race.
 
 Every mutation writes an audit row.
