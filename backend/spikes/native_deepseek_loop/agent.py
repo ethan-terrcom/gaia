@@ -264,7 +264,20 @@ class Agent:
         p.write_text(text.replace(old, new) if replace_all else text.replace(old, new, 1))
         return f"edited {p.relative_to(self.wt)} ({count if replace_all else 1} replacement(s))"
 
-    def run(self, argv: list[str], cwd: str = "backend", timeout_s: int = 600) -> str:
+    def run(self, argv: list[str] | str, cwd: str = "backend", timeout_s: int = 600) -> str:
+        if isinstance(argv, str):
+            # Models sometimes send the array JSON-encoded as a string (18d-tests did
+            # it on every call, so nothing ran). Accept that form; reject other text
+            # with a message that says what is wrong.
+            try:
+                decoded = json.loads(argv)
+            except ValueError:
+                decoded = None
+            if not isinstance(decoded, list):
+                raise ToolError(
+                    'argv must be a JSON array of strings, e.g. ["uv", "run", "pytest"]'
+                )
+            argv = decoded
         if not argv or not all(isinstance(a, str) for a in argv):
             raise ToolError("argv must be a non-empty list of strings")
         if argv[0] == "uv":
