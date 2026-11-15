@@ -5,7 +5,7 @@ BACKEND := backend
 FRONTEND := frontend
 
 .DEFAULT_GOAL := help
-.PHONY: help setup migrate dev-backend dev-frontend fmt lint typecheck test secrets smoke-llm openapi graph sandbox-install check
+.PHONY: help setup migrate dev-backend dev-frontend fmt lint typecheck test secrets smoke-llm openapi graph sandbox-install check audit
 
 help: ## List the available targets
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-14s %s\n", $$1, $$2}'
@@ -57,5 +57,11 @@ graph: ## Export the LangGraph Mermaid diagram to docs/graph.md
 secrets: ## Scan the full git history for secrets with gitleaks
 	@command -v gitleaks >/dev/null || { echo "gitleaks not found: brew install gitleaks" >&2; exit 1; }
 	gitleaks git --redact --no-banner .
+
+audit: ## Scan locked backend and frontend dependencies for known vulnerabilities (doc 18c)
+	cd $(BACKEND) && uv export --frozen --no-emit-project --format requirements-txt \
+		| uvx --from pip-audit==2.10.1 pip-audit --strict --disable-pip -r /dev/stdin
+	cd $(FRONTEND) && npm audit --audit-level=high
+	cd $(FRONTEND)/tools/openapi && npm audit --audit-level=high
 
 check: lint typecheck test secrets ## Everything CI runs: lint, typecheck, test, secrets
