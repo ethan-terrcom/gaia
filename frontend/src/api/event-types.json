@@ -1,0 +1,23 @@
+[
+  "run.created",
+  "run.status_changed",
+  "run.node_started",
+  "run.node_finished",
+  "run.budget_exceeded",
+  "run.failed",
+  "step.started",
+  "step.finished",
+  "agent.message",
+  "agent.tool_call",
+  "agent.tool_result",
+  "agent.usage",
+  "approval.requested",
+  "approval.decided",
+  "pr.opened",
+  "pr.updated",
+  "pr.merged",
+  "ci.status",
+  "worktree.created",
+  "worktree.removed",
+  "stream.gap"
+]

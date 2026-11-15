@@ -144,3 +144,15 @@ browser's `EventSource` cannot send a bearer header. The details are in [events]
 - **Tests** use `httpx.AsyncClient` over `ASGITransport` and enter the lifespan explicitly; use the
   `api` fixture in `tests/conftest.py` (see `tests/test_api_app.py` for examples). A test asserting
   on a 500 body builds its transport with `httpx.ASGITransport(app=app, raise_app_exceptions=False)`.
+
+## Approvals inbox, today's costs, and the built UI (package 16)
+- `GET /api/v1/approvals?status=&run_id=&limit=` returns `ApprovalPage{items, total_pending}`,
+  oldest first by `(created_at, id)`. `total_pending` ignores the filters, so the nav badge needs
+  one call. Deciding an approval is package 14 (`POST /approvals/{id}/decide`).
+- `GET /api/v1/costs/today` returns `TodayCosts{spent_usd, budget_usd, by_provider[], day_start}`
+  for the UTC day, from `llm_usage` (`daily_llm_usage_cost_usd`, `daily_llm_usage_by_provider`).
+- **Serving the UI.** When `GAIA_UI_DIST_DIR` points at a built `frontend/dist`,
+  `gaia/api/spa.py` mounts `/assets` with `StaticFiles`, and answers every other non-`/api` GET
+  with `index.html`. It sends the CSP from `frontend/csp.json` (a test keeps the copies equal),
+  plus `no-store`, `nosniff` and `no-referrer`. `/api/...` paths keep the JSON 404 envelope.
+  Set `GAIA_UI_ORIGIN` to the API's own origin in that mode so `gaia ui` prints the right link.

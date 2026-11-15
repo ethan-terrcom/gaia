@@ -13,9 +13,10 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from gaia.db.models import AuditLog, Event, Ticket, Worktree
+from gaia.db.models import Approval, AuditLog, Event, Ticket, Worktree
 from gaia.db.repo import (
     AppendOnlyRepo,
+    ApprovalRepo,
     AuditLogRepo,
     EventRepo,
     NotFound,
@@ -23,6 +24,7 @@ from gaia.db.repo import (
     TicketRepo,
     WorkspaceMismatch,
 )
+from gaia.domain.enums import ApprovalKind, ApprovalStatus
 from tests.db_builders import Chain, make_chain
 
 
@@ -184,6 +186,38 @@ async def test_ticket_search_supports_no_limit(session: AsyncSession) -> None:
     rows = await tickets.search()
 
     assert [row.id for row in rows] == [chain.ticket.id]
+
+
+async def test_approval_repo_lists_oldest_first_and_counts_pending(
+    session: AsyncSession,
+) -> None:
+    """Doc 16's inbox query: ``created_at`` ordering and a filter-free count."""
+    chain = await make_chain(session, slug="approval-repo")
+    repo = ApprovalRepo(session, Approval, chain.workspace.id)
+    base = datetime(2026, 2, 1, tzinfo=UTC)
+
+    assert await repo.count_pending() == 0
+
+    await repo.create(
+        run_id=chain.run.id,
+        idempotency_key="first",
+        kind=ApprovalKind.PLAN,
+        payload_json={},
+        created_at=base,
+    )
+    await repo.create(
+        run_id=chain.run.id,
+        idempotency_key="second",
+        kind=ApprovalKind.PLAN,
+        payload_json={},
+        status=ApprovalStatus.APPROVED,
+        created_at=base + timedelta(seconds=1),
+    )
+
+    rows = await repo.list_inbox()
+    assert [row.idempotency_key for row in rows] == ["first", "second"]
+    assert await repo.count_pending() == 1
+    assert [row.idempotency_key for row in await repo.list_inbox(limit=1)] == ["first"]
 
 
 async def test_an_append_only_repo_has_no_update_or_delete() -> None:

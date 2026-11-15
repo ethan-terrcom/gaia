@@ -48,6 +48,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/approvals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List approval requests
+         * @description Return approvals oldest first, optionally filtered by status or run.
+         *
+         *     ``total_pending`` always counts the workspace's pending approvals, whatever
+         *     filters the caller passed: the badge makes one call and must not change with
+         *     the page. ``ApprovalRepo`` keeps every read inside the authenticated
+         *     workspace.
+         */
+        get: operations["list_approvals_api_v1_approvals_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/costs/today": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Today's LLM spend
+         * @description Return the UTC day's spend, budget and per-provider breakdown.
+         */
+        get: operations["get_today_costs_api_v1_costs_today_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me": {
         parameters: {
             query?: never;
@@ -323,6 +368,71 @@ export interface components {
          */
         AgentStatus: "idle" | "running" | "paused" | "failed" | "retired";
         /**
+         * ApprovalKind
+         * @description What a human is being asked to approve (doc 03 task 3).
+         *
+         *     ``plan``, ``escalation``, ``budget``, ``pr_open`` and ``merge`` are graph
+         *     interrupts; ``command`` is asked *inside* an agent turn by the runtime's
+         *     permission hook (2026-11-12 review, section 3.1).
+         * @enum {string}
+         */
+        ApprovalKind: "plan" | "command" | "escalation" | "pr_open" | "merge" | "budget";
+        /**
+         * ApprovalPage
+         * @description The approval inbox list, plus the workspace's pending count.
+         *
+         *     ``total_pending`` ignores the list filters on purpose: the nav badge needs
+         *     one call that still shows the real count when the page is filtered.
+         */
+        ApprovalPage: {
+            /** Items */
+            items: components["schemas"]["ApprovalRead"][];
+            /** Total Pending */
+            total_pending: number;
+        };
+        /**
+         * ApprovalRead
+         * @description An approval request and, once decided, its outcome.
+         */
+        ApprovalRead: {
+            /** Comment */
+            comment: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Decided At */
+            decided_at: string | null;
+            /** Decided By */
+            decided_by: string | null;
+            /** Id */
+            id: string;
+            /** Idempotency Key */
+            idempotency_key: string;
+            kind: components["schemas"]["ApprovalKind"];
+            /** Payload Json */
+            payload_json: {
+                [key: string]: unknown;
+            };
+            /** Run Id */
+            run_id: string;
+            status: components["schemas"]["ApprovalStatus"];
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Workspace Id */
+            workspace_id: string;
+        };
+        /**
+         * ApprovalStatus
+         * @description The outcome of an approval request; ``expired`` is the default-deny timeout.
+         * @enum {string}
+         */
+        ApprovalStatus: "pending" | "approved" | "rejected" | "expired";
+        /**
          * EventHistory
          * @description One page of a run's event history.
          */
@@ -397,6 +507,16 @@ export interface components {
             user_id: string;
             /** Workspace Id */
             workspace_id: string;
+        };
+        /**
+         * ProviderCost
+         * @description Today's spend for one LLM provider.
+         */
+        ProviderCost: {
+            /** Cost Usd */
+            cost_usd: string;
+            /** Provider */
+            provider: string;
         };
         /**
          * RepositoryCreate
@@ -593,6 +713,23 @@ export interface components {
          * @enum {string}
          */
         TicketStatus: "backlog" | "ready" | "in_progress" | "in_review" | "done" | "cancelled";
+        /**
+         * TodayCosts
+         * @description The numbers for the top bar's daily spend meter (doc 16).
+         */
+        TodayCosts: {
+            /** Budget Usd */
+            budget_usd: string;
+            /** By Provider */
+            by_provider: components["schemas"]["ProviderCost"][];
+            /**
+             * Day Start
+             * Format: date-time
+             */
+            day_start: string;
+            /** Spent Usd */
+            spent_usd: string;
+        };
         /** ValidationError */
         ValidationError: {
             /** Context */
@@ -736,6 +873,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentRead"][];
+                };
+            };
+        };
+    };
+    list_approvals_api_v1_approvals_get: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["ApprovalStatus"] | null;
+                run_id?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_today_costs_api_v1_costs_today_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TodayCosts"];
                 };
             };
         };

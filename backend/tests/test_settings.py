@@ -118,6 +118,20 @@ def test_srt_path_defaults_to_none() -> None:
     assert Settings().srt_path is None
 
 
+def test_ui_dist_dir_defaults_to_none() -> None:
+    assert Settings().ui_dist_dir is None
+
+
+def test_ui_dist_dir_expands_the_home_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    settings = Settings(ui_dist_dir=Path("~/ui"))
+
+    assert settings.ui_dist_dir == tmp_path / "ui"
+
+
 def test_srt_path_expands_the_home_directory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

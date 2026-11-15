@@ -312,8 +312,9 @@ def _ui(args: argparse.Namespace) -> int:
     settings = get_settings()
     token = ensure_api_token(get_secret_store())
     print(f"{settings.ui_origin.rstrip('/')}/#token={token.get_secret_value()}")
-    # TODO(gaia-16): add --open once the login flow says how a token may reach a
-    # browser; a one-time code in the URL would keep it out of argv (doc 16).
+    # TODO(gaia-16): the login flow is now the #token= fragment stripped by
+    # bootstrapToken. --open stays out because a token must not appear in a
+    # process's argv; the owner copies the printed URL instead.
     return 0
 
 

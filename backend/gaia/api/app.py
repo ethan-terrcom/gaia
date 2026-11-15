@@ -47,7 +47,19 @@ from gaia.api.errors import (
     install_error_handlers,
     new_request_id,
 )
-from gaia.api.routes import agents, dev, health, repositories, session, stream, tickets, worktrees
+from gaia.api.routes import (
+    agents,
+    approvals,
+    costs,
+    dev,
+    health,
+    repositories,
+    session,
+    stream,
+    tickets,
+    worktrees,
+)
+from gaia.api.spa import mount_spa
 from gaia.config.logging import configure_logging
 from gaia.config.secrets import ensure_api_token, get_secret_store
 from gaia.config.settings import Settings, ensure_data_dir, get_settings
@@ -246,9 +258,11 @@ def api_v1_router(*, dev_routes: bool = False) -> APIRouter:
     router.include_router(agents.router)
     router.include_router(worktrees.router)
     router.include_router(stream.router)
+    router.include_router(approvals.router)
+    router.include_router(costs.router)
     if dev_routes:
         router.include_router(dev.router)
-    # TODO(gaia-14): include the runs and approvals routers.
+    # TODO(gaia-14): include the runs and approvals decision routers.
     return router
 
 
@@ -291,4 +305,6 @@ def create_app(
     app.include_router(api_v1_router(dev_routes=resolved.dev_routes))
     # The gateway has its own run-token auth and therefore sits outside /api/v1.
     app.include_router(llm_router)
+    if resolved.ui_dist_dir is not None and (resolved.ui_dist_dir / "index.html").is_file():
+        mount_spa(app, resolved.ui_dist_dir)
     return app
