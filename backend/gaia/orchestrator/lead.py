@@ -226,7 +226,14 @@ class LeadEngineer:
         return response.output
 
     def _denied_test_commands(self, plan: Plan, extra_allow: Sequence[Sequence[str]]) -> list[str]:
-        """Return one human-readable reason per denied ``test_command``."""
+        """Return one human-readable reason per ``test_command`` the policy does not allow.
+
+        A test command must be plainly **allowed**: one that would need
+        approval (``ask``) is rejected too (lead review 12b-1, X1). Checks never
+        ask a human, and a plan is model output, so a prompt-injected plan must
+        not be able to smuggle an approval-worthy command (``bash -c …``) into
+        the run as its "test".
+        """
         denied: list[str] = []
         for index, step in enumerate(plan.steps, start=1):
             if step.test_command is None:
@@ -234,6 +241,12 @@ class LeadEngineer:
             decision = self._policy.evaluate(step.test_command, extra_allow=extra_allow)
             if decision.action == "deny":
                 denied.append(f"step {index} test_command {step.test_command!r}: {decision.reason}")
+            elif decision.action == "ask":
+                denied.append(
+                    f"step {index} test_command {step.test_command!r} would need human "
+                    f"approval ({decision.reason}); use the repository's test command or an "
+                    "allowlisted test runner"
+                )
         return denied
 
 

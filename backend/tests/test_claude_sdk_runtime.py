@@ -523,10 +523,13 @@ async def test_orphan_is_added_after_connect_and_removed_in_finally(
     )
     task = _task(worktree, git_repo)
     run_task = asyncio.create_task(runtime.run_task(task, RecordingSink()))
-    for _ in range(1000):
-        if task.task_id in runtime._clients and runtime._sdk_tools:
+    # Wait for the entry itself, not just the client: cancelling before the pid
+    # file is read made this test pass vacuously and its coverage flaky (lead).
+    for _ in range(5000):
+        if registry._read():
             break
         await asyncio.sleep(0.001)
+    assert [entry.task_id for entry in registry._read()] == [task.task_id]
 
     await runtime.cancel(task.task_id)
     await asyncio.wait_for(run_task, timeout=5)

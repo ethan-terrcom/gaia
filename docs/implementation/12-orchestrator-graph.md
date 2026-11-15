@@ -158,3 +158,47 @@ nodes behind an interface for now.
   - DeepSeek v4 Pro: $0.005.
 
   Neither provider key appears in the server log.
+
+## Decisions and deviations (as built) — 12b-1
+
+- **Real execution services live in `gaia/orchestrator/impl/`**, one module per
+  protocol (`worktrees.py`, `steps.py`, `checks.py`, `commits.py`), with
+  keyword-only collaborators and no module-level state.
+- **Worktree setup marker** is `{data_dir}/runs/{run_id}/setup.ok`, outside the
+  worktree, so an agent cannot fake a successful setup. The setup command is the
+  owner's registered command and is deliberately **not** policy-checked.
+- **F7 fixed:** `WorktreeService._row_for` now revives `failed` rows as well as
+  `removed` rows, so a failed create no longer wedges the branch. Before
+  `worktree_add`, `create` runs `git.worktree_prune`, removes an **empty**
+  target directory, and refuses a non-empty one without deleting files.
+- **Deviation:** `WorktreeStatus` has no central transition machine in
+  `gaia/domain/state.py` (doc 05 owns the worktree lifecycle). `WorktreeSetup`
+  performs the legal `ready → in_use` move directly, matching how
+  `WorktreeService` already writes its other worktree statuses.
+- **Deviation:** `Settings.junior_model` already existed from package 11, so the
+  12b-1 settings block adds only `junior_runtime`, `lead_runtime`,
+  `lead_attempt_from`, the turn/timeout limits and `setup_allowed_domains`.
+- **No DB transaction wraps git, network or process work in the new code.**
+  `prepare_worktree` now calls `deps.worktrees.prepare()` before opening its
+  session, and each impl loads rows in one short session, closes it, then runs
+  git or the sandbox command before opening another session to persist.
+- **Checks never ask a human.** `CommandPolicy.evaluate` is still run as
+  defence in depth; `ask` is treated as a failure, and the check runner uses a
+  no-network `SrtCommandRunner` in production.
+- **Integration test** proves the real `WorktreeSetup`, `RuntimeStepRunner`
+  (with fake runtimes registered under both `RuntimeKind` values),
+  `SandboxCheckRunner` (fake command runner) and `WorktreeCommitter` drive the
+  12a graph to `completed`, with one real commit per accepted step and the 12a
+  fakes still supplying plan, review and PR behaviour.
+
+### Lead review — 12b-1 (2026-11-14, [`review-12b1`](../reviews/2026-11-14-review-12b1.md))
+- **X1 (high, a lead design error):** the 12b-1 handoff told the step runner to add the **plan
+  step's** `test_command` to `extra_allow`. Plan validation (doc 11) rejected only `deny`, so a
+  test command that would need approval, such as `bash -c …` or `python script.py`, could reach
+  the plan. `extra_allow` would then have let the agent run it **unasked**. A plan is model output,
+  so a prompt-injected ticket or repo file could do this. Fixed in two places:
+  - `extra_allow` holds only the **owner's** registered test command;
+  - `LeadEngineer` rejects plan test commands that would need approval as well as denied ones,
+    so the lead revises them once and the plan is refused if it insists.
+
+  Checks already never ask, and they use the owner's command only.
