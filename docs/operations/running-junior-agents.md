@@ -209,6 +209,8 @@ and the Alembic revision chain. Rerun `make check`, then push with `--force-with
 | Fakes encode the junior's model of a platform, not the platform (15a: decoded URL paths; 16: `onmessage` for named SSE events). | At review, compare fakes with the platform docs, and run one test with a real implementation (Node's `EventSource`, a bare git repo, real `srt`). |
 | A boundary's config written where the bounded process can write it (09b: srt settings in the task dir). | Lead notes say where every boundary file lives. Review asks "can the agent write this path?" |
 | Each step correct alone, the sequence impossible (15a: draft PRs cannot be merged). | Lead notes name how the flow leaves every non-default state. |
+| A part-2 session is cheap once the design is settled (10c: 74 turns, $0.30–0.60, closed 58 uncovered lines). | Don't let the lead write routine tests; dispatch a part 2 with the exact missing lines. |
+| Lessons written into the next handoff hold (15b repeated none of 15a's findings). | Keep turning each review's findings into lead notes for the next package in the same area. |
 | Three juniors in parallel took 2–2.3 hours each, against about 20 minutes alone. | Parallelism is still worth it, because review is the bottleneck. Start reviews as runs finish, and write the next handoffs meanwhile. |
 
 ## 6. When something goes wrong

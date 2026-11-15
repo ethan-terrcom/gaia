@@ -55,6 +55,9 @@ existing handoffs in that folder are worked examples.
 - **Name the platform semantics a fake must copy.** A browser delivers named SSE events only to
   `addEventListener`. An HTTP path must be matched as sent. Put the platform rule in the lead
   notes, and ask for the fake to follow it (16, 15a).
+- **For anything cancellable, prescribe the child task.** "Run the work in `asyncio.create_task`,
+  register *that*, and return `cancelled` when `cancel()` was yours" (10b and 10c both got this
+  wrong when left open).
 - **Name parallel work.** If another package is being built at the same time, say what to stub and
   which `TODO(gaia-NN)` to leave. An example is 07b writing an event row because 13's bus did not
   exist yet.
