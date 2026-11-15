@@ -57,8 +57,7 @@ A GitHub App or webhooks (local v1 polls instead). GitLab.
 - **Pull requests write is uncheckable without writing.** The first `create_pr` call is the check; its
   403 message names the missing permission. This is documented in `check_token` and
   `gaia/services/github.py`.
-- **`watch_ci` is 15b.** `PullRequestService.watch_ci` raises `NotImplementedError("TODO(gaia-15b)")`
-  and is not wired anywhere.
+- **`watch_ci` is 15b.** Implemented in 15b; the 15a stub is gone.
 - **`merge_pr` commit title.** ~~`Merge PR #<number>`~~. Lead review: `[gaia] <ticket title> (#<n>)`,
   so `main`'s history reads like the PR list.
 - **`delete_branch` refuses non-`gaia/*` branches.** A resumed merge can delete an already-deleted
@@ -66,6 +65,39 @@ A GitHub App or webhooks (local v1 polls instead). GitLab.
 - **`GitHubClient` clock.** The handoff calls for an injectable `now` in the rate-limit rules; the
   constructor therefore has one extra optional parameter (`now: Callable[[], float] = time.time`)
   after `max_wait_s`.
+
+## Decisions and deviations (as built) — 15b
+
+- **`watch_ci` pins the worktree HEAD.** The SHA polled is `GitService.current_sha` on the run's
+  worktree, not the PR's current head from GitHub. This is the commit Gaia pushed and the human
+  approved.
+- **No-CI is not a failure.** When GitHub reports no combined statuses and no check runs,
+  `watch_ci` keeps polling for `ci_no_checks_grace_s` (default 120s) so checks that register a few
+  seconds after a push are not missed. If still unknown, it records `ci_status="unknown"`,
+  publishes one `ci.status` event, logs `ci.no_checks`, and returns `"passed"` because the human
+  gate after CI is the real check and a repository without CI must remain usable.
+- **Backoff is measured by persisted changes.** The poll interval starts at
+  `ci_poll_interval_s` (30s), multiplies by 1.5 after each poll that does not change the persisted
+  rollup, and caps at 300s. A persisted change resets it to the start value. The injected `sleep`
+  and `monotonic` keep tests fast.
+- **`ci_rollup` treats GitHub's top-level `pending` with `total_count == 0` as "no statuses".**
+  That marker, together with no check runs, is the repository-has-no-CI case. Check-run
+  conclusions `success`, `neutral` and `skipped` count as passing; the failed set is `failure`,
+  `cancelled`, `timed_out`, `action_required`, `startup_failure` and `stale`.
+- **`review_rollup` keeps only the latest decisive review per user.** `COMMENTED` and `PENDING`
+  never move a user's state, a later `DISMISSED` clears an earlier `APPROVED`, and reviews without
+  a `submitted_at` timestamp are ignored.
+- **`PRSyncService` refreshes GitHub's view at the PR head SHA.** This is separate from
+  `watch_ci`, which pins the approved worktree SHA. The sync service reports what GitHub shows
+  now; `watch_ci` waits for the commit Gaia pushed.
+- **PR sync is intentionally per-row resilient.** One PR's `GitHubError` is logged and skipped;
+  `RateLimited` stops the current round early. `run_forever` logs unexpected round failures and
+  keeps looping, and only `CancelledError` stops it.
+- **The PR list route joins run, ticket and repository in one query.** `PullRequestRepo` is the
+  only place that builds the join; the route never does N+1 lookups.
+- **The obsolete 15a stub test was removed.** `tests/test_pull_requests.py` had a test asserting
+  `watch_ci` raised `NotImplementedError`; 15b replaces that with dedicated
+  `tests/test_watch_ci.py` coverage.
 
 ### Required fine-grained PAT permissions
 
@@ -111,3 +143,16 @@ can access. The user guide recommends fine-grained tokens only.
   of the `GitError`.
 - [ ] Acceptance ("a full run opens a draft PR, shows CI and merges after approval") needs 12b, 15b
   and an owner-provided sandbox repo with a fine-grained PAT.
+
+### Lead review changes — 15b (2026-11-14, [`review-15b`](../reviews/2026-11-14-review-15b.md))
+- **B1:** `PullRequestRepo.list_with_context` scopes every joined table (run, ticket, repository)
+  to the workspace, not only the PR row. The foreign keys do not yet enforce a shared workspace
+  (open finding F5).
+- **B2:** `PRSyncService.run_forever` treats an `httpx.TransportError` (offline, asleep, no Wi-Fi)
+  as one `pr_sync.offline` warning per round, not a traceback every minute.
+- Verified live against `api.github.com`, read-only and unauthenticated, on public repositories:
+  `get_combined_status`, `list_check_runs` and `list_reviews` parse real responses.
+  `astral-sh/uv@main` has 178 check runs across 2 pages (pagination works) and GitHub's "pending
+  with 0 statuses" (handled), so it rolls up as `passed`; a merged PR maps to `merged`.
+- [ ] Acceptance (shared with 15a): a full run on the owner's sandbox repository shows CI status.
+  This needs 12b and the owner's repo and PAT.

@@ -922,24 +922,6 @@ async def test_plan_summary_ignores_a_non_dict_plan(
         assert await _plan_summary(session, chain.workspace.id, chain.run.id) is None
 
 
-async def test_watch_ci_is_still_a_15b_stub(
-    database,
-    git_settings: Settings,
-) -> None:
-    fake = GitHubFake()
-    git = GitService(git_settings)
-    service = PullRequestService(
-        sessions=database.sessions,
-        git=git,
-        secrets=InMemorySecretStore(),
-        bus=EventBus(database.sessions),
-        client_factory=_client_factory(fake),
-    )
-
-    with pytest.raises(NotImplementedError, match="TODO\\(gaia-15b\\)"):
-        await service.watch_ci("run", 7)
-
-
 async def test_a_failed_token_check_is_not_cached(database, git_settings: Settings) -> None:
     """Lead review P3: after the owner fixes the token, the next attempt re-checks
     instead of failing until the server restarts. A passing check is cached."""

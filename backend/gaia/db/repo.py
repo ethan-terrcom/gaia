@@ -17,6 +17,7 @@ filter lives in a repository helper "never ad hoc", so:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
@@ -24,9 +25,20 @@ from typing import Any
 from sqlalchemy import Select, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from gaia.db.models import Approval, AuditLog, Base, Event, LlmUsage, Run, RunToken, Ticket
+from gaia.db.models import (
+    Approval,
+    AuditLog,
+    Base,
+    Event,
+    LlmUsage,
+    PullRequest,
+    Repository,
+    Run,
+    RunToken,
+    Ticket,
+)
 from gaia.db.types import utcnow
-from gaia.domain.enums import ApprovalStatus, RunStatus
+from gaia.domain.enums import ApprovalStatus, PullRequestState, RunStatus
 
 
 class WorkspaceMismatch(ValueError):
@@ -145,6 +157,93 @@ class RunRepo:
         )
         statement = select(Run).where(~Run.status.in_(ignored)).order_by(Run.id)
         return list((await self.session.scalars(statement)).all())
+
+
+@dataclass(frozen=True)
+class PullRequestSyncRow:
+    """One open PR with the run and repository the PR sync service needs."""
+
+    pull_request: PullRequest
+    run: Run
+    repository: Repository
+
+
+@dataclass(frozen=True)
+class PullRequestWithContext:
+    """One PR with the run, ticket and repository the API list route returns."""
+
+    pull_request: PullRequest
+    run: Run
+    ticket: Ticket
+    repository: Repository
+
+
+class PullRequestRepo:
+    """System-level PR queries used by doc 15b.
+
+    ``list_open`` is workspace-unscoped on purpose: the background sync service
+    has to refresh every open PR across every workspace. Like
+    :class:`RunRepo.get_by_id`, it must never be handed to a route; route code
+    goes through :class:`ScopedRepo`.
+    """
+
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def list_open(self) -> list[PullRequestSyncRow]:
+        """Return every open PR, joined to its run and repository."""
+        statement = (
+            select(PullRequest, Run, Repository)
+            .join(Run, Run.id == PullRequest.run_id)
+            .join(Repository, Repository.id == Run.repo_id)
+            .where(PullRequest.state == PullRequestState.OPEN.value)
+            .order_by(PullRequest.id)
+        )
+        rows = (await self.session.execute(statement)).all()
+        return [
+            PullRequestSyncRow(pull_request=pr, run=run, repository=repository)
+            for pr, run, repository in rows
+        ]
+
+    async def list_with_context(
+        self,
+        workspace_id: str,
+        state: str | None,
+        limit: int,
+    ) -> list[PullRequestWithContext]:
+        """Return one workspace's PRs, newest first, with run/ticket/repository.
+
+        One joined query only: the API route must never fall back to per-row
+        lookups (doc 15b).
+        """
+        statement = (
+            select(PullRequest, Run, Ticket, Repository)
+            .join(Run, Run.id == PullRequest.run_id)
+            .join(Ticket, Ticket.id == Run.ticket_id)
+            .join(Repository, Repository.id == Run.repo_id)
+            # Every joined row is scoped too, not only the PR: the foreign keys do
+            # not yet enforce a shared workspace (review finding F5).
+            .where(
+                PullRequest.workspace_id == workspace_id,
+                Run.workspace_id == workspace_id,
+                Ticket.workspace_id == workspace_id,
+                Repository.workspace_id == workspace_id,
+            )
+        )
+        if state is not None:
+            statement = statement.where(PullRequest.state == state)
+        statement = statement.order_by(PullRequest.created_at.desc(), PullRequest.id.desc())
+        statement = statement.limit(limit)
+        rows = (await self.session.execute(statement)).all()
+        return [
+            PullRequestWithContext(
+                pull_request=pr,
+                run=run,
+                ticket=ticket,
+                repository=repository,
+            )
+            for pr, run, ticket, repository in rows
+        ]
 
 
 async def add_run_cost(session: AsyncSession, run_id: str, cost_usd: Decimal) -> None:

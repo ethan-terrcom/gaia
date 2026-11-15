@@ -213,6 +213,17 @@
         "title": "ApprovalStatus",
         "type": "string"
       },
+      "CiStatus": {
+        "description": "The part of a GitHub checks rollup Gaia cares about (doc 15).",
+        "enum": [
+          "unknown",
+          "pending",
+          "passed",
+          "failed"
+        ],
+        "title": "CiStatus",
+        "type": "string"
+      },
       "EventHistory": {
         "description": "One page of a run's event history.",
         "properties": {
@@ -413,6 +424,125 @@
         ],
         "title": "ProviderCost",
         "type": "object"
+      },
+      "PullRequestPage": {
+        "description": "One page of pull requests (doc 15b).",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PullRequestRead"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "PullRequestPage",
+        "type": "object"
+      },
+      "PullRequestRead": {
+        "description": "A PR as the pull-request list route shows it (doc 15b).",
+        "properties": {
+          "ci_status": {
+            "$ref": "#/components/schemas/CiStatus"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "head_sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Head Sha"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "number": {
+            "title": "Number",
+            "type": "integer"
+          },
+          "repo_name": {
+            "title": "Repo Name",
+            "type": "string"
+          },
+          "review_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review State"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "run_status": {
+            "$ref": "#/components/schemas/RunStatus"
+          },
+          "state": {
+            "$ref": "#/components/schemas/PullRequestState"
+          },
+          "ticket_id": {
+            "title": "Ticket Id",
+            "type": "string"
+          },
+          "ticket_title": {
+            "title": "Ticket Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "updated_at",
+          "number",
+          "url",
+          "state",
+          "ci_status",
+          "review_state",
+          "head_sha",
+          "run_id",
+          "run_status",
+          "ticket_id",
+          "ticket_title",
+          "repo_name"
+        ],
+        "title": "PullRequestRead",
+        "type": "object"
+      },
+      "PullRequestState": {
+        "description": "The part of a GitHub PR's state Gaia cares about (doc 15).",
+        "enum": [
+          "open",
+          "merged",
+          "closed"
+        ],
+        "title": "PullRequestState",
+        "type": "string"
       },
       "RepositoryCreate": {
         "additionalProperties": false,
@@ -681,6 +811,23 @@
         ],
         "title": "RepositoryRead",
         "type": "object"
+      },
+      "RunStatus": {
+        "description": "Where a run is in the graph of ARCHITECTURE section 4.\n\n``awaiting_approval`` covers every human gate between agent turns, and\n``paused_budget`` the budget interrupt. ``failed`` and ``completed`` are\nterminal; a failed run is resumed from its checkpoint instead of being\nrevived by a status change.",
+        "enum": [
+          "pending",
+          "planning",
+          "awaiting_approval",
+          "implementing",
+          "reviewing",
+          "pr_open",
+          "paused_budget",
+          "failed",
+          "completed",
+          "cancelled"
+        ],
+        "title": "RunStatus",
+        "type": "string"
       },
       "RuntimeKind": {
         "description": "The harness behind an agent; ADR-001 (doc 08) picks which ones ship.\n\n``native_claude`` and ``native_deepseek`` are the raw-API runtimes,\n``claude_agent_sdk`` and ``cline_cli`` the harnesses. The values are stored\non ``agent.runtime`` and ``run.junior_runtime``, so they must not change\nafter the first migration without one.",
@@ -1395,6 +1542,73 @@
         "summary": "The authenticated caller",
         "tags": [
           "session"
+        ]
+      }
+    },
+    "/api/v1/pull-requests": {
+      "get": {
+        "description": "Return the workspace's PRs, newest first, optionally filtered by state.",
+        "operationId": "list_pull_requests_api_v1_pull_requests_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/PullRequestState"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "State"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PullRequestPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List pull requests",
+        "tags": [
+          "pull-requests"
         ]
       }
     },

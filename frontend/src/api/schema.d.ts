@@ -113,6 +113,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/pull-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List pull requests
+         * @description Return the workspace's PRs, newest first, optionally filtered by state.
+         */
+        get: operations["list_pull_requests_api_v1_pull_requests_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/repositories": {
         parameters: {
             query?: never;
@@ -433,6 +453,12 @@ export interface components {
          */
         ApprovalStatus: "pending" | "approved" | "rejected" | "expired";
         /**
+         * CiStatus
+         * @description The part of a GitHub checks rollup Gaia cares about (doc 15).
+         * @enum {string}
+         */
+        CiStatus: "unknown" | "pending" | "passed" | "failed";
+        /**
          * EventHistory
          * @description One page of a run's event history.
          */
@@ -518,6 +544,57 @@ export interface components {
             /** Provider */
             provider: string;
         };
+        /**
+         * PullRequestPage
+         * @description One page of pull requests (doc 15b).
+         */
+        PullRequestPage: {
+            /** Items */
+            items: components["schemas"]["PullRequestRead"][];
+        };
+        /**
+         * PullRequestRead
+         * @description A PR as the pull-request list route shows it (doc 15b).
+         */
+        PullRequestRead: {
+            ci_status: components["schemas"]["CiStatus"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Head Sha */
+            head_sha: string | null;
+            /** Id */
+            id: string;
+            /** Number */
+            number: number;
+            /** Repo Name */
+            repo_name: string;
+            /** Review State */
+            review_state: string | null;
+            /** Run Id */
+            run_id: string;
+            run_status: components["schemas"]["RunStatus"];
+            state: components["schemas"]["PullRequestState"];
+            /** Ticket Id */
+            ticket_id: string;
+            /** Ticket Title */
+            ticket_title: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Url */
+            url: string;
+        };
+        /**
+         * PullRequestState
+         * @description The part of a GitHub PR's state Gaia cares about (doc 15).
+         * @enum {string}
+         */
+        PullRequestState: "open" | "merged" | "closed";
         /**
          * RepositoryCreate
          * @description Register a repository.
@@ -608,6 +685,17 @@ export interface components {
             /** Workspace Id */
             workspace_id: string;
         };
+        /**
+         * RunStatus
+         * @description Where a run is in the graph of ARCHITECTURE section 4.
+         *
+         *     ``awaiting_approval`` covers every human gate between agent turns, and
+         *     ``paused_budget`` the budget interrupt. ``failed`` and ``completed`` are
+         *     terminal; a failed run is resumed from its checkpoint instead of being
+         *     revived by a status change.
+         * @enum {string}
+         */
+        RunStatus: "pending" | "planning" | "awaiting_approval" | "implementing" | "reviewing" | "pr_open" | "paused_budget" | "failed" | "completed" | "cancelled";
         /**
          * RuntimeKind
          * @description The harness behind an agent; ADR-001 (doc 08) picks which ones ship.
@@ -946,6 +1034,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Principal"];
+                };
+            };
+        };
+    };
+    list_pull_requests_api_v1_pull_requests_get: {
+        parameters: {
+            query?: {
+                state?: components["schemas"]["PullRequestState"] | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PullRequestPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

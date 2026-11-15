@@ -32,7 +32,7 @@ day. It is the vocabulary for the rest of the guides.
 | [LLM gateway](gateway.md) | Run tokens, the streaming proxy, metering, budgets: why agents never hold a provider key | 07b |
 | [Security core](security.md) | `confine`, the command policy, the `srt` sandbox profile: tripwire versus boundary | 09a |
 | [Agent tools](tools.md) | `ToolRegistry`, file/search/command/git tools, `SrtCommandRunner`, the audit trail | 09b |
-| [GitHub](github.md) | The token check, the token-safe push, draft PRs, SHA-pinned merges, the client's rate limits | 15a |
+| [GitHub](github.md) | The token check, the token-safe push, draft PRs, SHA-pinned merges, CI watching, PR sync, the PR list, the client's rate limits | 15a, 15b |
 | [Lead planning & review](lead.md) | `LeadEngineer`, repo context, structured outputs, byte-stable prompts | 11 |
 | [Agent runtimes](runtimes.md) | `AgentRuntime`, `run_with_limits`, approval brokers, orphans, fakes, the contract suite | 10a |
 | [Orchestrator](orchestrator.md) | The LangGraph run: gates as interrupts, `with_guard`, path maps, `RunManager`, crash recovery | 12a |
