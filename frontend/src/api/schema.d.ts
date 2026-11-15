@@ -193,7 +193,7 @@ export interface paths {
         };
         /**
          * The authenticated caller
-         * @description Return the caller the bearer token resolved to.
+         * @description Return the caller the bearer token resolved to, plus process flags.
          */
         get: operations["me_api_v1_me_get"];
         put?: never;
@@ -846,16 +846,6 @@ export interface components {
             since: string | null;
         };
         /**
-         * Principal
-         * @description The authenticated caller, and the workspace every query is scoped to.
-         */
-        Principal: {
-            /** User Id */
-            user_id: string;
-            /** Workspace Id */
-            workspace_id: string;
-        };
-        /**
          * ProviderCost
          * @description Today's spend for one LLM provider.
          */
@@ -1262,6 +1252,18 @@ export interface components {
          * @enum {string}
          */
         RuntimeKind: "native_claude" | "native_deepseek" | "claude_agent_sdk" | "cline_cli";
+        /**
+         * SessionRead
+         * @description The authenticated caller plus process-wide flags the UI needs (18b-2).
+         */
+        SessionRead: {
+            /** Demo Mode */
+            demo_mode: boolean;
+            /** User Id */
+            user_id: string;
+            /** Workspace Id */
+            workspace_id: string;
+        };
         /**
          * StreamTicket
          * @description The short-lived credential the UI puts in the SSE query string.
@@ -1708,7 +1710,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Principal"];
+                    "application/json": components["schemas"]["SessionRead"];
                 };
             };
         };

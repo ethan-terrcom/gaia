@@ -16,10 +16,13 @@ import ipaddress
 from pathlib import Path
 from typing import Any, Literal, Self
 
+import structlog
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from gaia.domain.enums import RuntimeKind
+
+logger = structlog.get_logger(__name__)
 
 DEFAULT_DATA_DIR = Path("~/.gaia")
 
@@ -216,6 +219,11 @@ class Settings(BaseSettings):
     #: How often the background cleanup task plans and applies a round.
     cleanup_interval_s: float = Field(default=86400.0, gt=0)
 
+    # --- demo mode (18b-2) ---
+    #: When true, the LLM gateway answers with the local fake provider and no
+    #: real model, provider key or network is used. Read from ``GAIA_FAKE_LLM``.
+    fake_llm: bool = False
+
     @field_validator("data_dir", "checkpoint_path", "worktrees_root", "log_dir")
     @classmethod
     def _expand_path(cls, value: Path) -> Path:
@@ -268,6 +276,29 @@ class Settings(BaseSettings):
                 f"host {self.host!r} is not a loopback address; set "
                 "allow_remote=True to bind to another address"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _force_native_runtimes_in_demo_mode(self) -> Self:
+        """Keep demo mode from launching the Claude Agent SDK.
+
+        The SDK runs the real ``claude`` CLI, which would spend real tokens and
+        call a real provider. Demo mode is a local fake, so both roles are
+        forced onto the native DeepSeek runtime.
+        """
+        if not self.fake_llm:
+            return self
+        if (
+            self.lead_runtime is not RuntimeKind.NATIVE_DEEPSEEK
+            or self.junior_runtime is not RuntimeKind.NATIVE_DEEPSEEK
+        ):
+            logger.warning(
+                "gaia.demo_mode_runtime_override",
+                lead_runtime=self.lead_runtime.value,
+                junior_runtime=self.junior_runtime.value,
+            )
+            self.lead_runtime = RuntimeKind.NATIVE_DEEPSEEK
+            self.junior_runtime = RuntimeKind.NATIVE_DEEPSEEK
         return self
 
 

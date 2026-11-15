@@ -69,6 +69,7 @@ from gaia.config.secrets import ensure_api_token, get_secret_store
 from gaia.config.settings import Settings, ensure_data_dir, get_settings
 from gaia.db.engine import create_engine_for, create_session_factory, session_scope
 from gaia.db.seed import Seeded, seed_initial_data
+from gaia.dev.fake_llm import FakeProviderTransport
 from gaia.llm.gateway import router as llm_router
 from gaia.orchestrator.graph import build_graph
 from gaia.orchestrator.runner import RunManager, open_checkpointer
@@ -201,9 +202,16 @@ def _lifespan(
         engine = create_engine_for(settings)
         sessions = create_session_factory(engine)
         prices = load_price_table()
+        llm_transport_for_mode = llm_transport
+        if settings.fake_llm:
+            logger.warning(
+                "gaia.demo_mode",
+                message="GAIA_FAKE_LLM=1: no real model is called",
+            )
+            llm_transport_for_mode = FakeProviderTransport()
         llm_http = httpx.AsyncClient(
             timeout=httpx.Timeout(connect=10, read=600, write=60, pool=10),
-            transport=llm_transport,
+            transport=llm_transport_for_mode,
         )
         exit_stack = AsyncExitStack()
         try:
