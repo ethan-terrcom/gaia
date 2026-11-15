@@ -48,6 +48,20 @@ Make Gaia safe to leave running. **Split this into PRs 18a–18d.**
   dirty worktrees without approval.
 - Pin dependency versions. Run `pip-audit` and `npm audit` in CI.
 
+### Worktree cleanup (as built)
+- `gaia/services/cleanup.py` adds `CleanupService.plan` (read-only) and `CleanupService.apply`.
+  A worktree is a candidate only when its row is `ready` or `in_use`, every run that uses it is
+  terminal (`completed`, `failed` or `cancelled`), the newest such run finished at least
+  `cleanup_older_than_days` ago, and the directory exists. Dirty, tampered and unmerged-work
+  worktrees are skipped with a reason; a merged PR row for the branch makes the unmerged check pass.
+- `gaia worktrees cleanup [--older-than DAYS] [--apply]` prints the plan and removes nothing unless
+  `--apply` is given.
+- A background task in the API lifespan runs the same plan/apply round when
+  `cleanup_enabled=True`; it is **off by default** (`cleanup_enabled=False`), because deleting a
+  user's checkouts on a timer is something they opt into. `cleanup_interval_s` defaults to one day.
+- After a merge, `PullRequestService.merge` no longer marks the worktree for cleanup; the CLI or the
+  opt-in background task handles merged runs once they are old enough.
+
 ### 18d Security review
 - Write `docs/SECURITY.md`: the threat model (ARCHITECTURE §6), controls, known accepted risks (as
   decided under D1 and D2), and how to report issues.

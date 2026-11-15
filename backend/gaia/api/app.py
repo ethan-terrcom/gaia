@@ -73,6 +73,7 @@ from gaia.orchestrator.runner import RunManager, open_checkpointer
 from gaia.orchestrator.wiring import Wiring, build_wiring
 from gaia.runtimes.approvals import DbApprovalBroker
 from gaia.runtimes.orphans import OrphanRegistry, is_ours
+from gaia.services.cleanup import CleanupService
 from gaia.services.costs import load_price_table
 from gaia.services.events import EventBus
 from gaia.services.git import GitService
@@ -266,6 +267,10 @@ def _lifespan(
                 )
                 pr_sync_task = asyncio.create_task(pr_sync.run_forever(), name="pr-sync")
                 app.state.services.background_tasks.add(pr_sync_task)
+            if settings.cleanup_enabled:
+                cleanup = CleanupService(sessions=sessions, git=git, settings=settings)
+                cleanup_task = asyncio.create_task(cleanup.run_forever(), name="cleanup")
+                app.state.services.background_tasks.add(cleanup_task)
             logger.info(
                 "api.startup",
                 host=settings.host,

@@ -185,6 +185,7 @@ async def api(
         db_url=database.url,
         orchestrator_enabled=False,
         pr_sync_enabled=False,
+        cleanup_enabled=False,
     )
     app = create_app(settings)
     async with app.router.lifespan_context(app):

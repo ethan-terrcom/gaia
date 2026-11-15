@@ -264,6 +264,10 @@ class PullRequestService:
         committed as soon as GitHub reports it, and the branch delete and the
         ``pr.merged`` event run on every pass that finds the PR merged but the
         row not yet finished, including the pass after a crash.
+
+        The worktree is deliberately not marked for cleanup here: doc 18c's
+        opt-in background task (or ``gaia worktrees cleanup --apply``) removes it
+        once the run is old enough.
         """
         async with session_scope(self.sessions) as session:
             ctx = await self._load(session, run_id)
@@ -309,7 +313,6 @@ class PullRequestService:
             payload={"run_id": run_id, "number": pr},
             run_id=run_id,
         )
-        # TODO(gaia-18c): mark the worktree for cleanup.
 
     # ---------------------------------------------------------------- loading --
     async def _load(self, session: AsyncSession, run_id: str) -> _RunContext:

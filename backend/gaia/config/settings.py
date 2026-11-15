@@ -207,6 +207,15 @@ class Settings(BaseSettings):
     #: How often the background PR sync task refreshes GitHub's view of open PRs.
     pr_sync_interval_s: float = Field(default=60.0, ge=5)
 
+    # --- cleanup (18c) ---
+    #: Whether the background cleanup task runs in the API lifespan. Off by
+    #: default: deleting a user's checkouts on a timer is something they opt into.
+    cleanup_enabled: bool = False
+    #: Remove worktrees and scratch dirs for runs finished at least this old.
+    cleanup_older_than_days: int = Field(default=14, ge=1)
+    #: How often the background cleanup task plans and applies a round.
+    cleanup_interval_s: float = Field(default=86400.0, gt=0)
+
     @field_validator("data_dir", "checkpoint_path", "worktrees_root", "log_dir")
     @classmethod
     def _expand_path(cls, value: Path) -> Path:
