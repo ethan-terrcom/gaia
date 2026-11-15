@@ -25,13 +25,18 @@ from gaia.security.sandbox import SandboxSpec, wrap_argv, write_srt_settings
 from gaia.services.proc import ProcResult, run_proc
 from gaia.tools.registry import Tool, ToolContext, ToolDecision, ToolInput, ToolResult, approve
 
+#: The longest a single ``run_command`` may run. Runtimes that impose their own
+#: tool-call timeout (the Agent SDK's CLI) must allow at least this plus the
+#: approval wait (lead review 10c, C3).
+MAX_COMMAND_TIMEOUT_S = 1800
+
 #: Maximum output bytes a command may buffer per stream.
 COMMAND_OUTPUT_BYTES = 64_000
 
 
 class RunCommandInput(ToolInput):
     argv: list[str] = Field(min_length=1, max_length=256)
-    timeout_s: int = Field(default=300, ge=1, le=1800)
+    timeout_s: int = Field(default=300, ge=1, le=MAX_COMMAND_TIMEOUT_S)
 
 
 class CommandRunner(Protocol):

@@ -45,6 +45,7 @@ from tests.runtime_contract import (
     PLANTED_ANTHROPIC_KEY,
     RecordingSink,
     base_sha,
+    build_claude_sdk_runtime,
     build_fake_process_runtime,
     build_fake_runtime,
     make_task,
@@ -150,7 +151,7 @@ def worktree(git_repo: Path, tmp_path: Path):
     return make_worktree_location(git_repo, tmp_path)
 
 
-@pytest.fixture(params=["fake", "fake_process", "native"])
+@pytest.fixture(params=["fake", "fake_process", "native", "claude_sdk"])
 def runtime_name(request: pytest.FixtureRequest) -> str:
     return str(request.param)
 
@@ -161,11 +162,20 @@ def make_runtime(
     broker: InMemoryApprovalBroker,
     tmp_path: Path,
     *,
+    git_service: GitService,
     orphans: OrphanRegistry | None = None,
 ) -> AgentRuntime:
     """Build the requested fake runtime from one common action list."""
     if runtime_name == "fake":
         return build_fake_runtime(actions, broker, orphans)
+    if runtime_name == "claude_sdk":
+        return build_claude_sdk_runtime(
+            actions,
+            broker,
+            tmp_path,
+            git_service=git_service,
+            orphans=orphans,
+        )
     return build_fake_process_runtime(to_json_actions(actions), broker, tmp_path, orphans)
 
 
@@ -179,7 +189,14 @@ async def _run(
     *,
     orphans: OrphanRegistry | None = None,
 ) -> tuple[AgentRuntime, AgentResult, RecordingSink]:
-    runtime = make_runtime(runtime_name, actions, broker, tmp_path, orphans=orphans)
+    runtime = make_runtime(
+        runtime_name,
+        actions,
+        broker,
+        tmp_path,
+        git_service=git_service,
+        orphans=orphans,
+    )
     sink = RecordingSink()
     result = await run_with_limits(runtime, task, sink, git=git_service)
     return runtime, result, sink
@@ -252,13 +269,21 @@ async def test_cancel_mid_run_returns_cancelled_within_5_s(
         assert llm.cancelled
         return
 
-    runtime = make_runtime(runtime_name, [Sleep(30)], broker, tmp_path)
+    runtime = make_runtime(
+        runtime_name,
+        [Sleep(30)],
+        broker,
+        tmp_path,
+        git_service=git_service,
+    )
     sink = RecordingSink()
 
     started = time.monotonic()
     run_task = asyncio.create_task(run_with_limits(runtime, task, sink, git=git_service))
     try:
-        if isinstance(runtime, FakeProcessRuntime):
+        if runtime_name == "claude_sdk":
+            await wait_until(lambda: task.task_id in runtime._clients)  # type: ignore[attr-defined]
+        elif isinstance(runtime, FakeProcessRuntime):
             await wait_until(lambda: runtime.last_pid is not None)
         else:
             await wait_until(lambda: task.task_id in runtime._cancel_events)  # type: ignore[attr-defined]
@@ -390,12 +415,23 @@ async def test_events_are_emitted_in_order(
     ]
     _, _, sink = await _run(runtime_name, actions, task, git_service, tmp_path, broker)
 
-    assert [event_type for event_type, _ in sink.events] == [
+    expected = [
         EventType.AGENT_MESSAGE,
         EventType.AGENT_TOOL_CALL,
         EventType.AGENT_MESSAGE,
         EventType.AGENT_USAGE,
     ]
+    if runtime_name == "claude_sdk":
+        # The first scripted action is a real registry tool call, so the
+        # registry also emits the matching agent.tool_result event.
+        expected = [
+            EventType.AGENT_MESSAGE,
+            EventType.AGENT_TOOL_CALL,
+            EventType.AGENT_TOOL_RESULT,
+            EventType.AGENT_MESSAGE,
+            EventType.AGENT_USAGE,
+        ]
+    assert [event_type for event_type, _ in sink.events] == expected
 
 
 async def test_in_turn_approval_approved_and_denied(
@@ -440,7 +476,13 @@ async def test_in_turn_approval_approved_and_denied(
         RequestApproval(["pytest", "-q"]),
         Finish("done", None),
     ]
-    runtime = make_runtime(runtime_name, actions, broker, tmp_path)
+    runtime = make_runtime(
+        runtime_name,
+        actions,
+        broker,
+        tmp_path,
+        git_service=git_service,
+    )
     sink = RecordingSink()
 
     run_task = asyncio.create_task(run_with_limits(runtime, task, sink, git=git_service))
@@ -451,7 +493,15 @@ async def test_in_turn_approval_approved_and_denied(
     result = await asyncio.wait_for(run_task, timeout=5)
 
     assert result.status == "completed"
-    assert "denied" in result.summary
+    if runtime_name == "claude_sdk":
+        # The denial is visible in the registry's agent.tool_result event; the
+        # SDK runtime does not keep a separate denial-notes string.
+        assert any(
+            event_type == EventType.AGENT_TOOL_RESULT and "denied" in payload.get("content", "")
+            for event_type, payload in sink.events
+        )
+    else:
+        assert "denied" in result.summary
     assert broker.pending() == ()
 
 
@@ -470,7 +520,14 @@ async def test_orphan_registry_reaps_a_live_fake_agent(
     broker = InMemoryApprovalBroker()
     actions = [Sleep(30)]
     task = make_task(worktree, base_sha=base_sha(git_repo), timeout_s=60)
-    runtime = make_runtime(runtime_name, actions, broker, tmp_path, orphans=registry)
+    runtime = make_runtime(
+        runtime_name,
+        actions,
+        broker,
+        tmp_path,
+        git_service=git_service,
+        orphans=registry,
+    )
     assert isinstance(runtime, FakeProcessRuntime)
     sink = RecordingSink()
 

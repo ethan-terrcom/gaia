@@ -102,6 +102,29 @@ Workflow logic (12) and planning prompts (11).
 - **No `Settings.runtime_default_timeout_s` was added.** `AgentTask.timeout_s` defaults to 1800 as
   specified, and no runtime code needed a global setting.
 
+## Decisions and deviations (as built) — 10c
+
+- **`build_wrapper_script` takes the values the script interpolates.** The lead note's four-argument
+  signature could not produce the documented script; the function additionally takes `agent_path`,
+  `task_dir` and `approval_timeout_s` as keyword arguments. It remains pure and testable.
+- **`context_factory` has the signature `(task, events, task_dir)`.** `ToolContext` must receive the
+  same `EventSink` as `run_task`, so the sink is part of the factory signature. This is the natural
+  10b-compatible shape and will be reconciled when 10b lands.
+- **`run_task` does not itself emit `agent.usage`.** `run_with_limits` already owns the final
+  `agent.usage` event for every runtime. The SDK result is mapped into `AgentResult.usage` (token
+  counts, priced by Gaia) and the shared wrapper emits the event once.
+- **Max-turns is detected as `subtype == "error_max_turns"` or `terminal_reason == "max_turns"`.**
+  The installed Python SDK does not define a constant for the wire subtype, so the runtime accepts
+  both signals the CLI can send.
+- **Run-token mint/revoke and budget check are injectable callables.** Production defaults call
+  `gaia.llm.run_tokens` and `gaia.services.costs` in their own transactions; contract tests inject
+  fakes so the runtime suite does not need a database for every case.
+- **The test fake reaches the real SDK MCP handler through `runtime.sdk_tool`.** This keeps the
+  test client independent of how `create_sdk_mcp_server` exposes its internal MCP server instance.
+- **Orphan tracking records the wrapper pid with `argv0="srt"`.** The SDK does not start a new
+  process group, so orphan cleanup kills the wrapper/srt leader pid; srt's own child handling is a
+  live-run check.
+
 ### Lead review changes — 10a (2026-11-14, [`review-10a`](../reviews/2026-11-14-review-10a.md))
 - **D1:** `DbApprovalBroker` registers its waiter before publishing `approval.requested`, and returns
   what the row says, so a fast or racing decision is never lost.
