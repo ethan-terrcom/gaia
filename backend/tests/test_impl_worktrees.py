@@ -161,6 +161,8 @@ async def test_setup_failure_raises_and_leaves_no_marker(setup_world: SetupWorld
     assert raised.value.returncode == 1
     assert "boom" in raised.value.tail
     assert "secret-token" in raised.value.tail  # SetupFailed tail is redacted, not stripped
+    assert "exited with status 1" in str(raised.value)
+    assert "boom" in str(raised.value)  # the output is in the message, so events and logs show why
     marker = world.settings.data_dir / "runs" / world.run.id / "setup.ok"
     assert not marker.exists()
 
@@ -492,3 +494,13 @@ async def test_mark_in_use_leaves_an_in_use_worktree_alone(
         )
 
     await world.setup._mark_in_use(world.workspace.id, worktree.id)
+
+
+def test_setup_failed_message_has_no_detail_when_there_was_no_output() -> None:
+    assert str(SetupFailed(2, "  \n")) == "setup command exited with status 2"
+
+
+def test_setup_failed_message_keeps_only_the_end_of_long_output() -> None:
+    message = str(SetupFailed(2, "x" * 5000 + "THE-END"))
+    assert message.endswith("THE-END")
+    assert len(message) < 1000

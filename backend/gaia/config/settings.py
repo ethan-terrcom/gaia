@@ -155,6 +155,8 @@ class Settings(BaseSettings):
         "registry.npmjs.org",
         "github.com",
         "objects.githubusercontent.com",
+        # GitHub serves release downloads (uv fetches a managed Python this way) from here.
+        "release-assets.githubusercontent.com",
         "crates.io",
         "static.crates.io",
         "proxy.golang.org",

@@ -5,7 +5,7 @@ BACKEND := backend
 FRONTEND := frontend
 
 .DEFAULT_GOAL := help
-.PHONY: help setup migrate dev-backend dev-frontend run ui-url demo fmt lint typecheck test secrets smoke-llm openapi graph sandbox-install check audit
+.PHONY: help setup setup-worktree migrate dev-backend dev-frontend run ui-url demo fmt lint typecheck test secrets smoke-llm openapi graph sandbox-install check audit
 
 # `make run` serves the built UI from the API itself, so the login link uses the API's origin.
 SERVE_ORIGIN = http://127.0.0.1:$${GAIA_PORT:-8765}
@@ -19,6 +19,11 @@ setup: ## Install backend and frontend dependencies and the git hooks
 	cd $(FRONTEND) && npm ci
 	cd $(FRONTEND)/tools/openapi && npm ci
 	cd $(BACKEND) && uv run pre-commit install
+
+setup-worktree: ## Install dependencies only (no git hooks): the setup command to register Gaia itself with
+	cd $(BACKEND) && uv sync --locked
+	cd $(FRONTEND) && npm ci
+	cd $(FRONTEND)/tools/openapi && npm ci
 
 sandbox-install: ## Install the pinned sandbox-runtime (srt) binary under GAIA_DATA_DIR
 	npm install --prefix "$${GAIA_DATA_DIR:-$$HOME/.gaia}/tools" --save-exact --ignore-scripts @anthropic-ai/sandbox-runtime@0.0.81
