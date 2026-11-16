@@ -54,8 +54,15 @@ export function summarizeEvent(event: TimelineEvent): string {
       return `status: ${stringValue(payload.status) ?? 'unknown'}`
     case 'run.node_started':
     case 'run.node_finished':
-    case 'run.failed':
       return stringValue(payload.node) ?? ''
+    case 'run.failed': {
+      // Say why it failed, not only where: the error is what you need to act on.
+      const node = stringValue(payload.node) ?? ''
+      const error = stringValue(payload.error)
+      return error
+        ? `${node}: ${error.trim().replace(/\s*\n\s*/g, ' · ')}`
+        : node
+    }
     case 'approval.requested':
       return stringValue(payload.kind) ?? ''
     case 'approval.decided':

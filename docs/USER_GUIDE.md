@@ -215,7 +215,7 @@ Set any of these as environment variables when starting Gaia:
 | `sandbox-runtime (srt) not found` | The sandbox isn't installed | `make sandbox-install` |
 | A 503 `provider_not_configured` in a run's errors | A key is missing | §5, then start the run again |
 | "The orchestrator is not running" | Gaia started without its run engine | Check the terminal for the startup error; start it again |
-| A run **failed** at "prepare worktree": "setup command exited with status …" | Your setup command failed in the sandbox. The end of its output is in the message | Run the same command yourself in the repository to see it work; commands that install git hooks or reach hosts outside the package registries fail in the sandbox |
+| A run **failed** at "prepare worktree": "setup command exited with status …" | Your setup command failed in the sandbox. The end of its output is on the run's **Timeline**, on the `run.failed` line | Run the same command yourself in the repository to see it work; commands that install git hooks or reach hosts outside the package registries fail in the sandbox |
 | A run **failed** at "open PR": "no GitHub remote" | The repository has no GitHub `origin` | The commits are on the run's `gaia/…` branch in the worktree: merge them yourself. To use PRs, add the remote in your repository (`git remote add origin https://github.com/<owner>/<repo>.git`, then push `main`), and start a **new run**: Gaia re-reads `origin` when it opens the PR |
 | A run is **paused (budget)** | A budget cap was hit | Decide the **Budget** approval |
 | "ticket already has an active run" | One run per ticket at a time | Open the existing run from the dashboard |
