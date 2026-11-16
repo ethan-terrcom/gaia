@@ -1,10 +1,10 @@
-import { PagePlaceholder } from './Placeholder'
+import { PageHeader } from '../components/States'
 
 export default function Settings() {
   return (
     <section>
-      <PagePlaceholder title="Settings" arrivesIn="17f" />
-      <h2>Keyboard navigation</h2>
+      <PageHeader title="Settings" />
+      <h2 className="mb-2 font-semibold">Keyboard navigation</h2>
       <ul>
         <li>
           <kbd>g</kbd> then <kbd>d</kbd> — Dashboard

@@ -126,3 +126,19 @@ once and the selection moves to the next one.
 - The diff is shown as text with per-line classes; no diff library. The truncation marker shows a
   note.
 - Cancel sits behind `ConfirmDialog` and is hidden for terminal runs.
+
+### Runs list (`/runs`) (2026-11-15, bug fix)
+- **Gap in the plan:** no package owned the `/runs` list. 17c built the run detail only, so the
+  nav's Runs link (and the `g r` hotkey) still showed the 16 placeholder ("Arrives in 17c"). The
+  owner hit it on returning to Runs from a run.
+- The view lives in `src/views/runs/`. It is a table (ticket → `/runs/:id`, status, current step,
+  cost of budget, PR number, started), newest first, over `GET /runs` with cursor pagination
+  ("Load more", 50 a page).
+- Filters are All, Active, Failed, Completed and Cancelled, kept in `?status=`. The terminal
+  statuses go to the API; **Active** is filtered client-side over all runs, because the API takes
+  one status and "active" is every non-terminal one. Unknown values fall back to All.
+- "Started" shows `started_at`, falling back to `created_at` for a run that failed before the
+  graph started.
+- The query key starts with `runs`, so the stream's `run.*`/`step.*` invalidation keeps it live.
+- Settings also still said "Arrives in 17f" (17f shipped Worktrees); it now has a plain header,
+  and the unused `PagePlaceholder` is gone.

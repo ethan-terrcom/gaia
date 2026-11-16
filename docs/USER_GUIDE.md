@@ -182,6 +182,8 @@ shows what changed. **Cancel run** stops it at any time; the worktree is kept, s
 ## 7. Day to day
 - **Dashboard** (`g d`): active runs, what needs you, open PRs, today's spend, and the last 14
   days.
+- **Runs** (`g r`): every run, newest first, with its status, current step and cost. Filter by
+  Active, Failed, Completed or Cancelled; click a run to open its page.
 - **Spend:** the top bar shows today's spend against the daily cap (default $20). A run that hits
   its cap pauses and asks you. At the daily cap, new runs are refused until tomorrow (UTC) or until
   you raise the cap.
@@ -218,7 +220,7 @@ Set any of these as environment variables when starting Gaia:
 | A run **failed** at "prepare worktree": "setup command exited with status …" | Your setup command failed in the sandbox. The end of its output is on the run's **Timeline**, on the `run.failed` line | Run the same command yourself in the repository to see it work; commands that install git hooks or reach hosts outside the package registries fail in the sandbox |
 | A run **failed** at "open PR": "no GitHub remote" | The repository has no GitHub `origin` | The commits are on the run's `gaia/…` branch in the worktree: merge them yourself. To use PRs, add the remote in your repository (`git remote add origin https://github.com/<owner>/<repo>.git`, then push `main`), and start a **new run**: Gaia re-reads `origin` when it opens the PR |
 | A run is **paused (budget)** | A budget cap was hit | Decide the **Budget** approval |
-| "ticket already has an active run" | One run per ticket at a time | Open the existing run from the dashboard |
+| "ticket already has an active run" | One run per ticket at a time | Open the existing run from **Runs** or the dashboard |
 | The UI says you're logged out | The tab's session ended | `make ui-url` and open the new link |
 | Anything else | | `~/.gaia/logs/gaia.jsonl`: every API error includes a `request_id` you can search for |
 

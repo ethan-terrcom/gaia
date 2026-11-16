@@ -1,5 +1,5 @@
-import { PagePlaceholder } from './Placeholder'
+import { RunsView } from '../views/runs/RunsView'
 
 export default function Runs() {
-  return <PagePlaceholder title="Runs" arrivesIn="17c" />
+  return <RunsView />
 }
