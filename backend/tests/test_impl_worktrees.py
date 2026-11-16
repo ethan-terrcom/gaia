@@ -20,7 +20,7 @@ from gaia.orchestrator.impl.worktrees import SetupFailed, WorktreeSetup
 from gaia.services.git import GitService
 from gaia.services.worktrees import WorktreeAlreadyExists, WorktreeError, WorktreeService
 from tests.db_builders import make_workspace
-from tests.git_repo import on_disk, resolved
+from tests.git_repo import commit_file, git, on_disk, resolved
 from tests.tool_fakes import FakeCommandRunner, make_proc_result
 
 
@@ -531,3 +531,142 @@ def test_setup_failed_message_keeps_only_the_end_of_long_output() -> None:
     message = str(SetupFailed(2, "x" * 5000 + "THE-END"))
     assert message.endswith("THE-END")
     assert len(message) < 1000
+
+
+# ----------------------------------------------------- re-run on a stale worktree --
+# A run that fails before it records its worktree (in setup, say) leaves the
+# ticket's worktree live. The next run reuses it; these pin down when that reuse
+# moves the worktree up to today's base and when it must leave it alone.
+
+
+def _rerun_context(world: SetupWorld) -> Any:
+    """The context of a new run on the same ticket: no worktree recorded yet."""
+    return cast(
+        Any,
+        SimpleNamespace(
+            run=SimpleNamespace(workspace_id=world.workspace.id),
+            repository=world.repository,
+            ticket=world.ticket,
+            worktree=None,
+        ),
+    )
+
+
+async def _first_worktree(world: SetupWorld) -> Worktree:
+    async with session_scope(world.setup.sessions) as session:
+        service = WorktreeService(git=world.git, session=session, workspace_id=world.workspace.id)
+        return await service.create(world.repository, world.ticket)
+
+
+def _head(path: str) -> str:
+    return git(Path(path), "rev-parse", "HEAD").strip()
+
+
+async def test_rerun_fast_forwards_an_untouched_worktree_to_the_new_tip(
+    setup_world: SetupWorld,
+) -> None:
+    """The owner's case: main moved on after the failed run, and the re-run must see it."""
+    world = setup_world
+    first = await _first_worktree(world)
+    old_base = first.base_sha
+    new_tip = commit_file(
+        Path(world.repository.local_path), "Makefile", "setup-worktree:\n", "add target"
+    )
+
+    returned = await world.setup._reuse_or_create(_rerun_context(world))
+
+    assert returned.id == first.id
+    assert returned.base_sha == new_tip != old_base
+    assert _head(returned.path) == new_tip
+    assert on_disk(Path(returned.path) / "Makefile").is_file
+    async with session_scope(world.setup.sessions) as session:
+        row = await ScopedRepo(session, Worktree, world.workspace.id).get(first.id)
+        assert row is not None
+        assert row.base_sha == new_tip
+
+
+async def test_rerun_keeps_a_worktree_with_commits_of_its_own(setup_world: SetupWorld) -> None:
+    world = setup_world
+    first = await _first_worktree(world)
+    own = commit_file(Path(first.path), "work.txt", "work\n", "the last run's work")
+    commit_file(Path(world.repository.local_path), "other.txt", "x\n", "main moves on")
+
+    returned = await world.setup._reuse_or_create(_rerun_context(world))
+
+    assert returned.base_sha == first.base_sha
+    assert _head(returned.path) == own
+
+
+async def test_rerun_keeps_a_dirty_worktree(setup_world: SetupWorld) -> None:
+    world = setup_world
+    first = await _first_worktree(world)
+    (Path(first.path) / "half-done.txt").write_text("wip\n", encoding="utf-8")
+    commit_file(Path(world.repository.local_path), "other.txt", "x\n", "main moves on")
+
+    returned = await world.setup._reuse_or_create(_rerun_context(world))
+
+    assert returned.base_sha == first.base_sha
+    assert _head(returned.path) == first.base_sha
+    assert on_disk(Path(first.path) / "half-done.txt").is_file
+
+
+async def test_rerun_on_an_up_to_date_worktree_changes_nothing(setup_world: SetupWorld) -> None:
+    world = setup_world
+    first = await _first_worktree(world)
+
+    returned = await world.setup._reuse_or_create(_rerun_context(world))
+
+    assert returned.base_sha == first.base_sha
+    assert returned.updated_at == first.updated_at
+
+
+async def test_refresh_records_the_tip_when_head_already_matches_it(
+    setup_world: SetupWorld,
+) -> None:
+    """A row whose base drifted from a head that is already at the tip is corrected."""
+    world = setup_world
+    first = await _first_worktree(world)
+    async with session_scope(world.setup.sessions) as session:
+        await ScopedRepo(session, Worktree, world.workspace.id).update(first.id, base_sha="0" * 40)
+
+    returned = await world.setup._reuse_or_create(_rerun_context(world))
+
+    assert returned.base_sha == first.base_sha
+
+
+async def _remove(world: SetupWorld, worktree: Worktree) -> None:
+    async with session_scope(world.setup.sessions) as session:
+        service = WorktreeService(git=world.git, session=session, workspace_id=world.workspace.id)
+        await service.remove(worktree, force=True)
+
+
+async def test_revived_branch_with_no_work_is_moved_to_the_new_tip(
+    setup_world: SetupWorld,
+) -> None:
+    """Reviving a removed row checks out the old branch; it must not keep the old code."""
+    world = setup_world
+    first = await _first_worktree(world)
+    await _remove(world, first)
+    new_tip = commit_file(Path(world.repository.local_path), "new.txt", "x\n", "main moves on")
+
+    revived = await _first_worktree(world)
+
+    assert revived.id == first.id
+    assert revived.base_sha == new_tip
+    assert _head(revived.path) == new_tip
+
+
+async def test_revived_branch_with_work_keeps_it_and_records_the_merge_base(
+    setup_world: SetupWorld,
+) -> None:
+    """Regression: the revived row used to claim today's tip as its base, so its diff was wrong."""
+    world = setup_world
+    first = await _first_worktree(world)
+    own = commit_file(Path(first.path), "work.txt", "work\n", "the last run's work")
+    await _remove(world, first)
+    commit_file(Path(world.repository.local_path), "new.txt", "x\n", "main moves on")
+
+    revived = await _first_worktree(world)
+
+    assert revived.base_sha == first.base_sha
+    assert _head(revived.path) == own

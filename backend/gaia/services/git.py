@@ -818,6 +818,46 @@ class GitService:
         )
         return await self.current_sha(repo, timeout_s=timeout_s)
 
+    async def is_ancestor(
+        self, repo: Path, ancestor: str, descendant: str, *, timeout_s: float | None = None
+    ) -> bool:
+        """True when ``ancestor`` is reachable from ``descendant`` (or is the same commit).
+
+        ``git merge-base --is-ancestor`` exits 0 for yes and 1 for no; anything
+        else (an unknown revision) is an error, not a "no".
+        """
+        check_ref_argument(ancestor, what="revision")
+        check_ref_argument(descendant, what="revision")
+        args = ("merge-base", "--is-ancestor", ancestor, descendant)
+        result = await self._invoke(*args, cwd=repo, timeout_s=timeout_s)
+        if result.returncode in (0, 1):
+            return result.returncode == 0
+        raise GitError(args, result)
+
+    async def merge_base(
+        self, repo: Path, first: str, second: str, *, timeout_s: float | None = None
+    ) -> str:
+        """The best common ancestor of ``first`` and ``second``, as a full SHA."""
+        check_ref_argument(first, what="revision")
+        check_ref_argument(second, what="revision")
+        result = await self._run("merge-base", first, second, cwd=repo, timeout_s=timeout_s)
+        return result.stdout.strip()
+
+    async def fast_forward(
+        self, location: WorktreeLocation, target: str, *, timeout_s: float | None = None
+    ) -> None:
+        """Move the worktree's checked-out branch forward to ``target``.
+
+        ``--ff-only`` is the whole point: git refuses unless the branch's head is
+        an ancestor of ``target``, so no commit can be lost, and it refuses to
+        overwrite a local change. No merge commit, no hooks.
+        """
+        check_ref_argument(target, what="revision")
+        cwd, env = self._command_context(location)
+        await self._run(
+            "merge", "--ff-only", "--no-verify", target, cwd=cwd, env=env, timeout_s=timeout_s
+        )
+
     # -------------------------------------------------------------- branches --
     def branch_name_for(self, ticket: TicketLike) -> str:
         """``gaia/<short-id>-<slug>`` for a ticket (task 2)."""

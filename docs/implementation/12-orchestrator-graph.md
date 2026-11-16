@@ -250,3 +250,20 @@ nodes behind an interface for now.
   `KeyError`.
 - **Terminal runs expire their pending approvals:** `RunManager.cancel` and the guard's failure
   path call `expire_pending_approvals` and publish `approval.decided {action: "expired"}`.
+
+### Re-run on a stale worktree (2026-11-15, bug fix)
+- **Symptom (owner, live):** a ticket whose first run failed in setup could not be re-run. The
+  failed run left its worktree `in_use` and never recorded it on the run; the next run reused it
+  through `WorktreeAlreadyExists`, still checked out at the first run's base. On Gaia itself that
+  base predated `make setup-worktree` (#59), so every re-run failed with
+  `No rule to make target 'setup-worktree'`, however many fixes landed on `main`.
+- **Fix:** `WorktreeSetup._reuse_or_create` now passes the reused live row to
+  `WorktreeService.refresh()`, which fast-forwards it to the default branch's tip when it is clean
+  and has no commits of its own, and leaves it alone otherwise (logged as `worktree.reused_as_is`
+  with the reason). `WorktreeService.create()` does the same for a revived row whose branch exists,
+  and for a branch with commits records the merge-base as `base_sha`; before, it recorded the tip
+  while checking out the old branch, so `base..HEAD` was wrong.
+- New `GitService` verbs: `is_ancestor`, `merge_base`, `fast_forward` (`merge --ff-only`, which
+  cannot lose a commit or overwrite a local change).
+- **Not changed:** a run that fails still leaves its worktree `in_use` and its ticket
+  `in_progress`. Reuse works either way; tidying those statuses is a separate follow-up.
