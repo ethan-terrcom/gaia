@@ -26,6 +26,7 @@ from enum import StrEnum
 from typing import Any, Protocol
 
 from gaia.db.models import Run, RunStep, Ticket
+from gaia.db.types import utcnow
 from gaia.domain.enums import RunStatus, RunStepStatus, TicketStatus
 
 TICKET_TRANSITIONS: Mapping[TicketStatus, frozenset[TicketStatus]] = {
@@ -215,4 +216,23 @@ def transition(entity: Ticket | Run | RunStep, new_status: str) -> None:
         machine = _BY_MODEL[type(entity)]
     except KeyError:
         raise TypeError(f"{type(entity).__name__} has no status machine") from None
+    previous = entity.status
     machine.apply(entity, str(new_status))
+    if isinstance(entity, Run) and entity.status != previous:
+        _stamp_run(entity)
+
+
+def _stamp_run(run: Run) -> None:
+    """Record when a run started and finished, at the transition that means it.
+
+    Every run status change comes through :func:`transition`, so this is the one
+    place that can keep ``started_at``/``finished_at`` honest. ``started_at`` is
+    the first move out of ``pending`` (a resumed or unpaused run keeps its first
+    start); ``finished_at`` is the move into a status with no way out. The UI's
+    "started" times and ``gaia worktrees cleanup``'s age check read them.
+    """
+    now = utcnow()
+    if run.started_at is None:
+        run.started_at = now
+    if not RUN_TRANSITIONS[RunStatus(run.status)] and run.finished_at is None:
+        run.finished_at = now

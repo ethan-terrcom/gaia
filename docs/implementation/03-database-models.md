@@ -98,3 +98,12 @@ the only place to change them.
     `sqlite3` opens it.
 12. **`ScopedRepo` has no `delete`**: the doc lists `get`/`list`/`create`/`update`, and deletion is
     a cascade from the workspace (or the parent row).
+
+### Run timestamps (2026-11-15, bug fix)
+- `run.started_at` and `run.finished_at` had columns and API fields but no writer: every run in the
+  owner's database had both null. The dashboard's start times were blank, and
+  `gaia worktrees cleanup` (which skips a terminal run without `finished_at`) could never reclaim
+  anything.
+- `transition()` now stamps them for `Run` rows: `started_at` on the first real move (out of
+  `pending`), `finished_at` on entering a status with no outgoing edge. An idempotent re-application
+  stamps nothing, and existing values are kept. Runs that finished before this fix stay null.
