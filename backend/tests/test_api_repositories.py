@@ -329,3 +329,96 @@ async def test_register_repository_strips_credentials_from_origin(api: Api, git_
 
     assert response.status_code == 201
     assert response.json()["remote_url"] == "https://example.invalid/r.git"
+
+
+async def _register(api: Api, git_repo: Path) -> str:
+    response = await api.client.post(
+        "/api/v1/repositories",
+        json={
+            "local_path": str(git_repo),
+            "setup_command": ["make", "setup"],
+            "test_command": ["make", "test"],
+        },
+        headers=api.auth,
+    )
+    assert response.status_code == 201
+    return str(response.json()["id"])
+
+
+async def test_patch_repository_changes_only_the_fields_sent(api: Api, git_repo: Path) -> None:
+    repository_id = await _register(api, git_repo)
+
+    response = await api.client.patch(
+        f"/api/v1/repositories/{repository_id}",
+        json={"setup_command": ["make", "setup-worktree"]},
+        headers=api.auth,
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["setup_command"] == ["make", "setup-worktree"]
+    assert body["test_command"] == ["make", "test"]  # untouched
+    fetched = await api.client.get(f"/api/v1/repositories/{repository_id}", headers=api.auth)
+    assert fetched.json()["setup_command"] == ["make", "setup-worktree"]
+
+
+async def test_patch_repository_null_clears_a_command(api: Api, git_repo: Path) -> None:
+    repository_id = await _register(api, git_repo)
+
+    response = await api.client.patch(
+        f"/api/v1/repositories/{repository_id}",
+        json={"setup_command": None},
+        headers=api.auth,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["setup_command"] is None
+    assert response.json()["test_command"] == ["make", "test"]
+
+
+async def test_patch_repository_is_audited(api: Api, database: Database, git_repo: Path) -> None:
+    repository_id = await _register(api, git_repo)
+    await api.client.patch(
+        f"/api/v1/repositories/{repository_id}",
+        json={"test_command": ["make", "check"]},
+        headers=api.auth,
+    )
+
+    async with database.sessions() as session:
+        rows = (
+            await session.scalars(select(AuditLog).where(AuditLog.action == "repository.update"))
+        ).all()
+
+    assert len(rows) == 1
+    assert rows[0].target == repository_id
+    assert rows[0].details_json == {"fields": ["test_command"]}
+
+
+async def test_patch_repository_needs_at_least_one_field(api: Api, git_repo: Path) -> None:
+    repository_id = await _register(api, git_repo)
+
+    response = await api.client.patch(
+        f"/api/v1/repositories/{repository_id}", json={}, headers=api.auth
+    )
+
+    assert response.status_code == 422
+
+
+async def test_patch_repository_validates_commands_and_rejects_other_fields(
+    api: Api, git_repo: Path
+) -> None:
+    repository_id = await _register(api, git_repo)
+    url = f"/api/v1/repositories/{repository_id}"
+
+    bad_argv = await api.client.patch(url, json={"setup_command": []}, headers=api.auth)
+    other = await api.client.patch(url, json={"local_path": "/etc"}, headers=api.auth)
+
+    assert bad_argv.status_code == 422
+    assert other.status_code == 422
+
+
+async def test_patch_unknown_repository_is_404(api: Api) -> None:
+    response = await api.client.patch(
+        "/api/v1/repositories/nope", json={"setup_command": ["x"]}, headers=api.auth
+    )
+    assert response.status_code == 404

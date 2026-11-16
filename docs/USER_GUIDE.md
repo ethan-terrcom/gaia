@@ -146,6 +146,9 @@ make ui-url       # any time later, in another terminal: prints the login link a
 | Test command | How to run the tests, as you would type it: `uv run pytest -q`, `npm test`. There is no shell, so no pipes or `&&`. |
 | Setup command | What a fresh checkout needs before the tests can run, for example `uv sync` or `npm ci`. Setup is the only step allowed to reach package registries. It runs in the sandbox, so it cannot install git hooks: for Gaia itself use `make setup-worktree`, not `make setup`. |
 
+To change a command later, press **Edit commands** on the repository's card. The next run uses
+the new values. (The path, name and remote cannot be edited.)
+
 Gaia never changes your clone. It creates worktrees from it on `gaia/…` branches. For PRs, the
 clone's `origin` must be a GitHub HTTPS remote.
 

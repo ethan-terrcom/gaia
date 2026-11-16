@@ -13,7 +13,12 @@ from fastapi import APIRouter, HTTPException, status
 from gaia.api.deps import PrincipalDep, ScopedDep, ServicesDep, append_audit_log
 from gaia.db.models import Repository, Run, Ticket, Worktree
 from gaia.domain.enums import RunStatus, WorktreeStatus
-from gaia.domain.schemas import RepositoryCreate, RepositoryDetailRead, RepositoryRead
+from gaia.domain.schemas import (
+    RepositoryCreate,
+    RepositoryDetailRead,
+    RepositoryRead,
+    RepositoryUpdate,
+)
 
 router = APIRouter(tags=["repositories"])
 
@@ -97,6 +102,45 @@ async def get_repository(repository_id: str, scoped: ScopedDep) -> RepositoryDet
     return RepositoryDetailRead.model_validate(
         {**base, "worktree_count": worktree_count, "active_runs": active_runs}
     )
+
+
+@router.patch(
+    "/repositories/{repository_id}",
+    response_model=RepositoryRead,
+    summary="Change a repository's setup or test command",
+)
+async def update_repository(
+    repository_id: str,
+    payload: RepositoryUpdate,
+    scoped: ScopedDep,
+    principal: PrincipalDep,
+) -> RepositoryRead:
+    """Set or clear the setup and test commands; only the fields sent change.
+
+    The commands are owner-registered values (never read from the repository),
+    so editing them is an owner action and is audited. A run that is already
+    past setup keeps what it started with; the next run uses the new values.
+    """
+    repositories = scoped.repo(Repository)
+    repository = await repositories.get(repository_id)
+    if repository is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "repository not found")
+    changes = payload.model_dump(exclude_unset=True)
+    if not changes:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "send setup_command and/or test_command",
+        )
+    repository = await repositories.update(repository_id, **changes)
+    await append_audit_log(
+        scoped.session,
+        scoped.workspace_id,
+        actor_user_id=principal.user_id,
+        action="repository.update",
+        target=repository.id,
+        details={"fields": sorted(changes)},
+    )
+    return RepositoryRead.model_validate(repository)
 
 
 @router.delete(

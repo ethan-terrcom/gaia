@@ -99,7 +99,7 @@ server-side with the traceback, and the client only sees "the server hit an unex
 | Method | Path | Notes |
 |---|---|---|
 | POST / GET | `/repositories` | Register (validated by git; origin and default branch detected, credentials stripped) / list |
-| GET / DELETE | `/repositories/{id}` | Detail with worktree and active-run counts / unregister, **409 if it has tickets or live worktrees** |
+| GET / PATCH / DELETE | `/repositories/{id}` | Detail with worktree and active-run counts / change the setup and test commands (only the fields sent; `null` clears; audited as `repository.update`; 422 if none sent) / unregister, **409 if it has tickets or live worktrees** |
 | POST / GET | `/tickets` | Create (repo loaded in your workspace) / page with `status`, `repo_id`, `q`, `limit` ≤ 100, `cursor` → `{items, next_cursor}` |
 | GET / PATCH | `/tickets/{id}` | Read / update text fields and status (illegal move → 409) |
 | GET | `/agents` | The seeded roster (`lead`, `junior-1`) |

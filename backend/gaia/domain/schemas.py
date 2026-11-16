@@ -87,6 +87,20 @@ class SessionRead(Schema):
     demo_mode: bool
 
 
+def _check_argv(value: list[str] | None) -> list[str] | None:
+    """Commands are argv lists: 1-64 items, each 1-1000 chars, no NUL."""
+    if value is None:
+        return value
+    if not 1 <= len(value) <= 64:
+        raise ValueError("an argv list must contain between 1 and 64 items")
+    for item in value:
+        if len(item) < 1 or len(item) > 1000:
+            raise ValueError("each argv item must be between 1 and 1000 characters")
+        if "\x00" in item:
+            raise ValueError("argv items must not contain NUL characters")
+    return value
+
+
 class RepositoryCreate(RequestSchema):
     """Register a repository.
 
@@ -104,16 +118,24 @@ class RepositoryCreate(RequestSchema):
     @classmethod
     def _validate_argv(cls, value: list[str] | None) -> list[str] | None:
         """Commands are argv lists: 1-64 items, each 1-1000 chars, no NUL."""
-        if value is None:
-            return value
-        if not 1 <= len(value) <= 64:
-            raise ValueError("an argv list must contain between 1 and 64 items")
-        for item in value:
-            if len(item) < 1 or len(item) > 1000:
-                raise ValueError("each argv item must be between 1 and 1000 characters")
-            if "\x00" in item:
-                raise ValueError("argv items must not contain NUL characters")
-        return value
+        return _check_argv(value)
+
+
+class RepositoryUpdate(RequestSchema):
+    """Change a registered repository's commands.
+
+    Only the fields that are sent change; ``null`` clears a command. The path,
+    name and remote are not editable: they identify the repository.
+    """
+
+    setup_command: list[str] | None = None
+    test_command: list[str] | None = None
+
+    @field_validator("setup_command", "test_command")
+    @classmethod
+    def _validate_argv(cls, value: list[str] | None) -> list[str] | None:
+        """Same argv rules as registration."""
+        return _check_argv(value)
 
 
 class RepositoryRead(WorkspaceScopedRead):
