@@ -56,6 +56,10 @@ class WorktreeAlreadyExists(WorktreeError):
 
     def __init__(self, worktree: Worktree) -> None:
         self.worktree = worktree
+        # The row is expired when the caller's session rolls back on this very
+        # exception, so anything the handler needs is copied now, while it is loaded.
+        self.worktree_id = worktree.id
+        self.status = worktree.status
         super().__init__(
             f"worktree {worktree.id} is already {worktree.status} on branch "
             f"{worktree.branch!r} at {worktree.path!r}"

@@ -580,4 +580,26 @@ describe('RunDetailView', () => {
       summarizeEvent({ seq: 5, ts: '', type: 'agent.usage', payload: {} }),
     ).toBe('')
   })
+
+  it('shows why a run failed, on one line', () => {
+    expect(
+      summarizeEvent({
+        seq: 6,
+        ts: '',
+        type: 'run.failed',
+        payload: {
+          node: 'prepare_worktree',
+          error: 'SetupFailed: setup exited 2:\nerror: no network\n',
+        },
+      }),
+    ).toBe('prepare_worktree: SetupFailed: setup exited 2: · error: no network')
+    expect(
+      summarizeEvent({
+        seq: 7,
+        ts: '',
+        type: 'run.failed',
+        payload: { node: 'plan' },
+      }),
+    ).toBe('plan')
+  })
 })

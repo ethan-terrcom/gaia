@@ -143,12 +143,20 @@ class WorktreeSetup:
                 )
                 return await service.create(context.repository, context.ticket)
         except WorktreeAlreadyExists as exc:
-            if exc.worktree.status not in (
+            if exc.status not in (
                 WorktreeStatus.READY.value,
                 WorktreeStatus.IN_USE.value,
             ):
                 raise
-            return exc.worktree
+            # ``exc.worktree`` was expired by the rollback that raising caused:
+            # read the live row again in a session of its own.
+            async with session_scope(self.sessions) as session:
+                live = await ScopedRepo(session, Worktree, context.run.workspace_id).get(
+                    exc.worktree_id
+                )
+            if live is None:
+                raise
+            return live
 
     async def _mark_in_use(self, workspace_id: str, worktree_id: str) -> None:
         """Move a ``ready`` worktree to ``in_use`` before the setup command.

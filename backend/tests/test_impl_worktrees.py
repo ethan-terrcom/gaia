@@ -405,7 +405,38 @@ async def test_reuse_or_create_reraises_a_non_live_worktree(
         await world.setup._reuse_or_create(context)
 
 
-async def test_reuse_or_create_returns_a_live_worktree_from_already_exists(
+async def test_reuse_or_create_returns_the_live_row_of_an_earlier_run(
+    setup_world: SetupWorld,
+) -> None:
+    """A second run on the same ticket meets its branch's live worktree.
+
+    Regression: the handler used the row the failed ``create`` had loaded, which
+    the session's rollback had expired, so the new run died with
+    ``DetachedInstanceError`` before setup ran. This uses the real service and
+    database, not a stand-in, because the stand-ins are what hid it.
+    """
+    world = setup_world
+    async with session_scope(world.setup.sessions) as session:
+        service = WorktreeService(git=world.git, session=session, workspace_id=world.workspace.id)
+        first = await service.create(world.repository, world.ticket)
+    context = cast(
+        Any,
+        SimpleNamespace(
+            run=SimpleNamespace(workspace_id=world.workspace.id),
+            repository=world.repository,
+            ticket=world.ticket,
+            worktree=None,
+        ),
+    )
+
+    returned = await world.setup._reuse_or_create(context)
+
+    assert returned.id == first.id
+    assert returned.status == WorktreeStatus.READY.value
+    assert returned.path == first.path  # readable: the row is not expired or detached
+
+
+async def test_reuse_or_create_reraises_when_the_live_row_has_vanished(
     setup_world: SetupWorld, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     world = setup_world
@@ -418,32 +449,28 @@ async def test_reuse_or_create_returns_a_live_worktree_from_already_exists(
             worktree=None,
         ),
     )
-    live = cast(
+    ghost = cast(
         Any,
         SimpleNamespace(
-            id="wt-live",
+            id="wt-ghost",
             status=WorktreeStatus.READY.value,
-            branch="gaia/live",
-            path="/tmp/live",
+            branch="gaia/ghost",
+            path="/tmp/ghost",
         ),
     )
 
-    class _LiveWorktreeService:
+    class _GhostWorktreeService:
         def __init__(self, **kwargs: Any) -> None:
             del kwargs
 
         async def create(self, repo: Repository, ticket: Ticket) -> Worktree:
             del repo, ticket
-            raise WorktreeAlreadyExists(live)
+            raise WorktreeAlreadyExists(ghost)
 
-    monkeypatch.setattr(
-        "gaia.orchestrator.impl.worktrees.WorktreeService",
-        _LiveWorktreeService,
-    )
+    monkeypatch.setattr("gaia.orchestrator.impl.worktrees.WorktreeService", _GhostWorktreeService)
 
-    returned = await world.setup._reuse_or_create(context)
-
-    assert returned is live
+    with pytest.raises(WorktreeAlreadyExists):
+        await world.setup._reuse_or_create(context)
 
 
 async def test_load_context_rejects_missing_ticket(
