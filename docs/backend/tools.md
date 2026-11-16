@@ -85,7 +85,8 @@ model must know.
      anything the command can write, and deletes it afterwards;
    - launches `srt --settings … -- /usr/bin/env -u NO_PROXY -u no_proxy <argv>` with an environment
      built from nothing (`command_env`: `PATH` from `Settings.agent_path`, `HOME`/`TMPDIR` = task
-     dir, `UV_NO_SYNC=1`).
+     dir, `UV_NO_SYNC=1`, and `UV_PYTHON_INSTALL_DIR` = `Settings.sandbox_uv_python_dir` when that
+     exists and a toolchain entry makes it readable).
 4. The result is `exit=N` plus stdout and stderr sections, each capped at 64 KB. A failing test is
    `ok=False` but a normal result.
 

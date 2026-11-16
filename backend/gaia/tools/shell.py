@@ -176,7 +176,23 @@ def command_env(settings: Settings, task_dir: Path) -> dict[str, str]:
     env["UV_NO_SYNC"] = "1"
     env["UV_CACHE_DIR"] = str(task_dir / "uv-cache")
     env["PYTHONDONTWRITEBYTECODE"] = "1"
+    uv_python_dir = _readable_uv_python_dir(settings)
+    if uv_python_dir is not None:
+        env["UV_PYTHON_INSTALL_DIR"] = str(uv_python_dir)
     return env
+
+
+def _readable_uv_python_dir(settings: Settings) -> Path | None:
+    """:attr:`Settings.sandbox_uv_python_dir`, if it exists and the sandbox may read it.
+
+    A directory outside every ``sandbox_toolchain_read`` entry would be denied
+    inside the sandbox, which is worse than uv's default, so it is left unset.
+    """
+    candidate = settings.sandbox_uv_python_dir
+    if candidate is None or not candidate.is_dir():
+        return None
+    readable = any(candidate.is_relative_to(root) for root in settings.sandbox_toolchain_read)
+    return candidate if readable else None
 
 
 def _format_proc_result(result: ProcResult, *, timeout_s: int) -> str:
