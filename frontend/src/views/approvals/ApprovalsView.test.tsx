@@ -174,6 +174,17 @@ describe('ApprovalsView', () => {
     expect(screen.getByText('uv run pytest -q')).toBeTruthy()
   })
 
+  it('renders the approve button with the emerald colour class', async () => {
+    mockFetch(() =>
+      jsonResponse(200, { items: [planApproval()], total_pending: 1 }),
+    )
+
+    renderView()
+
+    const button = await screen.findByTestId('approve-button')
+    expect(button.className).toContain('bg-emerald-600')
+  })
+
   it('Approve + Log approves and asks Gaia to remember the prefix', async () => {
     let decideBody: unknown = null
     mockFetch(async (request) => {
