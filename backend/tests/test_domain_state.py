@@ -8,6 +8,7 @@ tables rather than about the database.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import cast
 
@@ -121,3 +122,62 @@ def test_every_status_is_in_the_table(
 ) -> None:
     """Every member, terminal ones included, has an entry: none can be forgotten."""
     assert set(transitions) == {member for member in status_type}
+
+
+# --------------------------------------------------------- run timestamps --
+# Regression (2026-11-15): nothing wrote run.started_at or run.finished_at, so the
+# UI's start times were blank and `gaia worktrees cleanup` skipped every run.
+
+
+def test_a_run_is_stamped_when_it_starts_and_when_it_ends(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    times = iter([datetime(2026, 11, 15, 9, tzinfo=UTC), datetime(2026, 11, 15, 10, tzinfo=UTC)])
+    monkeypatch.setattr("gaia.domain.state.utcnow", lambda: next(times))
+    run = Run(status=RunStatus.PENDING.value)
+
+    transition(run, RunStatus.PLANNING)
+    assert run.started_at == datetime(2026, 11, 15, 9, tzinfo=UTC)
+    assert run.finished_at is None
+
+    transition(run, RunStatus.FAILED)
+    assert run.started_at == datetime(2026, 11, 15, 9, tzinfo=UTC)
+    assert run.finished_at == datetime(2026, 11, 15, 10, tzinfo=UTC)
+
+
+def test_a_paused_and_resumed_run_keeps_its_first_start() -> None:
+    first = datetime(2026, 11, 15, 9, tzinfo=UTC)
+    run = Run(status=RunStatus.IMPLEMENTING.value, started_at=first)
+
+    transition(run, RunStatus.PAUSED)
+    transition(run, RunStatus.IMPLEMENTING)
+
+    assert run.started_at == first
+    assert run.finished_at is None
+
+
+def test_a_run_cancelled_before_it_started_gets_both_stamps() -> None:
+    run = Run(status=RunStatus.PENDING.value)
+
+    transition(run, RunStatus.CANCELLED)
+
+    assert run.started_at is not None
+    assert run.finished_at is not None
+
+
+def test_a_repeated_status_does_not_restamp() -> None:
+    """The idempotent re-application of a resumed node changes nothing."""
+    run = Run(status=RunStatus.PLANNING.value)
+
+    transition(run, RunStatus.PLANNING)
+
+    assert run.started_at is None
+
+
+def test_an_existing_finish_time_is_kept() -> None:
+    finished = datetime(2026, 11, 15, 9, tzinfo=UTC)
+    run = Run(status=RunStatus.PR_OPEN.value, finished_at=finished)
+
+    transition(run, RunStatus.COMPLETED)
+
+    assert run.finished_at == finished

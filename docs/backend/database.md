@@ -79,6 +79,10 @@ The legal moves for `ticket`, `run` and `run_step` are dicts in `domain/state.py
 nodes may re-run after a crash. Terminal statuses (`done`, `completed`, `failed`, `cancelled`)
 accept nothing; review finding F3 proposes a controlled retry path out of `failed`.
 
+`transition()` also stamps a run's lifecycle times, so no caller has to: `started_at` on its first
+move out of `pending` (a paused and resumed run keeps its first start), and `finished_at` on its
+move into a terminal status. Neither is overwritten once set.
+
 ### Startup and migrations
 
 `make migrate` runs Alembic, which reads the database URL from `Settings` (never from
