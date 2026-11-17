@@ -215,6 +215,7 @@ Set any of these as environment variables when starting Gaia:
 | You see | It means | Do this |
 |---|---|---|
 | `sandbox-runtime (srt) not found` | The sandbox isn't installed | `make sandbox-install` |
+| Tests fail in a run with `failed to canonicalize path …/.venv/bin/python: Operation not permitted` | The worktree's virtualenv was built before Gaia pointed uv at your own Python installs | Make sure the Python your project needs is installed for uv on the host (`uv python install 3.12`), then start a **new run**: setup rebuilds the venv |
 | A 503 `provider_not_configured` in a run's errors | A key is missing | §5, then start the run again |
 | "The orchestrator is not running" | Gaia started without its run engine | Check the terminal for the startup error; start it again |
 | A run **failed** at "prepare worktree": "setup command exited with status …" | Your setup command failed in the sandbox. The end of its output is on the run's **Timeline**, on the `run.failed` line | Run the same command yourself in the repository to see it work; commands that install git hooks or reach hosts outside the package registries fail in the sandbox |

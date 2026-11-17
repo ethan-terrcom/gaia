@@ -234,3 +234,22 @@ The default TOML allow rules are: `pytest`, `ruff`, `mypy`, `black`, `isort`, `e
   that `agent_path` finds the toolchain; an HTTPS request is refused by srt's proxy; and
   `cat ~/.zshrc` is denied.
 - [ ] Architect review (security-critical): the tool layer above, plus 09a's open D-a/D-b.
+
+### uv-managed Python across sandboxes (2026-11-15, bug fix)
+- **Symptom (owner's live run on Gaia itself):** setup (`make setup-worktree`) succeeded, but every
+  later `make test` in the same worktree, from the checks or the agent, failed with
+  `failed to canonicalize path .venv/bin/python: Operation not permitted`.
+- **Cause:** `command_env` sets `HOME` to the command's task directory. uv therefore looked for
+  managed Pythons under `<data_dir>/runs/<run>/setup-tmp/.local/share/uv/python`, found none,
+  downloaded one there, and the worktree's `.venv` linked to it. Every later command runs with a
+  different task directory, and `data_dir` is denied in the sandbox, so the venv's interpreter
+  could not be read.
+- **Fix:** `Settings.sandbox_uv_python_dir` (default `~/.local/share/uv/python`, uv's own default
+  for the real user). `command_env` sets `UV_PYTHON_INSTALL_DIR` to it when it exists and lies
+  under a `sandbox_toolchain_read` entry (the default list already has `~/.local/share/uv`), so the
+  sandbox gains no new read and no new write. Reproduced and verified against the real `srt`: with
+  the fix the venv links to the owner's Python and a second sandbox runs it.
+- **Limit:** if no suitable Python is installed there or on `PATH`, uv now fails in setup (it cannot
+  write to the owner's directory) rather than in the first check. Install it once on the host with
+  `uv python install 3.12`. Existing worktrees keep their broken venv until setup runs again (a new
+  run) or the `.venv` is deleted.

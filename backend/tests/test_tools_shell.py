@@ -214,6 +214,48 @@ def test_command_env_never_reads_the_parent_environment(
     assert "OPENAI_API_KEY" not in env
 
 
+def test_command_env_points_uv_at_the_readable_python_install_dir(tmp_path: Path) -> None:
+    """Setup's venv must link to a Python that later sandboxes can read (live bug, 2026-11-15)."""
+    toolchain = tmp_path / "uv"
+    pythons = toolchain / "python"
+    pythons.mkdir(parents=True)
+    settings = Settings(
+        data_dir=tmp_path / "data",
+        sandbox_toolchain_read=(toolchain,),
+        sandbox_uv_python_dir=pythons,
+    )
+
+    env = shell.command_env(settings, tmp_path / "task")
+
+    assert env["UV_PYTHON_INSTALL_DIR"] == str(pythons)
+
+
+@pytest.mark.parametrize("case", ["missing", "unreadable", "disabled"])
+def test_command_env_leaves_uv_alone_without_a_usable_python_dir(tmp_path: Path, case: str) -> None:
+    toolchain = tmp_path / "uv"
+    pythons = toolchain / "python"
+    if case != "missing":
+        pythons.mkdir(parents=True)
+    settings = Settings(
+        data_dir=tmp_path / "data",
+        # "unreadable": the directory exists but no toolchain entry covers it, so
+        # the sandbox would deny it and uv's own default is the better choice.
+        sandbox_toolchain_read=(tmp_path / "elsewhere",) if case == "unreadable" else (toolchain,),
+        sandbox_uv_python_dir=None if case == "disabled" else pythons,
+    )
+
+    env = shell.command_env(settings, tmp_path / "task")
+
+    assert "UV_PYTHON_INSTALL_DIR" not in env
+
+
+def test_settings_expand_the_uv_python_dir() -> None:
+    assert (
+        Settings(sandbox_uv_python_dir=Path("~/x")).sandbox_uv_python_dir
+        == Path("~/x").expanduser()
+    )
+
+
 async def test_srt_command_runner_builds_the_wrapped_argv_and_private_settings(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

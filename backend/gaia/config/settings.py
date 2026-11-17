@@ -188,6 +188,15 @@ class Settings(BaseSettings):
         default_factory=lambda: DEFAULT_SANDBOX_TOOLCHAIN_READ
     )
 
+    #: Where sandboxed commands look for (and would install) uv-managed Pythons.
+    #: Sandboxed commands get ``HOME`` set to a throwaway task directory, so
+    #: without this uv installs a fresh Python under the *setup* command's task
+    #: directory and the worktree's ``.venv`` links into it - a directory no later
+    #: command's sandbox can read. Pointing uv at the owner's real install dir,
+    #: which ``sandbox_toolchain_read`` already lets the sandbox read, keeps the
+    #: venv usable by checks and agents. Used only when it exists and is readable.
+    sandbox_uv_python_dir: Path | None = Path("~/.local/share/uv/python")
+
     #: Register the dev-only fake-run publisher (doc 13 acceptance criterion).
     dev_routes: bool = False
 
@@ -253,6 +262,12 @@ class Settings(BaseSettings):
     def _expand_toolchain_paths(cls, value: tuple[Path, ...]) -> tuple[Path, ...]:
         """Expand ``~`` in every toolchain path."""
         return tuple(path.expanduser() for path in value)
+
+    @field_validator("sandbox_uv_python_dir")
+    @classmethod
+    def _expand_uv_python_dir(cls, value: Path | None) -> Path | None:
+        """Expand ``~`` once, at startup, like the toolchain paths."""
+        return value.expanduser() if value is not None else None
 
     @model_validator(mode="after")
     def _check_host_is_local(self) -> Self:
