@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from gaia.config.secrets import SecretStore
 from gaia.config.settings import Settings
 from gaia.domain.enums import RuntimeKind
+from gaia.orchestrator.auto_mode import AUTO_MODE_FILE, AutoModeSwitch, ModelFamily
 from gaia.orchestrator.deps import GraphDeps, PullRequests
 from gaia.orchestrator.impl.checks import SandboxCheckRunner
 from gaia.orchestrator.impl.commits import WorktreeCommitter
@@ -60,6 +62,7 @@ class Wiring:
     runtimes: RuntimeRegistry
     approvals: DbApprovalBroker
     pause: PauseSwitch
+    auto_mode: AutoModeSwitch
 
 
 class LazySrtRunner:
@@ -146,6 +149,7 @@ def build_wiring(
 
     approvals = DbApprovalBroker(sessions, bus)
     pause = PauseSwitch(settings.data_dir / "paused")
+    auto_mode = AutoModeSwitch(settings.data_dir / AUTO_MODE_FILE)
     audit = DbAuditSink(sessions)
 
     setup_runner = command_runner or LazySrtRunner(
@@ -167,6 +171,9 @@ def build_wiring(
             actor=f"agent:{task.role.value}",
             approval_timeout_s=settings.command_approval_timeout_s,
             rg_path=rg_path,
+            # The native runtime is registered as ``native_deepseek`` (in demo
+            # mode both roles use it), so its tasks follow the DeepSeek switch.
+            auto_approve=partial(auto_mode.enabled, ModelFamily.DEEPSEEK),
         )
 
     async def claude_context_factory(
@@ -184,6 +191,7 @@ def build_wiring(
             actor=f"agent:{task.role.value}",
             approval_timeout_s=settings.command_approval_timeout_s,
             rg_path=rg_path,
+            auto_approve=partial(auto_mode.enabled, ModelFamily.CLAUDE),
         )
 
     native = NativeRuntime(
@@ -267,4 +275,6 @@ def build_wiring(
         events=bus,
         settings=settings,
     )
-    return Wiring(deps=deps, runtimes=runtimes, approvals=approvals, pause=pause)
+    return Wiring(
+        deps=deps, runtimes=runtimes, approvals=approvals, pause=pause, auto_mode=auto_mode
+    )

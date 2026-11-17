@@ -208,6 +208,29 @@ async def test_write_file_to_ci_workflow_asks_and_can_be_approved(
     assert (worktree / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8") == "x"
 
 
+async def test_auto_mode_does_not_cover_a_protected_file_write(
+    registry: ToolRegistry, worktree: Path
+) -> None:
+    # A hook or CI file can run code outside the sandbox, so it always asks.
+    ctx = make_tool_context(worktree, auto_approve=lambda: True)
+    broker = cast(InMemoryApprovalBroker, ctx.approvals)
+    request = asyncio.create_task(
+        registry.call(
+            "write_file",
+            {"path": ".github/workflows/ci.yml", "content": "x"},
+            ctx,
+            call_id="call-auto-protected",
+        )
+    )
+    approval_id = await wait_for_pending(broker)
+    broker.decide(approval_id, False, "no")
+
+    result = await asyncio.wait_for(request, timeout=5)
+
+    assert result.decision == "ask_rejected"
+    assert not (worktree / ".github" / "workflows" / "ci.yml").exists()
+
+
 async def test_write_file_to_ci_workflow_rejected_is_untouched(
     registry: ToolRegistry, ctx: ToolContext, worktree: Path
 ) -> None:

@@ -478,6 +478,9 @@ MUTATING_ROUTE_AUDIT_EVIDENCE: dict[tuple[str, str], str] = {
     ("POST", "/api/v1/admin/resume-all"): (
         "tests/test_api_admin.py::test_pause_all_resume_all_and_audit"
     ),
+    ("PATCH", "/api/v1/admin/auto-mode"): (
+        "tests/test_auto_mode.py::test_patch_auto_mode_switches_one_family_and_audits"
+    ),
 }
 
 

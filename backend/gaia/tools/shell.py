@@ -71,6 +71,7 @@ async def _run_command_handler(input: BaseModel, ctx: ToolContext) -> ToolResult
             {"argv": model.argv, "cwd": str(ctx.root), "reason": decision.reason},
             decision.reason,
             tool="run_command",
+            auto_mode_applies=True,
         )
         if not answer.approved:
             return ToolResult(
@@ -79,7 +80,7 @@ async def _run_command_handler(input: BaseModel, ctx: ToolContext) -> ToolResult
                 decision="ask_rejected",
                 data={"reason": answer.reason},
             )
-        decision_value = "ask_approved"
+        decision_value = "auto_approved" if answer.auto else "ask_approved"
     else:
         decision_value = "allow"
 

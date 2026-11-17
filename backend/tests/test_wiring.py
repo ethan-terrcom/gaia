@@ -10,6 +10,7 @@ import pytest
 from gaia.config.secrets import InMemorySecretStore
 from gaia.config.settings import Settings
 from gaia.domain.enums import AgentRole, RuntimeKind
+from gaia.orchestrator.auto_mode import AutoModeState
 from gaia.orchestrator.wiring import LazySrtRunner, build_wiring
 from gaia.runtimes.base import AgentTask
 from gaia.services.costs import load_price_table
@@ -73,6 +74,16 @@ async def test_build_wiring_registers_both_runtimes_and_shares_one_broker(
     assert claude_ctx.approvals is wiring.approvals
     assert native_ctx.audit is claude_ctx.audit
     assert native_ctx.commands is claude_ctx.commands
+
+    # Auto mode follows each runtime's model family and is read live.
+    assert native_ctx.auto_approve() is False
+    assert claude_ctx.auto_approve() is False
+    wiring.auto_mode.write(AutoModeState(deepseek=True))
+    assert native_ctx.auto_approve() is True
+    assert claude_ctx.auto_approve() is False
+    wiring.auto_mode.write(AutoModeState(claude=True))
+    assert native_ctx.auto_approve() is False
+    assert claude_ctx.auto_approve() is True
 
 
 async def test_build_wiring_rejects_a_bad_rg_path(

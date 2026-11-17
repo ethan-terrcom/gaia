@@ -1,8 +1,8 @@
-"""Global kill-switch routes (doc 18a).
+"""Global kill-switch (doc 18a) and auto-mode routes.
 
-Pause is global, not per workspace: Gaia is single-user and local. The routes
-are still mounted on the authenticated ``/api/v1`` router, so they require the
-same bearer token as every other route.
+Pause and auto mode are global, not per workspace: Gaia is single-user and
+local. The routes are still mounted on the authenticated ``/api/v1`` router, so
+they require the same bearer token as every other route.
 """
 
 from __future__ import annotations
@@ -11,7 +11,15 @@ from fastapi import APIRouter, Request, Response, status
 
 from gaia.api.deps import PrincipalDep, ScopedDep, ServicesDep, append_audit_log
 from gaia.api.errors import ErrorCode, error_response
-from gaia.domain.schemas import PauseAllRequest, PauseAllResult, PauseStatus, ResumeAllResult
+from gaia.domain.schemas import (
+    AutoModeStatus,
+    AutoModeUpdate,
+    PauseAllRequest,
+    PauseAllResult,
+    PauseStatus,
+    ResumeAllResult,
+)
+from gaia.orchestrator.auto_mode import AutoModeState
 
 router = APIRouter(tags=["admin"])
 
@@ -93,3 +101,46 @@ async def resume_all(
         details={"resumed_run_ids": resumed_run_ids},
     )
     return ResumeAllResult(resumed_run_ids=resumed_run_ids)
+
+
+@router.get("/admin/auto-mode", response_model=AutoModeStatus, summary="Read auto mode")
+async def get_auto_mode(request: Request, services: ServicesDep) -> AutoModeStatus | Response:
+    """Return which model families run commands without asking."""
+    if services.auto_mode is None:
+        return _unavailable(request)
+    state = services.auto_mode.read()
+    return AutoModeStatus(claude=state.claude, deepseek=state.deepseek)
+
+
+@router.patch("/admin/auto-mode", response_model=AutoModeStatus, summary="Switch auto mode")
+async def update_auto_mode(
+    payload: AutoModeUpdate,
+    request: Request,
+    scoped: ScopedDep,
+    principal: PrincipalDep,
+    services: ServicesDep,
+) -> AutoModeStatus | Response:
+    """Switch auto mode on or off for one or both families.
+
+    It takes effect on each agent's next command that would need approval; a
+    command already waiting for approval still waits.
+    """
+    if services.auto_mode is None:
+        return _unavailable(request)
+    before = services.auto_mode.read()
+    after = AutoModeState(
+        claude=before.claude if payload.claude is None else payload.claude,
+        deepseek=before.deepseek if payload.deepseek is None else payload.deepseek,
+    )
+    services.auto_mode.write(after)
+    await append_audit_log(
+        scoped.session,
+        scoped.workspace_id,
+        actor_user_id=principal.user_id,
+        action="admin.auto_mode",
+        details={
+            "before": {"claude": before.claude, "deepseek": before.deepseek},
+            "after": {"claude": after.claude, "deepseek": after.deepseek},
+        },
+    )
+    return AutoModeStatus(claude=after.claude, deepseek=after.deepseek)

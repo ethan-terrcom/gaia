@@ -546,6 +546,14 @@ describe('RunDetailView', () => {
   it('summarizes lifecycle events from their payload, not by repeating the type', () => {
     expect(
       summarizeEvent({
+        seq: 0,
+        ts: '',
+        type: 'agent.tool_result',
+        payload: { ok: true, decision: 'auto_approved' },
+      }),
+    ).toBe('ok (auto-approved)')
+    expect(
+      summarizeEvent({
         seq: 1,
         ts: '',
         type: 'run.node_started',

@@ -183,6 +183,8 @@ dashboard (17a).
 | `GET /api/v1/admin/pause` | `{paused, since, reason}` (18a) |
 | `POST /api/v1/admin/pause-all` `{reason?}` | The kill switch: stops every running agent and holds every run → `{paused_run_ids}` |
 | `POST /api/v1/admin/resume-all` | Clears the switch and resumes the paused runs → `{resumed_run_ids}` |
+| `GET /api/v1/admin/auto-mode` | `{claude, deepseek}`: which model families run commands without asking |
+| `PATCH /api/v1/admin/auto-mode` `{claude?, deepseek?}` | Switches one or both families; an omitted family is unchanged. Audited as `admin.auto_mode` with before and after. Both routes answer 503 when the orchestrator is off |
 
 `POST /runs` also answers **409** `daily_budget_exhausted` at the daily cap, and, like graph-gate
 decisions, **409** `orchestrator_paused` while the kill switch is on.

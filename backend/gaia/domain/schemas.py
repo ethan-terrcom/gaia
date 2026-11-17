@@ -445,6 +445,24 @@ class ResumeAllResult(Schema):
     resumed_run_ids: list[str]
 
 
+class AutoModeStatus(Schema):
+    """Which model families run in auto mode.
+
+    In auto mode a command the policy would ask about runs without waiting for
+    a human; denied commands, the sandbox and protected-file writes are unchanged.
+    """
+
+    claude: bool
+    deepseek: bool
+
+
+class AutoModeUpdate(RequestSchema):
+    """Switch auto mode on or off per family. An omitted family is left as it is."""
+
+    claude: bool | None = None
+    deepseek: bool | None = None
+
+
 class EventRead(WorkspaceScopedRead):
     """One event. ``seq`` is the SSE event id a client resumes from (doc 13)."""
 

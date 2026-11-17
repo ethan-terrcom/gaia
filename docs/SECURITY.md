@@ -12,8 +12,8 @@ have written, including a malicious README, issue or dependency, so Gaia assumes
 can be steered by an attacker**. It therefore never relies on the model's good behaviour:
 - what an agent can touch is limited by an OS sandbox, not by its instructions;
 - the agent never holds an API key;
-- anything irreversible needs a human: opening a PR, merging, a non-allowlisted command, or more
-  budget.
+- anything irreversible needs a human: opening a PR, merging, a non-allowlisted command (unless
+  you switch on auto mode for that model), or more budget.
 
 ## What we protect against (threat model)
 In priority order, from [ARCHITECTURE §6](ARCHITECTURE.md#6-security-model):
@@ -47,6 +47,11 @@ In priority order, from [ARCHITECTURE §6](ARCHITECTURE.md#6-security-model):
   pushes, and sends anything else to you for approval. Commands never go through a shell. It is
   not the boundary because an allowlisted `pytest` runs code the agent wrote: containment of that
   is the sandbox's job.
+- **Auto mode** (`gaia/orchestrator/auto_mode.py`, off by default) turns that approval into an
+  automatic yes, per model family (Claude, DeepSeek). It changes only `ask` for `run_command`:
+  denies stay denies, the sandbox is unchanged, and writes to protected files (CI, git hooks,
+  `.envrc`, agent config), which can run code outside the sandbox, still ask. The switch is a
+  0600 file in the data directory, which the sandbox denies, so an agent cannot turn it on.
 - **Paths are confined.** Every path a tool receives is resolved, symlinks included, and must stay
   inside the task's worktree (`confine()`); `.git/` internals are refused.
 - **Repo content never configures Gaia's tools:**
@@ -115,6 +120,7 @@ These are deliberate trade-offs. Each says what would change it.
 | A5 | Any process running as your user can read `~/.gaia` and ask the Keychain for Gaia's items (macOS prompts you). | Same-user malware is out of scope. | — |
 | A6 | Open owner decisions from 09a: **D-a**, an `extra_allow` entry outranks the tripwires; **D-b**, `git` is denied in `run_command`. | Recorded; both currently resolve to the more restrictive behaviour where it matters. | The owner's call. |
 | A7 | No Docker runner yet (18c), so the macOS sandbox is the only boundary. | `srt` was verified live for files, network, `.git` and the Keychain. | 18c's Docker runner, if wanted. |
+| A8 | With **auto mode** on, a steered agent can run any command the policy does not deny, without a human seeing it first. | The owner opts in per model family. The sandbox (no network, no home directory, no keys) is the boundary either way, and every auto-approved command is audited and shown on the run timeline. Protected-file writes, PRs and merges still need you. | Leave auto mode off for a model you trust less. |
 
 ## Checking it yourself
 ```sh

@@ -29,10 +29,14 @@ from gaia.services.events import EventBus
 
 @dataclass(frozen=True)
 class ApprovalDecision:
-    """The answer to one approval request. ``False`` is the safe default."""
+    """The answer to one approval request. ``False`` is the safe default.
+
+    ``auto`` is true when auto mode answered instead of a human.
+    """
 
     approved: bool
     reason: str
+    auto: bool = False
 
 
 class ApprovalNotPending(Exception):

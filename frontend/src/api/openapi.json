@@ -242,6 +242,55 @@
         "title": "ApprovalWaitSummary",
         "type": "object"
       },
+      "AutoModeStatus": {
+        "description": "Which model families run in auto mode.\n\nIn auto mode a command the policy would ask about runs without waiting for\na human; denied commands, the sandbox and protected-file writes are unchanged.",
+        "properties": {
+          "claude": {
+            "title": "Claude",
+            "type": "boolean"
+          },
+          "deepseek": {
+            "title": "Deepseek",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "claude",
+          "deepseek"
+        ],
+        "title": "AutoModeStatus",
+        "type": "object"
+      },
+      "AutoModeUpdate": {
+        "additionalProperties": false,
+        "description": "Switch auto mode on or off per family. An omitted family is left as it is.",
+        "properties": {
+          "claude": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Claude"
+          },
+          "deepseek": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deepseek"
+          }
+        },
+        "title": "AutoModeUpdate",
+        "type": "object"
+      },
       "CiStatus": {
         "description": "The part of a GitHub checks rollup Gaia cares about (doc 15).",
         "enum": [
@@ -2400,6 +2449,78 @@
         "summary": "Liveness probe",
         "tags": [
           "health"
+        ]
+      }
+    },
+    "/api/v1/admin/auto-mode": {
+      "get": {
+        "description": "Return which model families run commands without asking.",
+        "operationId": "get_auto_mode_api_v1_admin_auto_mode_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutoModeStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Read auto mode",
+        "tags": [
+          "admin"
+        ]
+      },
+      "patch": {
+        "description": "Switch auto mode on or off for one or both families.\n\nIt takes effect on each agent's next command that would need approval; a\ncommand already waiting for approval still waits.",
+        "operationId": "update_auto_mode_api_v1_admin_auto_mode_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AutoModeUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutoModeStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Switch auto mode",
+        "tags": [
+          "admin"
         ]
       }
     },
