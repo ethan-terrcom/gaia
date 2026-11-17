@@ -302,6 +302,45 @@
         "title": "CiStatus",
         "type": "string"
       },
+      "CommandSuggestion": {
+        "description": "A command prefix suggested from the owner's past approvals in one repository.",
+        "properties": {
+          "argv": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Argv",
+            "type": "array"
+          },
+          "times_approved": {
+            "title": "Times Approved",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "argv",
+          "times_approved"
+        ],
+        "title": "CommandSuggestion",
+        "type": "object"
+      },
+      "CommandSuggestionList": {
+        "description": "Suggested allowed commands, most often approved first.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CommandSuggestion"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "CommandSuggestionList",
+        "type": "object"
+      },
       "CostByDay": {
         "description": "LLM spend for one UTC day over a window (doc 18b).",
         "properties": {
@@ -368,7 +407,7 @@
       },
       "DecideRequest": {
         "additionalProperties": false,
-        "description": "A human decision on one approval (doc 14).",
+        "description": "A human decision on one approval (doc 14).\n\n``remember`` is valid only when approving a command: the command's prefix\n(``payload.remember_prefix``) is added to the repository's allowed commands\nas well.",
         "properties": {
           "budget_usd": {
             "anyOf": [
@@ -428,6 +467,11 @@
               }
             ],
             "title": "Edited Payload"
+          },
+          "remember": {
+            "default": false,
+            "title": "Remember",
+            "type": "boolean"
           }
         },
         "required": [
@@ -946,6 +990,16 @@
             "title": "Active Runs",
             "type": "integer"
           },
+          "allowed_commands": {
+            "items": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": "Allowed Commands",
+            "type": "array"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -1042,6 +1096,7 @@
           "default_branch",
           "setup_command",
           "test_command",
+          "allowed_commands",
           "created_by",
           "worktree_count",
           "active_runs"
@@ -1052,6 +1107,16 @@
       "RepositoryRead": {
         "description": "A registered repository.",
         "properties": {
+          "allowed_commands": {
+            "items": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": "Allowed Commands",
+            "type": "array"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -1144,6 +1209,7 @@
           "default_branch",
           "setup_command",
           "test_command",
+          "allowed_commands",
           "created_by"
         ],
         "title": "RepositoryRead",
@@ -1151,8 +1217,25 @@
       },
       "RepositoryUpdate": {
         "additionalProperties": false,
-        "description": "Change a registered repository's commands.\n\nOnly the fields that are sent change; ``null`` clears a command. The path,\nname and remote are not editable: they identify the repository.",
+        "description": "Change a registered repository's commands.\n\nOnly the fields that are sent change; ``null`` clears a command. The path,\nname and remote are not editable: they identify the repository.\n``allowed_commands`` replaces the whole list; each entry is an argv prefix\nan agent may run without asking.",
         "properties": {
+          "allowed_commands": {
+            "anyOf": [
+              {
+                "items": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allowed Commands"
+          },
           "setup_command": {
             "anyOf": [
               {
@@ -3169,7 +3252,7 @@
         ]
       },
       "patch": {
-        "description": "Set or clear the setup and test commands; only the fields sent change.\n\nThe commands are owner-registered values (never read from the repository),\nso editing them is an owner action and is audited. A run that is already\npast setup keeps what it started with; the next run uses the new values.",
+        "description": "Set or clear the setup, test and allowed commands; only the fields sent change.\n\nThe commands are owner-registered values (never read from the repository),\nso editing them is an owner action and is audited. A run that is already\npast setup keeps what it started with; the next run uses the new values.",
         "operationId": "update_repository_api_v1_repositories__repository_id__patch",
         "parameters": [
           {
@@ -3219,7 +3302,55 @@
             "bearer": []
           }
         ],
-        "summary": "Change a repository's setup or test command",
+        "summary": "Change a repository's setup, test or allowed commands",
+        "tags": [
+          "repositories"
+        ]
+      }
+    },
+    "/api/v1/repositories/{repository_id}/command-suggestions": {
+      "get": {
+        "description": "Prefixes of commands you approved in this repository that still ask.\n\nRead-only: nothing is added until the owner saves them as allowed commands.",
+        "operationId": "command_suggestions_api_v1_repositories__repository_id__command_suggestions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "repository_id",
+            "required": true,
+            "schema": {
+              "title": "Repository Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandSuggestionList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Suggest allowed commands from past approvals",
         "tags": [
           "repositories"
         ]

@@ -27,6 +27,7 @@ const repository: RepositoryRead = {
   default_branch: 'main',
   setup_command: ['uv', 'run', 'pytest', '-q'],
   test_command: ['npm', 'test'],
+  allowed_commands: [],
   created_at: '2026-11-14T10:00:00Z',
   updated_at: '2026-11-14T10:00:00Z',
   created_by: 'user-1',

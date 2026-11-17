@@ -43,6 +43,7 @@ from gaia.runtimes.orphans import OrphanRegistry
 from gaia.security.audit import DbAuditSink
 from gaia.security.commands import CommandPolicy
 from gaia.security.sandbox import find_srt
+from gaia.services.allowed_commands import load_extra_allow
 from gaia.services.costs import PriceTable
 from gaia.services.events import EventBus, EventSink
 from gaia.services.git import GitService
@@ -174,6 +175,7 @@ def build_wiring(
             # The native runtime is registered as ``native_deepseek`` (in demo
             # mode both roles use it), so its tasks follow the DeepSeek switch.
             auto_approve=partial(auto_mode.enabled, ModelFamily.DEEPSEEK),
+            extra_allow_source=partial(load_extra_allow, sessions, task.workspace_id, task.run_id),
         )
 
     async def claude_context_factory(
@@ -192,6 +194,7 @@ def build_wiring(
             approval_timeout_s=settings.command_approval_timeout_s,
             rg_path=rg_path,
             auto_approve=partial(auto_mode.enabled, ModelFamily.CLAUDE),
+            extra_allow_source=partial(load_extra_allow, sessions, task.workspace_id, task.run_id),
         )
 
     native = NativeRuntime(

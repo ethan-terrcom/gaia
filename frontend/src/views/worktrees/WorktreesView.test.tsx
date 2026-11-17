@@ -26,6 +26,7 @@ const repository: RepositoryRead = {
   default_branch: 'main',
   setup_command: ['uv', 'run', 'pytest', '-q'],
   test_command: ['npm', 'test'],
+  allowed_commands: [],
   created_at: '2026-11-14T10:00:00Z',
   updated_at: '2026-11-14T10:00:00Z',
   created_by: 'user-1',
@@ -277,10 +278,16 @@ describe('repositories', () => {
 })
 
 describe('editing a repository', () => {
-  function routes(onPatch: (request: Request) => Response | Promise<Response>) {
+  function routes(
+    onPatch: (request: Request) => Response | Promise<Response>,
+    suggestions: { argv: string[]; times_approved: number }[] = [],
+  ) {
     mockFetch(async (request) => {
       if (request.method === 'PATCH') {
         return onPatch(request)
+      }
+      if (request.url.includes('/command-suggestions')) {
+        return jsonResponse(200, { items: suggestions })
       }
       if (
         request.method === 'GET' &&
@@ -328,12 +335,74 @@ describe('editing a repository', () => {
     expect(body).toEqual({
       setup_command: ['make', 'setup-worktree'],
       test_command: null,
+      allowed_commands: [],
     })
     await waitFor(() =>
       expect(
         screen.queryByRole('button', { name: 'Save commands' }),
       ).toBeNull(),
     )
+  })
+
+  it('saves allowed commands, one per line, plus the ticked suggestions', async () => {
+    let body: unknown = null
+    routes(
+      async (request) => {
+        body = await request.json()
+        return jsonResponse(200, repository)
+      },
+      [
+        { argv: ['npm', '--prefix', 'frontend', 'test'], times_approved: 5 },
+        { argv: ['npm', 'test'], times_approved: 1 },
+      ],
+    )
+
+    renderView()
+    await screen.findByRole('heading', { name: 'gaia' })
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Edit commands for gaia' }),
+    )
+    const form = screen.getByRole('form', { name: 'Edit commands for gaia' })
+    fireEvent.change(within(form).getByLabelText('Allowed commands'), {
+      target: { value: 'make lint\n\n  npm --prefix frontend run build  \n' },
+    })
+    const unwanted = await within(form).findByRole('checkbox', {
+      name: /^npm test/,
+    })
+    expect(
+      (
+        within(form).getByRole('checkbox', {
+          name: /npm --prefix frontend test/,
+        }) as HTMLInputElement
+      ).checked,
+    ).toBe(true)
+    fireEvent.click(unwanted)
+    fireEvent.click(screen.getByRole('button', { name: 'Save commands' }))
+
+    await waitFor(() => expect(body).not.toBeNull())
+    expect(body).toEqual({
+      setup_command: ['uv', 'run', 'pytest', '-q'],
+      test_command: ['npm', 'test'],
+      allowed_commands: [
+        ['make', 'lint'],
+        ['npm', '--prefix', 'frontend', 'run', 'build'],
+        ['npm', '--prefix', 'frontend', 'test'],
+      ],
+    })
+  })
+
+  it('shows the allowed commands on the repository card', async () => {
+    mockFetch((request) =>
+      request.url.includes('/api/v1/repositories')
+        ? jsonResponse(200, [
+            { ...repository, allowed_commands: [['npm', 'run', 'lint']] },
+          ])
+        : jsonResponse(200, { items: [], unknown_paths: [] }),
+    )
+
+    renderView()
+
+    expect(await screen.findByText('npm run lint')).toBeTruthy()
   })
 
   it('shows an error inline and cancel closes the form', async () => {

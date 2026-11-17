@@ -436,3 +436,91 @@ def _unwrap_npx(command: tuple[str, ...]) -> tuple[Decision | None, tuple[str, .
             command,
         )
     return None, command[2:]
+
+
+# --- Per-repository allowed commands ------------------------------------------
+#
+# An owner can register command prefixes for a repository ("allowed commands").
+# They join ``extra_allow`` beside the test command, so the same matching rules
+# apply: deny always wins, a slashed program never matches, and a bare tripwire
+# program (``npm``, ``python``) is refused. The functions below decide whether
+# an entry may be stored at all, and suggest one from a command an owner
+# approved.
+
+#: Most items one allowed-command entry may have.
+MAX_ALLOWED_ENTRY_ITEMS = 16
+
+#: Flags that make an interpreter or shell run code taken from the next argument.
+_CODE_FLAGS = frozenset({"-c", "-e", "--eval", "-p", "--print", "-r", "--command"})
+
+#: A trailing ``.ext`` marks an argument as a file operand (``test_greet.py``).
+_FILE_SUFFIX = re.compile(r"\.[A-Za-z0-9]+$")
+
+
+def allowed_entry_problem(entry: Sequence[str]) -> str | None:
+    """Return why ``entry`` cannot be an allowed command, or ``None`` when it can.
+
+    An allowed entry is a prefix: ``npm --prefix frontend test`` also allows
+    ``npm --prefix frontend test -- src/x.test.ts``. Anything that would allow
+    every use of a code-running program is refused.
+    """
+    if not entry:
+        return "an allowed command cannot be empty"
+    if len(entry) > MAX_ALLOWED_ENTRY_ITEMS:
+        return f"an allowed command can have at most {MAX_ALLOWED_ENTRY_ITEMS} words"
+    if _invalid_argv_decision(entry) is not None:
+        return "an allowed command must be plain words, without NUL or very long items"
+    command = tuple(entry)
+    program = command[0]
+    if "/" in program:
+        return f"{program!r} is a path; name the program instead (a path is never allowed)"
+    denied = _deny_decision(_basename(program), command)
+    if denied is not None:
+        return f"{' '.join(command)!r} is always blocked ({denied.reason})"
+    unwrapped = _unwrap_all(command)
+    if isinstance(unwrapped, Decision):
+        return f"{' '.join(command)!r} cannot be allowed ({unwrapped.reason})"
+    denied = _deny_decision(_basename(unwrapped[0]), unwrapped)
+    if denied is not None:
+        return f"{' '.join(command)!r} is always blocked ({denied.reason})"
+    if _is_tripwire_program(unwrapped[0]):
+        if len(unwrapped) < 2:
+            return (
+                f"a bare {unwrapped[0]!r} would allow every {unwrapped[0]} command; "
+                f"add what it runs, for example '{unwrapped[0]} test'"
+            )
+        if any(arg in _CODE_FLAGS for arg in unwrapped[1:]):
+            return f"{' '.join(command)!r} would allow running any code given on the command line"
+    return None
+
+
+def suggest_allowed_prefix(argv: Sequence[str]) -> tuple[str, ...] | None:
+    """Suggest the allowed-command prefix for an approved ``argv``, or ``None``.
+
+    The prefix keeps the program, its subcommands and options, and stops at the
+    first argument that looks like a file or path operand, or at ``--``.
+    Trailing flags are dropped, so ``python3 -m unittest test_greet.py -v``
+    becomes ``python3 -m unittest`` and ``npm --prefix frontend test -- a.ts``
+    becomes ``npm --prefix frontend test``. A prefix that
+    :func:`allowed_entry_problem` refuses is not suggested.
+    """
+    if not argv or not all(isinstance(arg, str) for arg in argv):
+        return None
+    prefix: list[str] = [argv[0]]
+    for arg in argv[1:]:
+        if arg == "--" or _looks_like_operand(arg):
+            break
+        prefix.append(arg)
+    while len(prefix) > 1 and prefix[-1].startswith("-"):
+        prefix.pop()
+    entry = tuple(prefix[:MAX_ALLOWED_ENTRY_ITEMS])
+    return entry if allowed_entry_problem(entry) is None else None
+
+
+def _looks_like_operand(arg: str) -> bool:
+    """True for a path, file, ``key=value`` or ``.``-style argument."""
+    if arg in (".", ".."):
+        return True
+    if "/" in arg or "=" in arg:
+        return True
+    return not arg.startswith("-") and _FILE_SUFFIX.search(arg) is not None

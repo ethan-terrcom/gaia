@@ -80,6 +80,16 @@ Why can `extra_allow` beat the shell tripwire? It is the **owner's** registered 
 it adds no risk beyond `pytest` running an agent-written `conftest.py`. A bare `bash`, `python` or
 `npm` entry is ignored, so a registration can never mean "allow everything".
 
+The repository's **allowed commands** join `extra_allow` on the same terms
+(`services/allowed_commands.py`). `allowed_entry_problem(entry)` decides what may be stored, and
+the same check runs again whenever entries are read. It refuses an empty or over-long entry, a
+slashed program, anything the deny list blocks (before or after unwrapping), a wrapper form the
+policy asks about (`npx` without `--no-install`), a bare tripwire program, and a tripwire program
+with a code flag (`-c`, `-e`, `--eval`…), which would allow any inline script.
+`suggest_allowed_prefix(argv)` turns an approved command into an entry. It keeps words up to the
+first `--` or path/file/`key=value` operand, drops trailing flags, and returns `None` when the
+result would be refused. `python3 -m unittest test_greet.py -v` becomes `python3 -m unittest`.
+
 ### `build_srt_settings(spec)`
 - **Reads:** deny all of `home`, explicitly deny the sensitive paths and Gaia's `data_dir` wherever
   it lives, then re-allow the worktree, the task's tmp dir and existing toolchain caches. In srt,

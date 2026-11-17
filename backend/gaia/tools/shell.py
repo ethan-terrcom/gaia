@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 
 from gaia.config.settings import Settings
 from gaia.runtimes.support import build_agent_env
+from gaia.security.commands import suggest_allowed_prefix
 from gaia.security.sandbox import SandboxSpec, wrap_argv, write_srt_settings
 from gaia.services.proc import ProcResult, run_proc
 from gaia.tools.registry import Tool, ToolContext, ToolDecision, ToolInput, ToolResult, approve
@@ -56,7 +57,10 @@ class CommandRunner(Protocol):
 
 async def _run_command_handler(input: BaseModel, ctx: ToolContext) -> ToolResult:
     model = cast(RunCommandInput, input)
-    decision = ctx.policy.evaluate(model.argv, extra_allow=ctx.task.extra_allow)
+    extra_allow = ctx.task.extra_allow
+    if ctx.extra_allow_source is not None:
+        extra_allow = (*extra_allow, *(await ctx.extra_allow_source()))
+    decision = ctx.policy.evaluate(model.argv, extra_allow=extra_allow)
     if decision.action == "deny":
         return ToolResult(
             False,
@@ -68,7 +72,14 @@ async def _run_command_handler(input: BaseModel, ctx: ToolContext) -> ToolResult
     if decision.action == "ask":
         answer = await approve(
             ctx,
-            {"argv": model.argv, "cwd": str(ctx.root), "reason": decision.reason},
+            {
+                "argv": model.argv,
+                "cwd": str(ctx.root),
+                "reason": decision.reason,
+                # What "Approve + Log" would add to the repository's allowed
+                # commands; ``None`` when this command cannot be remembered.
+                "remember_prefix": _remember_prefix(model.argv),
+            },
             decision.reason,
             tool="run_command",
             auto_mode_applies=True,
@@ -222,3 +233,9 @@ run_command = Tool(
     handler=_run_command_handler,
     mutates=True,
 )
+
+
+def _remember_prefix(argv: Sequence[str]) -> list[str] | None:
+    """The allowed-command prefix suggested for ``argv``, as a JSON-ready list."""
+    prefix = suggest_allowed_prefix(argv)
+    return list(prefix) if prefix is not None else None

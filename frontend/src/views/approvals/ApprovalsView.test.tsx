@@ -174,6 +174,64 @@ describe('ApprovalsView', () => {
     expect(screen.getByText('uv run pytest -q')).toBeTruthy()
   })
 
+  it('Approve + Log approves and asks Gaia to remember the prefix', async () => {
+    let decideBody: unknown = null
+    mockFetch(async (request) => {
+      if (request.method === 'POST') {
+        decideBody = await request.json()
+        return jsonResponse(200, {})
+      }
+      return jsonResponse(200, {
+        items: [
+          approval({
+            kind: 'command',
+            payload_json: {
+              argv: ['npm', '--prefix', 'frontend', 'test', '--', 'a.test.ts'],
+              cwd: '/work/gaia',
+              tool: 'run_command',
+              reason: "ask: package manager 'npm' requires approval",
+              remember_prefix: ['npm', '--prefix', 'frontend', 'test'],
+            },
+          }),
+        ],
+        total_pending: 1,
+      })
+    })
+
+    renderView()
+
+    const button = await screen.findByTestId('approve-log-button')
+    expect(button.textContent).toBe('Approve + Log')
+    expect(screen.getByText('npm --prefix frontend test').tagName).toBe('CODE')
+    fireEvent.click(button)
+
+    await waitFor(() => expect(decideBody).not.toBeNull())
+    expect(decideBody).toMatchObject({ decision: 'approve', remember: true })
+  })
+
+  it('hides Approve + Log for a command that cannot be remembered', async () => {
+    mockFetch(() =>
+      jsonResponse(200, {
+        items: [
+          approval({
+            kind: 'command',
+            payload_json: {
+              argv: ['node', '-e', '1'],
+              cwd: '/work/gaia',
+              remember_prefix: null,
+            },
+          }),
+        ],
+        total_pending: 1,
+      }),
+    )
+
+    renderView()
+
+    await screen.findByTestId('approve-button')
+    expect(screen.queryByTestId('approve-log-button')).toBeNull()
+  })
+
   it('renders a command with each argv element in its own code element', async () => {
     mockFetch(() =>
       jsonResponse(200, {

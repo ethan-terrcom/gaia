@@ -137,7 +137,9 @@ class Repository(UUIDPrimaryKey, WorkspaceScoped, CreatedBy, Timestamps, Base):
 
     ``setup_command`` and ``test_command`` are registered by the owner and never
     read from the repo: a checked-out branch is untrusted content (the
-    2026-11-12 review, section 5.1).
+    2026-11-12 review, section 5.1). ``allowed_commands`` are owner-registered
+    argv prefixes an agent may run without asking (validated by
+    :func:`gaia.security.commands.allowed_entry_problem`).
     """
 
     __tablename__ = "repository"
@@ -149,6 +151,7 @@ class Repository(UUIDPrimaryKey, WorkspaceScoped, CreatedBy, Timestamps, Base):
     default_branch: Mapped[str] = mapped_column(String(255), default="main")
     setup_command: Mapped[list[str] | None] = mapped_column(JSON, default=None)
     test_command: Mapped[list[str] | None] = mapped_column(JSON, default=None)
+    allowed_commands: Mapped[list[list[str]] | None] = mapped_column(JSON, default=None)
 
 
 class Ticket(UUIDPrimaryKey, WorkspaceScoped, CreatedBy, Timestamps, Base):

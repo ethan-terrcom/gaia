@@ -27,6 +27,7 @@ type DecideAction = {
   editedPayload?: Record<string, unknown>
   confirm?: string
   budgetUsd?: string | null
+  remember?: boolean
 }
 
 type StepDraft = {
@@ -234,6 +235,7 @@ async function decideApproval(
     comment: input.comment,
     edited_payload: input.editedPayload ?? null,
     confirm: input.confirm ?? null,
+    remember: input.remember ?? false,
   }
   if (input.budgetUsd !== undefined) {
     body.budget_usd = input.budgetUsd
@@ -602,6 +604,7 @@ function PlanKindDetail({
 
 function CommandKindDetail({ payload }: { payload: Record<string, unknown> }) {
   const argv = asStringArray(payload.argv)
+  const rememberPrefix = asStringArray(payload.remember_prefix)
   const cwd = asString(payload.cwd)
   const tool = asString(payload.tool)
   const reason = asString(payload.reason)
@@ -610,6 +613,15 @@ function CommandKindDetail({ payload }: { payload: Record<string, unknown> }) {
       <div className="rounded border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950">
         This command runs inside the sandbox with your approval.
       </div>
+      {rememberPrefix.length > 0 ? (
+        <p className="text-sm text-gray-600 dark:text-gray-400">
+          <strong>Approve + Log</strong> also adds{' '}
+          <code className="font-mono">{rememberPrefix.join(' ')}</code> to this
+          repository&apos;s allowed commands, so agents run it (with any
+          arguments after it) without asking. Edit the list under{' '}
+          <strong>Worktrees → Edit commands</strong>.
+        </p>
+      ) : null}
       <div>
         <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400">
           Command
@@ -888,6 +900,14 @@ function ApprovalDetail({
     onDecide({ decision: 'reject' })
   }
 
+  // What "Approve + Log" adds to the repository's allowed commands. Gaia
+  // computes it when the agent asks; it is absent for a command that cannot be
+  // allowed by prefix (an inline `node -e` script, a path to a binary).
+  const rememberPrefix =
+    approval.kind === 'command'
+      ? asStringArray(approval.payload_json.remember_prefix)
+      : []
+
   let content
   switch (approval.kind) {
     case 'plan': {
@@ -963,6 +983,20 @@ function ApprovalDetail({
             >
               {busy ? 'Working…' : 'Approve'}
             </button>
+            {rememberPrefix.length > 0 ? (
+              <button
+                type="button"
+                data-testid="approve-log-button"
+                onClick={() =>
+                  onDecide({ decision: 'approve', remember: true })
+                }
+                disabled={busy}
+                title={`Approve, and let agents run "${rememberPrefix.join(' ')}" in this repository without asking`}
+                className="rounded border border-blue-600 px-3 py-1.5 text-blue-700 disabled:opacity-50 dark:text-blue-300"
+              >
+                {busy ? 'Working…' : 'Approve + Log'}
+              </button>
+            ) : null}
             <button
               type="button"
               data-testid="reject-button"

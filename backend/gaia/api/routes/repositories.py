@@ -14,11 +14,14 @@ from gaia.api.deps import PrincipalDep, ScopedDep, ServicesDep, append_audit_log
 from gaia.db.models import Repository, Run, Ticket, Worktree
 from gaia.domain.enums import RunStatus, WorktreeStatus
 from gaia.domain.schemas import (
+    CommandSuggestion,
+    CommandSuggestionList,
     RepositoryCreate,
     RepositoryDetailRead,
     RepositoryRead,
     RepositoryUpdate,
 )
+from gaia.services.allowed_commands import suggestions
 
 router = APIRouter(tags=["repositories"])
 
@@ -107,7 +110,7 @@ async def get_repository(repository_id: str, scoped: ScopedDep) -> RepositoryDet
 @router.patch(
     "/repositories/{repository_id}",
     response_model=RepositoryRead,
-    summary="Change a repository's setup or test command",
+    summary="Change a repository's setup, test or allowed commands",
 )
 async def update_repository(
     repository_id: str,
@@ -115,7 +118,7 @@ async def update_repository(
     scoped: ScopedDep,
     principal: PrincipalDep,
 ) -> RepositoryRead:
-    """Set or clear the setup and test commands; only the fields sent change.
+    """Set or clear the setup, test and allowed commands; only the fields sent change.
 
     The commands are owner-registered values (never read from the repository),
     so editing them is an owner action and is audited. A run that is already
@@ -129,7 +132,7 @@ async def update_repository(
     if not changes:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
-            "send setup_command and/or test_command",
+            "send setup_command, test_command and/or allowed_commands",
         )
     repository = await repositories.update(repository_id, **changes)
     await append_audit_log(
@@ -141,6 +144,25 @@ async def update_repository(
         details={"fields": sorted(changes)},
     )
     return RepositoryRead.model_validate(repository)
+
+
+@router.get(
+    "/repositories/{repository_id}/command-suggestions",
+    response_model=CommandSuggestionList,
+    summary="Suggest allowed commands from past approvals",
+)
+async def command_suggestions(repository_id: str, scoped: ScopedDep) -> CommandSuggestionList:
+    """Prefixes of commands you approved in this repository that still ask.
+
+    Read-only: nothing is added until the owner saves them as allowed commands.
+    """
+    repository = await scoped.repo(Repository).get(repository_id)
+    if repository is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "repository not found")
+    found = await suggestions(scoped.session, scoped.workspace_id, repository)
+    return CommandSuggestionList(
+        items=[CommandSuggestion(argv=list(argv), times_approved=count) for argv, count in found]
+    )
 
 
 @router.delete(

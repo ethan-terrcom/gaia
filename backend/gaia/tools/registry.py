@@ -112,6 +112,10 @@ class ToolContext:
     #: a command needs approval so a switch flipped mid-run applies at once.
     #: ``None`` (tests, CLI tools) means auto mode is off.
     auto_approve: Callable[[], bool] | None = None
+    #: Reads the repository's test and allowed commands at the moment a command
+    #: is evaluated, so a command the owner just chose to remember runs without
+    #: asking for the rest of the step. ``None`` uses ``task.extra_allow`` only.
+    extra_allow_source: Callable[[], Awaitable[tuple[tuple[str, ...], ...]]] | None = None
 
     @property
     def root(self) -> Path:

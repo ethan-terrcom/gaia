@@ -324,14 +324,36 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Change a repository's setup or test command
-         * @description Set or clear the setup and test commands; only the fields sent change.
+         * Change a repository's setup, test or allowed commands
+         * @description Set or clear the setup, test and allowed commands; only the fields sent change.
          *
          *     The commands are owner-registered values (never read from the repository),
          *     so editing them is an owner action and is audited. A run that is already
          *     past setup keeps what it started with; the next run uses the new values.
          */
         patch: operations["update_repository_api_v1_repositories__repository_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/repositories/{repository_id}/command-suggestions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Suggest allowed commands from past approvals
+         * @description Prefixes of commands you approved in this repository that still ask.
+         *
+         *     Read-only: nothing is added until the owner saves them as allowed commands.
+         */
+        get: operations["command_suggestions_api_v1_repositories__repository_id__command_suggestions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/runs": {
@@ -732,6 +754,24 @@ export interface components {
          */
         CiStatus: "unknown" | "pending" | "passed" | "failed";
         /**
+         * CommandSuggestion
+         * @description A command prefix suggested from the owner's past approvals in one repository.
+         */
+        CommandSuggestion: {
+            /** Argv */
+            argv: string[];
+            /** Times Approved */
+            times_approved: number;
+        };
+        /**
+         * CommandSuggestionList
+         * @description Suggested allowed commands, most often approved first.
+         */
+        CommandSuggestionList: {
+            /** Items */
+            items: components["schemas"]["CommandSuggestion"][];
+        };
+        /**
          * CostByDay
          * @description LLM spend for one UTC day over a window (doc 18b).
          */
@@ -772,6 +812,10 @@ export interface components {
         /**
          * DecideRequest
          * @description A human decision on one approval (doc 14).
+         *
+         *     ``remember`` is valid only when approving a command: the command's prefix
+         *     (``payload.remember_prefix``) is added to the repository's allowed commands
+         *     as well.
          */
         DecideRequest: {
             /** Budget Usd */
@@ -789,6 +833,11 @@ export interface components {
             edited_payload?: {
                 [key: string]: unknown;
             } | null;
+            /**
+             * Remember
+             * @default false
+             */
+            remember: boolean;
         };
         /**
          * EventHistory
@@ -989,6 +1038,8 @@ export interface components {
         RepositoryDetailRead: {
             /** Active Runs */
             active_runs: number;
+            /** Allowed Commands */
+            allowed_commands: string[][];
             /**
              * Created At
              * Format: date-time
@@ -1025,6 +1076,8 @@ export interface components {
          * @description A registered repository.
          */
         RepositoryRead: {
+            /** Allowed Commands */
+            allowed_commands: string[][];
             /**
              * Created At
              * Format: date-time
@@ -1060,8 +1113,12 @@ export interface components {
          *
          *     Only the fields that are sent change; ``null`` clears a command. The path,
          *     name and remote are not editable: they identify the repository.
+         *     ``allowed_commands`` replaces the whole list; each entry is an argv prefix
+         *     an agent may run without asking.
          */
         RepositoryUpdate: {
+            /** Allowed Commands */
+            allowed_commands?: string[][] | null;
             /** Setup Command */
             setup_command?: string[] | null;
             /** Test Command */
@@ -2037,6 +2094,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RepositoryRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    command_suggestions_api_v1_repositories__repository_id__command_suggestions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                repository_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommandSuggestionList"];
                 };
             };
             /** @description Validation Error */

@@ -46,7 +46,7 @@ sends a wrong argument or trips a path guard gets a readable error back and can 
 
 ### `ToolContext`: what a tool can reach
 A runtime builds one per task. A handler can reach only what is in it:
-- `task`: ids, role, `extra_allow` (the owner's test command) and the pinned `WorktreeLocation`;
+- `task`: ids, role, `extra_allow` (the owner's test and allowed commands) and the pinned `WorktreeLocation`;
 - `git`, `policy`, `approvals`, `audit`, `events`;
 - `commands`, the `CommandRunner`;
 - `task_dir` (the command's `HOME` and `TMPDIR`), `actor` (`"agent:<name>"`) and `rg_path`.
@@ -75,7 +75,11 @@ server thread that cannot be killed. The tool description says which mode is act
 model must know.
 
 ### `run_command`
-1. `ctx.policy.evaluate(argv, extra_allow=task.extra_allow)` (09a).
+1. `ctx.policy.evaluate(argv, extra_allow=...)` (09a). `extra_allow` is `task.extra_allow` (the
+   test command and the allowed commands when the step started) plus, when the context has one,
+   `extra_allow_source()`. The wiring binds that to a fresh read of the run's repository, so an
+   **Approve + Log** applies to the agent's very next command. An `ask` payload carries
+   `remember_prefix` (`suggest_allowed_prefix`, or `null`).
 2. `deny` → `ok=False`, nothing runs. `ask` → `approve()` with the exact argv, cwd and reason. A
    rejection → `ok=False`. With auto mode on for the task's model family, `approve()` answers yes
    at once (`ApprovalDecision.auto`), no approval row is written, and the result's decision is
