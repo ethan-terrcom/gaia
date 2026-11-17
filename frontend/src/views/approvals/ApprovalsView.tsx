@@ -979,7 +979,7 @@ function ApprovalDetail({
               data-testid="approve-button"
               onClick={approve}
               disabled={busy}
-              className="rounded bg-blue-600 px-3 py-1.5 text-white disabled:opacity-50"
+              className="rounded bg-emerald-600 px-3 py-1.5 text-white disabled:opacity-50"
             >
               {busy ? 'Working…' : 'Approve'}
             </button>
