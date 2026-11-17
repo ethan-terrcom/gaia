@@ -173,7 +173,8 @@ class WorktreeService:
                         f"a previous attempt left files at {str(path)!r}; "
                         "remove them or the worktree row"
                     )
-            if await self.git.branch_exists(repo_path, branch):
+            branch_existed = await self.git.branch_exists(repo_path, branch)
+            if branch_existed:
                 # A resumed run: check the branch out instead of recreating it.
                 await self.git.worktree_add(repo_path, path=path, ref=branch)
             else:
@@ -182,6 +183,16 @@ class WorktreeService:
             # wrote; every later worktree call goes through WorktreeLocation and
             # checks the file against this value (F1).
             git_dir = await self.git.worktree_admin_dir(repo_path, path)
+            if branch_existed:
+                # ``_row_for`` recorded today's tip as the base, but the branch
+                # still points where the last run left it. Line the two up, or the
+                # run's diff (base..HEAD) would be wrong.
+                base_sha = await self._align_existing_branch(
+                    WorktreeLocation(work_tree=path, git_dir=git_dir),
+                    repo_path,
+                    branch=branch,
+                    tip=base_sha,
+                )
         except BaseException:
             # A row that says ``failed`` is a bug report; a directory with no row
             # is a mystery. Record it before the error goes up.
@@ -196,8 +207,68 @@ class WorktreeService:
             git_dir=str(git_dir),
         )
         return await self.worktrees.update(
-            row.id, status=WorktreeStatus.READY.value, git_dir=str(git_dir)
+            row.id, status=WorktreeStatus.READY.value, git_dir=str(git_dir), base_sha=base_sha
         )
+
+    async def _align_existing_branch(
+        self, location: WorktreeLocation, repo_path: Path, *, branch: str, tip: str
+    ) -> str:
+        """Return the base for a freshly checked-out existing ``branch``.
+
+        A branch with no commits of its own is moved forward to ``tip``, so a
+        re-run starts from today's code rather than the code of the run that
+        failed. A branch with its own commits keeps them, and its base is the
+        merge-base with ``tip``: that is where its work starts.
+        """
+        head = await self.git.current_sha(location)
+        if await self.git.is_ancestor(repo_path, head, tip):
+            if head != tip:
+                await self.git.fast_forward(location, tip)
+                logger.info("worktree.fast_forwarded", branch=branch, old=head, new=tip)
+            return tip
+        return await self.git.merge_base(repo_path, head, tip)
+
+    # -------------------------------------------------------------- refresh --
+    async def refresh(
+        self, worktree: Worktree, repo: Repository, base_ref: str | None = None
+    ) -> Worktree:
+        """Bring a reused, untouched worktree up to the current base.
+
+        A new run on a ticket reuses the live worktree an earlier run left behind
+        (a run that failed in setup, say). If that worktree has done nothing - its
+        head is an ancestor of ``base_ref``'s tip and the tree is clean - it is
+        fast-forwarded and its ``base_sha`` updated, so the re-run sees the fixes
+        that landed since. Anything else is left exactly as it is: commits or
+        uncommitted changes are work, and only a human may throw work away.
+        """
+        self._check_workspace(worktree)
+        self._check_workspace(repo)
+        repo_path = await self.git.validate_repo(repo.local_path)
+        reference = base_ref if base_ref is not None else await self.git.default_branch(repo_path)
+        tip = await self.git.current_sha(repo_path, rev=reference)
+        location = await self._location_for(worktree, repo_path)
+        head = await self.git.current_sha(location)
+        if head == tip:
+            if worktree.base_sha == tip:
+                return worktree
+            return await self.worktrees.update(worktree.id, base_sha=tip)
+        reason = None
+        if not await self.git.is_ancestor(repo_path, head, tip):
+            reason = "has_commits"
+        elif await self.git.is_dirty(location):
+            reason = "dirty"
+        if reason is not None:
+            logger.info(
+                "worktree.reused_as_is",
+                worktree_id=worktree.id,
+                reason=reason,
+                head=head,
+                tip=tip,
+            )
+            return worktree
+        await self.git.fast_forward(location, tip)
+        logger.info("worktree.fast_forwarded", worktree_id=worktree.id, old=head, new=tip)
+        return await self.worktrees.update(worktree.id, base_sha=tip)
 
     async def _row_for(self, repo: Repository, branch: str, base_sha: str) -> Worktree:
         """The row to fill in for ``branch``: new, revived, or refused."""

@@ -154,9 +154,17 @@ class WorktreeSetup:
                 live = await ScopedRepo(session, Worktree, context.run.workspace_id).get(
                     exc.worktree_id
                 )
-            if live is None:
-                raise
-            return live
+                if live is None:
+                    raise
+                # The live worktree belongs to an earlier run on this ticket. If
+                # that run left no work in it, move it up to today's base so the
+                # re-run does not set up and work on stale code.
+                service = WorktreeService(
+                    git=self.git,
+                    session=session,
+                    workspace_id=context.run.workspace_id,
+                )
+                return await service.refresh(live, context.repository)
 
     async def _mark_in_use(self, workspace_id: str, worktree_id: str) -> None:
         """Move a ``ready`` worktree to ``in_use`` before the setup command.

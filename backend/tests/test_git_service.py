@@ -695,3 +695,21 @@ async def test_remote_url_is_none_without_that_remote(
     git_service: GitService, git_repo: Path
 ) -> None:
     assert await git_service.remote_url(git_repo) is None
+
+
+async def test_is_ancestor_and_merge_base(git_repo: Path, git_service: GitService) -> None:
+    base = git(git_repo, "rev-parse", "HEAD").strip()
+    tip = commit_file(git_repo, "next.txt", "next\n", "next")
+
+    assert await git_service.is_ancestor(git_repo, base, tip)
+    assert await git_service.is_ancestor(git_repo, tip, tip)
+    assert not await git_service.is_ancestor(git_repo, tip, base)
+    assert await git_service.merge_base(git_repo, base, tip) == base
+
+
+async def test_is_ancestor_raises_on_an_unknown_revision(
+    git_repo: Path, git_service: GitService
+) -> None:
+    """An unknown revision is an error, not a quiet "no"."""
+    with pytest.raises(GitError, match="merge-base"):
+        await git_service.is_ancestor(git_repo, "0" * 40, "HEAD")

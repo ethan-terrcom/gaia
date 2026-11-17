@@ -93,6 +93,7 @@ The main methods are `validate_repo`, `current_sha`, `default_branch`, `status_p
 service = WorktreeService(git=git, session=session, workspace_id=ws_id)
 wt = await service.create(repo, ticket)        # row 'preparing' → git worktree add → 'ready'
 report = await service.list(repo)              # rows vs `git worktree list`, both directions
+wt = await service.refresh(wt, repo)           # fast-forward an untouched reused worktree
 await service.remove(wt)                       # refuses a dirty tree unless force=True
 url = service.open_in_editor(wt)               # "vscode://file/..." (a string, never an action)
 ```
@@ -104,6 +105,13 @@ url = service.open_in_editor(wt)               # "vscode://file/..." (a string, 
 - The database row is written **before** the directory, so a crash leaves a row that says
   `preparing` rather than an unexplained directory. `remove()` keeps the row (marked `removed`) as
   history, and `create()` revives it for the same branch.
+- **Re-running a ticket starts from today's code when it safely can.** A worktree is per ticket, so
+  a second run meets the first run's branch. If that branch has no commits of its own (its head is
+  an ancestor of the default branch's tip) and the tree is clean, it is moved forward with
+  `git merge --ff-only` and `base_sha` becomes the tip. That happens in `refresh()` (a live worktree
+  the orchestrator reuses) and in `create()` (a revived row whose branch still exists). A branch with
+  commits, or a tree with changes, is left exactly as it is; a revived branch with commits records
+  its merge-base with the tip as `base_sha`, so the run's diff is still right.
 - `list()` reports **orphans** (rows git doesn't know) and **unknown paths** (worktrees no row
   claims), so the UI can offer cleanup.
 
