@@ -60,7 +60,7 @@ _FINALIZE_TIMEOUT_S = 10.0
 #: ``Tool.name`` must be this shape.
 _TOOL_NAME = re.compile(r"^[a-z][a-z0-9_]{1,40}$")
 
-ToolDecision = Literal["allow", "deny", "ask_approved", "ask_rejected"]
+ToolDecision = Literal["allow", "deny", "ask_approved", "ask_rejected", "auto_approved"]
 
 
 class ToolInput(BaseModel):
@@ -108,6 +108,10 @@ class ToolContext:
     actor: str
     approval_timeout_s: float = 600
     rg_path: Path | None = None
+    #: Whether auto mode is on for this task's model family, asked at the moment
+    #: a command needs approval so a switch flipped mid-run applies at once.
+    #: ``None`` (tests, CLI tools) means auto mode is off.
+    auto_approve: Callable[[], bool] | None = None
 
     @property
     def root(self) -> Path:
@@ -282,13 +286,23 @@ async def approve(
     reason: str,
     *,
     tool: str,
+    auto_mode_applies: bool = False,
 ) -> ApprovalDecision:
     """Ask the approval broker and return its decision.
 
     The broker (doc 10a) already upserts the row, publishes, waits inside the
     turn and treats a timeout as deny. The tool name is a parameter here, never
     something the model can smuggle in through ``payload``.
+
+    When ``auto_mode_applies`` and the owner switched auto mode on for this
+    task's model family, the answer is an approval with ``auto=True`` and no
+    approval row is written; the tool's audit row and result event record the
+    ``auto_approved`` decision instead. Only ``run_command`` passes it: a write
+    to a protected file (hooks, CI, ``.envrc``) can run code outside the
+    sandbox, so it always asks.
     """
+    if auto_mode_applies and ctx.auto_approve is not None and ctx.auto_approve():
+        return ApprovalDecision(True, "auto mode", auto=True)
     return await ctx.approvals.request(
         ctx.task,
         kind=ApprovalKind.COMMAND,

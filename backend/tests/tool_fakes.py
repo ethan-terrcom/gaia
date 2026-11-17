@@ -7,7 +7,7 @@ covered separately by ``tests/test_tools_live.py`` when ``GAIA_SRT_PATH`` is set
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -101,6 +101,7 @@ def make_tool_context(
     actor: str = "agent:junior-1",
     extra_allow: tuple[tuple[str, ...], ...] = (),
     approval_timeout_s: float = 600,
+    auto_approve: Callable[[], bool] | None = None,
 ) -> ToolContext:
     """Build a real :class:`ToolContext` around ``root``, with fake services."""
     root = root.resolve()
@@ -132,4 +133,5 @@ def make_tool_context(
         actor=actor,
         rg_path=rg_path,
         approval_timeout_s=approval_timeout_s,
+        auto_approve=auto_approve,
     )

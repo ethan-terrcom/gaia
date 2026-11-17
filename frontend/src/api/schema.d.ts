@@ -28,6 +28,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/auto-mode": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read auto mode
+         * @description Return which model families run commands without asking.
+         */
+        get: operations["get_auto_mode_api_v1_admin_auto_mode_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Switch auto mode
+         * @description Switch auto mode on or off for one or both families.
+         *
+         *     It takes effect on each agent's next command that would need approval; a
+         *     command already waiting for approval still waits.
+         */
+        patch: operations["update_auto_mode_api_v1_admin_auto_mode_patch"];
+        trace?: never;
+    };
     "/api/v1/admin/pause": {
         parameters: {
             query?: never;
@@ -674,6 +701,29 @@ export interface components {
             p50: number;
             /** P90 */
             p90: number;
+        };
+        /**
+         * AutoModeStatus
+         * @description Which model families run in auto mode.
+         *
+         *     In auto mode a command the policy would ask about runs without waiting for
+         *     a human; denied commands, the sandbox and protected-file writes are unchanged.
+         */
+        AutoModeStatus: {
+            /** Claude */
+            claude: boolean;
+            /** Deepseek */
+            deepseek: boolean;
+        };
+        /**
+         * AutoModeUpdate
+         * @description Switch auto mode on or off per family. An omitted family is left as it is.
+         */
+        AutoModeUpdate: {
+            /** Claude */
+            claude?: boolean | null;
+            /** Deepseek */
+            deepseek?: boolean | null;
         };
         /**
          * CiStatus
@@ -1519,6 +1569,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Health"];
+                };
+            };
+        };
+    };
+    get_auto_mode_api_v1_admin_auto_mode_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutoModeStatus"];
+                };
+            };
+        };
+    };
+    update_auto_mode_api_v1_admin_auto_mode_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AutoModeUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutoModeStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

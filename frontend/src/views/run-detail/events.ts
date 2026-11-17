@@ -45,7 +45,10 @@ export function summarizeEvent(event: TimelineEvent): string {
     }
     case 'agent.tool_result': {
       if (payload.ok === true) {
-        return 'ok'
+        // Auto mode ran a command that would otherwise have asked you.
+        return payload.decision === 'auto_approved'
+          ? 'ok (auto-approved)'
+          : 'ok'
       }
       const decision = stringValue(payload.decision)
       return decision ? `decision: ${decision}` : 'not ok'

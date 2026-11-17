@@ -52,6 +52,7 @@ Query keys start with the event stream's invalidation prefixes, so views refresh
 | `src/hooks/useHotkeys.ts` | `g d/t/r/a/p/w/s` and `/` |
 | `src/layout/AppLayout.tsx` | nav with the pending-approvals badge, the top bar with today's spend, the theme toggle |
 | `src/layout/PauseControl.tsx` | the kill switch: a **Pause all** button in the top bar and the paused banner under it |
+| `src/views/settings/AutoModeSettings.tsx` | the Settings page's auto-mode switches, one per model family (`GET`/`PATCH /admin/auto-mode`) |
 | `src/layout/DemoBadge.tsx` | an amber **Demo mode** badge when `GET /me` reports `demo_mode: true` |
 | `csp.json` | the production Content Security Policy, shared with the backend |
 | `tools/openapi/` | a pinned, separate install of `openapi-typescript` + TypeScript 5 (see below) |

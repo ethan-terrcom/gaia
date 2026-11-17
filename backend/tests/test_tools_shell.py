@@ -105,6 +105,57 @@ async def test_python_script_asks_and_approved_runs(registry: ToolRegistry, work
     assert runner.calls == [(("python", "script.py"), _resolved(worktree), 300.0, ctx.task_dir)]
 
 
+async def test_auto_mode_runs_an_ask_command_without_an_approval(
+    registry: ToolRegistry, worktree: Path
+) -> None:
+    runner = FakeCommandRunner(
+        [make_proc_result(["python", "script.py"], cwd=worktree, stdout="ran\n")]
+    )
+    ctx = make_tool_context(worktree, commands=runner, auto_approve=lambda: True)
+
+    result = await registry.call(
+        "run_command", {"argv": ["python", "script.py"]}, ctx, call_id="call-python-auto"
+    )
+
+    assert result.ok is True
+    assert result.decision == "auto_approved"
+    assert cast(InMemoryApprovalBroker, ctx.approvals).pending() == ()
+    assert runner.calls == [(("python", "script.py"), _resolved(worktree), 300.0, ctx.task_dir)]
+
+
+async def test_auto_mode_still_denies_a_denied_command(
+    registry: ToolRegistry, worktree: Path
+) -> None:
+    runner = FakeCommandRunner()
+    ctx = make_tool_context(worktree, commands=runner, auto_approve=lambda: True)
+
+    result = await registry.call(
+        "run_command", {"argv": ["curl", "https://example.com"]}, ctx, call_id="call-curl"
+    )
+
+    assert result.ok is False
+    assert result.decision == "deny"
+    assert runner.calls == []
+
+
+async def test_auto_mode_off_still_asks(registry: ToolRegistry, worktree: Path) -> None:
+    runner = FakeCommandRunner()
+    ctx = make_tool_context(worktree, commands=runner, auto_approve=lambda: False)
+    broker = cast(InMemoryApprovalBroker, ctx.approvals)
+
+    request = asyncio.create_task(
+        registry.call(
+            "run_command", {"argv": ["python", "script.py"]}, ctx, call_id="call-python-off"
+        )
+    )
+    approval_id = await wait_for_pending(broker)
+    broker.decide(approval_id, False, "no")
+    result = await asyncio.wait_for(request, timeout=5)
+
+    assert result.decision == "ask_rejected"
+    assert runner.calls == []
+
+
 async def test_python_script_rejected_does_not_run(registry: ToolRegistry, worktree: Path) -> None:
     runner = FakeCommandRunner()
     ctx = make_tool_context(worktree, commands=runner)

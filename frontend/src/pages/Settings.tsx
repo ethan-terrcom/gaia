@@ -1,9 +1,11 @@
 import { PageHeader } from '../components/States'
+import { AutoModeSettings } from '../views/settings/AutoModeSettings'
 
 export default function Settings() {
   return (
     <section>
       <PageHeader title="Settings" />
+      <AutoModeSettings />
       <h2 className="mb-2 font-semibold">Keyboard navigation</h2>
       <ul>
         <li>

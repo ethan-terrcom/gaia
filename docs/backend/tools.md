@@ -77,7 +77,9 @@ model must know.
 ### `run_command`
 1. `ctx.policy.evaluate(argv, extra_allow=task.extra_allow)` (09a).
 2. `deny` → `ok=False`, nothing runs. `ask` → `approve()` with the exact argv, cwd and reason. A
-   rejection → `ok=False`.
+   rejection → `ok=False`. With auto mode on for the task's model family, `approve()` answers yes
+   at once (`ApprovalDecision.auto`), no approval row is written, and the result's decision is
+   `auto_approved` (see below).
 3. `ctx.commands.run(...)`. In production that is `SrtCommandRunner`:
    - it builds a `SandboxSpec` (worktree read/write, task dir, toolchains readable, **no network**,
      Gaia's data dir denied);
@@ -129,6 +131,11 @@ stop its own audit trail by making a tool fail.
   good behaviour.
 - **Approvals inside the turn** (doc 10, requirement 8). Returning to the graph to ask would end
   the model session; a resumed node starts the whole step again.
+- **Auto mode is opt-in per call site.** `ToolContext.auto_approve` is a callable the composition
+  root binds to the runtime's model family (`wiring.py`: native → DeepSeek, Agent SDK → Claude).
+  It is read when a command asks, so a switch flipped mid-run applies at the next command. Only
+  `run_command` passes `auto_mode_applies=True` to `approve()`; the file tools never do, because a
+  protected file (hooks, CI, `.envrc`) can run code outside the sandbox.
 
 ## Changing it safely
 - Add a tool: an input model (subclass `ToolInput`, so extra fields are refused), an async

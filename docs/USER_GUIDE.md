@@ -168,7 +168,7 @@ default is $5). Then work from the **Approvals** inbox:
 | Approval | What you see | What your answer does |
 |---|---|---|
 | **Plan** | Summary, risks and steps, each with its files and test command | **Approve** starts the work. **Edit steps** lets you change titles, instructions and test commands, then approve your version. **Reject** ends the run. |
-| **Command** | The exact command, one argument per box, its directory, and the agent's reason | The agent asked to run something outside the allowlist. **Approve** runs it in the sandbox once; **Reject** tells the agent no. |
+| **Command** | The exact command, one argument per box, its directory, and the agent's reason | The agent asked to run something outside the allowlist. **Approve** runs it in the sandbox once; **Reject** tells the agent no. With **auto mode** on for that agent's model (section 7), you are not asked. |
 | **Escalation** | Why the step keeps failing, and the reviewer's feedback | **Approve** retries the step; **Reject** stops the run. |
 | **Budget** | Spent so far, and the cap | **Approve** grants another run budget, or the amount you type. A *daily* cap stays a hard limit: approve again once you have raised `GAIA_DAILY_BUDGET_USD`, or after midnight UTC. |
 | **Open PR** | The lead's verdict, feedback and issues, plus a link to the full diff | **Approve** pushes the `gaia/…` branch and opens a draft PR. |
@@ -190,6 +190,13 @@ shows what changed. **Cancel run** stops it at any time; the worktree is kept, s
 - **The emergency stop:** **Pause all** in the top bar stops every running agent at once and holds
   every run, until you press **Resume all**. Nothing is lost: runs continue from their last
   completed step.
+- **Auto mode** (**Settings**, `g s`): stop approving commands one by one. Switch it on
+  separately for **Claude** (the lead) and **DeepSeek** (the juniors). An agent in auto mode runs
+  any command that would otherwise ask you, still inside the sandbox. Blocked commands (`sudo`,
+  `curl`, `rm`, `git push`…) stay blocked, edits to CI, git hook and `.envrc` files still ask, and
+  plan and PR approvals are unchanged. The change applies to each agent's next command, with no
+  restart; a command already waiting still needs your answer. The run timeline marks those
+  commands "auto-approved", and every switch is in the audit log.
 - **PRs** (`g p`): every PR Gaia opened, with CI and review state.
 - **Worktrees** (`g w`): every checkout Gaia made, with flags for uncommitted changes and for
   anything unexpected. Reclaim disk from finished runs with
@@ -231,6 +238,7 @@ In short:
 - the agents run in a **sandbox** that cannot read your home directory, keys or SSH files, and
   cannot reach the internet;
 - they **never hold an API key**; they reach the models through Gaia, which enforces your budgets;
-- **you approve** anything irreversible.
+- **you approve** anything irreversible. Auto mode only skips command approvals, inside the
+  sandbox.
 
 The details, and the risks we accept, are in [SECURITY.md](SECURITY.md).

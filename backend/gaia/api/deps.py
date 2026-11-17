@@ -34,6 +34,7 @@ from gaia.config.settings import Settings
 from gaia.db.engine import session_scope
 from gaia.db.models import AuditLog, Base
 from gaia.db.repo import AuditLogRepo, ScopedRepo
+from gaia.orchestrator.auto_mode import AutoModeSwitch
 from gaia.orchestrator.pause import PauseSwitch
 from gaia.orchestrator.runner import RunManager
 from gaia.runtimes.approvals import DbApprovalBroker
@@ -69,6 +70,7 @@ class AppServices:
     approvals: DbApprovalBroker | None = None
     wiring: Wiring | None = None
     pause: PauseSwitch | None = None
+    auto_mode: AutoModeSwitch | None = None
 
 
 def services_of(request: Request) -> AppServices:
