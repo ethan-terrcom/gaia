@@ -29,6 +29,8 @@ from gaia.orchestrator.guard import TERMINAL_RUN_STATUSES
 from gaia.orchestrator.pause import OrchestratorPaused
 from gaia.orchestrator.runner import RunBusy, RunManager
 from gaia.runtimes.approvals import ApprovalNotPending, DbApprovalBroker
+from gaia.security.commands import suggest_allowed_prefix
+from gaia.services.allowed_commands import remember
 
 router = APIRouter(tags=["approvals"])
 
@@ -242,6 +244,11 @@ async def _decide_locked(
     }
     if payload.edited_payload is not None:
         details["edited_payload_sha256"] = _edited_payload_sha256(payload.edited_payload)
+    if payload.remember and (kind != ApprovalKind.COMMAND or payload.decision != "approve"):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "remember is only valid when approving a command",
+        )
 
     if kind == ApprovalKind.COMMAND:
         if payload.decision == "edit":
@@ -249,6 +256,10 @@ async def _decide_locked(
                 status.HTTP_422_UNPROCESSABLE_CONTENT,
                 "edit is not valid for command approvals",
             )
+        remembered: tuple[list[str], bool] | None = None
+        if payload.remember:
+            remembered = await _remember_command(approval, run, scoped, services)
+            details["remembered"] = remembered[0]
         try:
             await approvals.decide(
                 scoped.workspace_id,
@@ -270,6 +281,17 @@ async def _decide_locked(
             target=approval_id,
             details=details,
         )
+        if remembered is not None and run is not None:
+            # Written after the broker's own session committed: holding a write
+            # in this request's session first would lock SQLite against it.
+            await append_audit_log(
+                scoped.session,
+                scoped.workspace_id,
+                actor_user_id=principal.user_id,
+                action="repository.allow_command",
+                target=run.repo_id,
+                details={"argv": remembered[0], "added": remembered[1], "approval_id": approval_id},
+            )
         async with session_scope(services.sessions) as session:
             row = await ScopedRepo(session, Approval, scoped.workspace_id).get(approval_id)
         if row is None:
@@ -354,3 +376,28 @@ async def _merge_pr_number(approval: Approval, scoped: ScopedDep) -> int | None:
         return None
     latest = max(rows, key=lambda pr: (pr.created_at, pr.id))
     return latest.number
+
+
+async def _remember_command(
+    approval: Approval,
+    run: Run | None,
+    scoped: ScopedDep,
+    services: ServicesDep,
+) -> tuple[list[str], bool]:
+    """Add the approved command's prefix to its repository's allowed commands.
+
+    Returns the prefix and whether it was new; the caller audits it.
+
+    The prefix is recomputed from the stored ``argv`` here, never taken from
+    the request, and committed before the agent is woken so its next command
+    already runs without asking.
+    """
+    argv = approval.payload_json.get("argv") if isinstance(approval.payload_json, dict) else None
+    prefix = suggest_allowed_prefix(argv) if isinstance(argv, list) else None
+    if prefix is None or run is None:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "this command cannot be added to the allowed commands; approve it without remembering",
+        )
+    added = await remember(services.sessions, scoped.workspace_id, run.repo_id, prefix)
+    return list(prefix), added

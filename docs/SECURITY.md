@@ -121,6 +121,7 @@ These are deliberate trade-offs. Each says what would change it.
 | A6 | Open owner decisions from 09a: **D-a**, an `extra_allow` entry outranks the tripwires; **D-b**, `git` is denied in `run_command`. | Recorded; both currently resolve to the more restrictive behaviour where it matters. | The owner's call. |
 | A7 | No Docker runner yet (18c), so the macOS sandbox is the only boundary. | `srt` was verified live for files, network, `.git` and the Keychain. | 18c's Docker runner, if wanted. |
 | A8 | With **auto mode** on, a steered agent can run any command the policy does not deny, without a human seeing it first. | The owner opts in per model family. The sandbox (no network, no home directory, no keys) is the boundary either way, and every auto-approved command is audited and shown on the run timeline. Protected-file writes, PRs and merges still need you. | Leave auto mode off for a model you trust less. |
+| A9 | A repository's **allowed commands** (and **Approve + Log**) let agents run, say, `npm --prefix frontend test` unasked, and that runs scripts from `package.json`, which the agent can edit. | Same exposure as an allowlisted `pytest` running an agent-written `conftest.py` (A1): the sandbox contains it. Entries are the owner's choice per repository; deny rules, bare tripwires and inline-code flags (`node -e`, `python -c`) are refused; every addition is audited. | Remove the entry under **Edit commands**. |
 
 ## Checking it yourself
 ```sh

@@ -19,6 +19,7 @@ import { StatusBadge } from '../../components/StatusBadge'
 import { formatRelative, shortSha } from '../../components/format'
 
 type RepositoryRead = components['schemas']['RepositoryRead']
+type CommandSuggestion = components['schemas']['CommandSuggestion']
 type WorktreeItemRead = components['schemas']['WorktreeItemRead']
 type WorktreeListRead = components['schemas']['WorktreeListRead']
 
@@ -104,6 +105,7 @@ async function updateRepositoryCommands(input: {
   id: string
   setup_command: string[] | null
   test_command: string[] | null
+  allowed_commands: string[][]
 }): Promise<RepositoryRead> {
   const { data, error } = await api.PATCH(
     '/api/v1/repositories/{repository_id}',
@@ -113,6 +115,7 @@ async function updateRepositoryCommands(input: {
       body: {
         setup_command: input.setup_command,
         test_command: input.test_command,
+        allowed_commands: input.allowed_commands,
       },
     },
   )
@@ -120,6 +123,22 @@ async function updateRepositoryCommands(input: {
     throw error
   }
   return data
+}
+
+async function fetchCommandSuggestions(
+  repositoryId: string,
+): Promise<CommandSuggestion[]> {
+  const { data, error } = await api.GET(
+    '/api/v1/repositories/{repository_id}/command-suggestions',
+    {
+      fetch: globalThis.fetch,
+      params: { path: { repository_id: repositoryId } },
+    },
+  )
+  if (error) {
+    throw error
+  }
+  return data.items
 }
 
 async function unregisterRepository(repositoryId: string): Promise<void> {
@@ -163,6 +182,15 @@ function useWorktrees(repoId: string | null) {
 function parseCommand(value: string): string[] | null {
   const trimmed = value.trim()
   return trimmed === '' ? null : trimmed.split(/\s+/)
+}
+
+/** One command per line, each split on whitespace; blank lines are skipped. */
+function parseCommandLines(value: string): string[][] {
+  return value
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '')
+    .map((line) => line.split(/\s+/))
 }
 
 function commandText(command: string[] | null | undefined): string {
@@ -212,6 +240,16 @@ function EditCommandsForm({
   const [testCommand, setTestCommand] = useState(
     repository.test_command?.join(' ') ?? '',
   )
+  const [allowedCommands, setAllowedCommands] = useState(
+    repository.allowed_commands.map((entry) => entry.join(' ')).join('\n'),
+  )
+  // Commands approved before in this repository start ticked: saving adds
+  // them. Untick any you do not want agents to run unasked.
+  const [unticked, setUnticked] = useState<Set<string>>(new Set())
+  const suggestions = useQuery({
+    queryKey: ['repositories', repository.id, 'command-suggestions'],
+    queryFn: () => fetchCommandSuggestions(repository.id),
+  })
   const mutation = useMutation({
     mutationFn: updateRepositoryCommands,
     onSuccess: () => {
@@ -220,12 +258,28 @@ function EditCommandsForm({
     },
   })
 
+  function toggleSuggestion(key: string): void {
+    setUnticked((current) => {
+      const next = new Set(current)
+      if (next.has(key)) {
+        next.delete(key)
+      } else {
+        next.add(key)
+      }
+      return next
+    })
+  }
+
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    const ticked = (suggestions.data ?? [])
+      .map((suggestion) => suggestion.argv)
+      .filter((argv) => !unticked.has(argv.join(' ')))
     mutation.mutate({
       id: repository.id,
       setup_command: parseCommand(setupCommand),
       test_command: parseCommand(testCommand),
+      allowed_commands: [...parseCommandLines(allowedCommands), ...ticked],
     })
   }
 
@@ -259,9 +313,57 @@ function EditCommandsForm({
           className="mt-1 w-full rounded border border-gray-300 px-2 py-1 font-mono dark:border-gray-700 dark:bg-gray-950"
         />
       </div>
+      <div>
+        <label htmlFor={`edit-allowed-${repository.id}`} className="block">
+          Allowed commands
+        </label>
+        <textarea
+          id={`edit-allowed-${repository.id}`}
+          value={allowedCommands}
+          onChange={(event) => setAllowedCommands(event.target.value)}
+          rows={4}
+          placeholder={
+            'npm --prefix frontend test\nnpm --prefix frontend run build'
+          }
+          className="mt-1 w-full rounded border border-gray-300 px-2 py-1 font-mono dark:border-gray-700 dark:bg-gray-950"
+        />
+        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          One per line. Agents run these, with any arguments after them, without
+          asking. Blocked commands stay blocked.
+        </p>
+      </div>
+      {suggestions.data && suggestions.data.length > 0 ? (
+        <fieldset className="rounded border border-gray-200 p-3 dark:border-gray-800">
+          <legend className="px-1">From commands you approved before</legend>
+          <ul className="grid gap-1">
+            {suggestions.data.map((suggestion) => {
+              const key = suggestion.argv.join(' ')
+              return (
+                <li key={key}>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={!unticked.has(key)}
+                      onChange={() => toggleSuggestion(key)}
+                    />
+                    <code className="font-mono">{key}</code>
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      approved {suggestion.times_approved}×
+                    </span>
+                  </label>
+                </li>
+              )
+            })}
+          </ul>
+          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+            Ticked commands are added to the allowed commands when you save.
+          </p>
+        </fieldset>
+      ) : null}
       <p className="text-xs text-gray-500 dark:text-gray-400">
         Split on whitespace, no shell. Leave a box empty to clear it. The next
-        run uses the new commands.
+        run uses the new setup and test commands; allowed commands apply at
+        once.
       </p>
       <div className="flex gap-2">
         <button
@@ -353,6 +455,24 @@ function RepositoryCard({
                 <code className="font-mono">
                   {commandText(repository.test_command)}
                 </code>
+              </dd>
+            </div>
+            <div className="sm:col-span-2">
+              <dt className="text-gray-500 dark:text-gray-400">
+                Allowed commands
+              </dt>
+              <dd>
+                {repository.allowed_commands.length === 0 ? (
+                  '—'
+                ) : (
+                  <ul>
+                    {repository.allowed_commands.map((entry) => (
+                      <li key={entry.join(' ')}>
+                        <code className="font-mono">{entry.join(' ')}</code>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </dd>
             </div>
           </>

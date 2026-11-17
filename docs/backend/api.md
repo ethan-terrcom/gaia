@@ -99,7 +99,8 @@ server-side with the traceback, and the client only sees "the server hit an unex
 | Method | Path | Notes |
 |---|---|---|
 | POST / GET | `/repositories` | Register (validated by git; origin and default branch detected, credentials stripped) / list |
-| GET / PATCH / DELETE | `/repositories/{id}` | Detail with worktree and active-run counts / change the setup and test commands (only the fields sent; `null` clears; audited as `repository.update`; 422 if none sent) / unregister, **409 if it has tickets or live worktrees** |
+| GET | `/repositories/{id}/command-suggestions` | Prefixes of commands approved in this repository that would still ask, most often approved first → `{items: [{argv, times_approved}]}`. Read-only |
+| GET / PATCH / DELETE | `/repositories/{id}` | Detail with worktree and active-run counts / change the setup, test and allowed commands (only the fields sent; `null` clears; `allowed_commands` replaces the list, deduplicated, and each entry must pass `allowed_entry_problem`; audited as `repository.update`; 422 if none sent) / unregister, **409 if it has tickets or live worktrees** |
 | POST / GET | `/tickets` | Create (repo loaded in your workspace) / page with `status`, `repo_id`, `q`, `limit` ≤ 100, `cursor` → `{items, next_cursor}` |
 | GET / PATCH | `/tickets/{id}` | Read / update text fields and status (illegal move → 409) |
 | GET | `/agents` | The seeded roster (`lead`, `junior-1`) |
@@ -191,7 +192,10 @@ decisions, **409** `orchestrator_paused` while the kill switch is on.
 
 **Deciding an approval:**
 - **Command approvals** (asked inside an agent's turn) are answered through the shared
-  `DbApprovalBroker`, which wakes the waiting agent → 200.
+  `DbApprovalBroker`, which wakes the waiting agent → 200. With `remember: true` (approve only;
+  422 otherwise, or when the command has no rememberable prefix) the prefix is recomputed from
+  the stored `argv`, appended to the repository's `allowed_commands` in its own committed session
+  **before** the agent is woken, and audited as `repository.allow_command` after the decision.
 - **Graph gates** (`plan`, `escalation`, `budget`, `pr_open`, `merge`) resume the run with a
   validated `Decision` → 202; the node records the decision on the row. For these gates:
   - `edit` is valid only for a plan, and the edited plan is validated (422 if invalid);

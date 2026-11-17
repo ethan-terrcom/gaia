@@ -149,6 +149,15 @@ make ui-url       # any time later, in another terminal: prints the login link a
 To change a command later, press **Edit commands** on the repository's card. The next run uses
 the new values. (The path, name and remote cannot be edited.)
 
+**Allowed commands** (also under **Edit commands**) are commands agents may run in this repository
+without asking you, one per line, for example `npm --prefix frontend test`. Each is a prefix, so
+`npm --prefix frontend test -- src/a.test.ts` is allowed too. Blocked commands (`git`, `rm`,
+`curl`…) can't be added. Nor can a bare `npm`, `python` or `bash`, or an inline script such as
+`node -e` or `python -c`. Below the list, **From commands you approved before** offers the
+commands you have already approved in this repository, ticked; **Save commands** adds the ticked
+ones. Every agent step is told the repository's test and allowed commands, so agents use them
+instead of guessing.
+
 Gaia never changes your clone. It creates worktrees from it on `gaia/…` branches. For PRs, the
 clone's `origin` must be a GitHub HTTPS remote.
 
@@ -168,7 +177,7 @@ default is $5). Then work from the **Approvals** inbox:
 | Approval | What you see | What your answer does |
 |---|---|---|
 | **Plan** | Summary, risks and steps, each with its files and test command | **Approve** starts the work. **Edit steps** lets you change titles, instructions and test commands, then approve your version. **Reject** ends the run. |
-| **Command** | The exact command, one argument per box, its directory, and the agent's reason | The agent asked to run something outside the allowlist. **Approve** runs it in the sandbox once; **Reject** tells the agent no. With **auto mode** on for that agent's model (section 7), you are not asked. |
+| **Command** | The exact command, one argument per box, its directory, and the agent's reason | The agent asked to run something outside the allowlist. **Approve** runs it in the sandbox once; **Approve + Log** also adds the command's prefix (shown above the buttons) to the repository's allowed commands, so agents run it without asking from then on, starting with the agent's very next command; **Reject** tells the agent no. With **auto mode** on for that agent's model (section 7), you are not asked. |
 | **Escalation** | Why the step keeps failing, and the reviewer's feedback | **Approve** retries the step; **Reject** stops the run. |
 | **Budget** | Spent so far, and the cap | **Approve** grants another run budget, or the amount you type. A *daily* cap stays a hard limit: approve again once you have raised `GAIA_DAILY_BUDGET_USD`, or after midnight UTC. |
 | **Open PR** | The lead's verdict, feedback and issues, plus a link to the full diff | **Approve** pushes the `gaia/…` branch and opens a draft PR. |

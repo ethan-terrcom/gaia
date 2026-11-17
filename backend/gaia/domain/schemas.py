@@ -34,6 +34,7 @@ from gaia.domain.enums import (
     TicketStatus,
     WorktreeStatus,
 )
+from gaia.security.commands import allowed_entry_problem
 
 
 class Schema(BaseModel):
@@ -121,21 +122,45 @@ class RepositoryCreate(RequestSchema):
         return _check_argv(value)
 
 
+#: Most allowed commands one repository may register.
+MAX_ALLOWED_COMMANDS = 100
+
+
 class RepositoryUpdate(RequestSchema):
     """Change a registered repository's commands.
 
     Only the fields that are sent change; ``null`` clears a command. The path,
     name and remote are not editable: they identify the repository.
+    ``allowed_commands`` replaces the whole list; each entry is an argv prefix
+    an agent may run without asking.
     """
 
     setup_command: list[str] | None = None
     test_command: list[str] | None = None
+    allowed_commands: list[list[str]] | None = None
 
     @field_validator("setup_command", "test_command")
     @classmethod
     def _validate_argv(cls, value: list[str] | None) -> list[str] | None:
         """Same argv rules as registration."""
         return _check_argv(value)
+
+    @field_validator("allowed_commands")
+    @classmethod
+    def _validate_allowed(cls, value: list[list[str]] | None) -> list[list[str]] | None:
+        """Each entry must pass the command policy's rules; duplicates are dropped."""
+        if value is None:
+            return value
+        if len(value) > MAX_ALLOWED_COMMANDS:
+            raise ValueError(f"at most {MAX_ALLOWED_COMMANDS} allowed commands")
+        unique: list[list[str]] = []
+        for entry in value:
+            problem = allowed_entry_problem(entry)
+            if problem is not None:
+                raise ValueError(problem)
+            if entry not in unique:
+                unique.append(entry)
+        return unique
 
 
 class RepositoryRead(WorkspaceScopedRead):
@@ -147,7 +172,14 @@ class RepositoryRead(WorkspaceScopedRead):
     default_branch: str
     setup_command: list[str] | None
     test_command: list[str] | None
+    allowed_commands: list[list[str]]
     created_by: str | None
+
+    @field_validator("allowed_commands", mode="before")
+    @classmethod
+    def _none_is_empty(cls, value: list[list[str]] | None) -> list[list[str]]:
+        """A repository that never registered any has an empty list."""
+        return [] if value is None else value
 
 
 class RepositoryDetailRead(RepositoryRead):
@@ -402,10 +434,29 @@ class RunDetail(Schema):
     pull_request: RunPullRequestRead | None
 
 
+class CommandSuggestion(Schema):
+    """A command prefix suggested from the owner's past approvals in one repository."""
+
+    argv: list[str]
+    times_approved: int
+
+
+class CommandSuggestionList(Schema):
+    """Suggested allowed commands, most often approved first."""
+
+    items: list[CommandSuggestion]
+
+
 class DecideRequest(RequestSchema):
-    """A human decision on one approval (doc 14)."""
+    """A human decision on one approval (doc 14).
+
+    ``remember`` is valid only when approving a command: the command's prefix
+    (``payload.remember_prefix``) is added to the repository's allowed commands
+    as well.
+    """
 
     decision: Literal["approve", "reject", "edit"]
+    remember: bool = False
     comment: str | None = Field(default=None, max_length=4000)
     edited_payload: dict[str, Any] | None = None
     confirm: str | None = None
