@@ -1,9 +1,19 @@
-"""DeepSeek client over the OpenAI-compatible ``chat.completions`` API (doc 07).
+"""OpenAI-compatible chat-completions client for DeepSeek, OpenAI and xAI (doc 07, 19a).
 
-DeepSeek's thinking-mode output adds ``message.reasoning_content`` and its usage
-adds ``prompt_cache_hit_tokens``/``prompt_cache_miss_tokens``. Those fields are
-not in the OpenAI SDK types, so they are read defensively with ``getattr`` and
-``model_extra``.
+This is the one module that imports the ``openai`` SDK (ADR-001 P1). The three
+providers speak the same wire format with small dialect differences, which are
+the only provider-specific code here:
+
+- **Output cap.** DeepSeek takes ``max_tokens``; OpenAI's reasoning models
+  reject it and take ``max_completion_tokens``, which xAI accepts too.
+- **Reasoning passback.** DeepSeek's thinking mode returns
+  ``message.reasoning_content`` and a tool loop must send it back on the
+  assistant message. Other providers never get the field.
+- **Usage.** Cached prompt tokens and reasoning tokens are reported three
+  different ways; :func:`gaia.llm.metering.openai_compat_buckets` reads them all.
+
+Provider-specific fields are not in the OpenAI SDK types, so they are read
+defensively with ``getattr`` and ``model_extra``.
 """
 
 from __future__ import annotations
@@ -17,6 +27,7 @@ import openai
 import structlog
 from pydantic import BaseModel, SecretStr, ValidationError
 
+from gaia.domain.enums import LLMProvider
 from gaia.llm.base import (
     LLMBudgetExceeded,
     LLMMessage,
@@ -28,7 +39,7 @@ from gaia.llm.base import (
     ToolCall,
     UsageRecorder,
 )
-from gaia.llm.metering import deepseek_token_buckets
+from gaia.llm.metering import openai_compat_buckets
 from gaia.services.costs import PriceTable
 
 logger = structlog.get_logger(__name__)
@@ -36,9 +47,10 @@ logger = structlog.get_logger(__name__)
 #: OpenAI-compatible finish reasons that mean "did not produce a normal reply".
 _FATAL_FINISH_REASONS = frozenset({"length", "content_filter"})
 
-#: Parse calls are non-streaming on purpose: DeepSeek has no schema mode and
-#: the OpenAI SDK's non-streaming JSON-mode path keeps thinking at the provider
-#: default (doc 10b, P6).
+#: Parse calls are non-streaming on purpose: JSON mode (``json_object``) is the
+#: one structured-output form all three providers accept, and the OpenAI SDK's
+#: non-streaming JSON-mode path keeps thinking at the provider default (doc 10b,
+#: P6).
 PARSE_MAX_TOKENS = 16000
 
 _ParseModelT = TypeVar("_ParseModelT", bound=BaseModel)
@@ -77,8 +89,15 @@ def _reasoning_content(message: Any) -> str | None:
     return None if value is None else str(value)
 
 
-def _to_openai_messages(messages: Sequence[LLMMessage]) -> list[dict[str, Any]]:
-    """Convert Gaia messages to OpenAI chat message dicts."""
+def _to_openai_messages(
+    messages: Sequence[LLMMessage], *, reasoning_passback: bool = True
+) -> list[dict[str, Any]]:
+    """Convert Gaia messages to OpenAI chat message dicts.
+
+    ``reasoning_passback`` is DeepSeek's dialect: its thinking-mode tool loops
+    need ``reasoning_content`` echoed on the assistant message. Other providers
+    would reject or ignore an unknown message field, so it is left off.
+    """
     converted: list[dict[str, Any]] = []
     for message in messages:
         if message.role == "system":
@@ -87,7 +106,7 @@ def _to_openai_messages(messages: Sequence[LLMMessage]) -> list[dict[str, Any]]:
             converted.append({"role": "user", "content": message.content})
         elif message.role == "assistant":
             assistant: dict[str, Any] = {"role": "assistant", "content": message.content or None}
-            if message.reasoning_content is not None:
+            if reasoning_passback and message.reasoning_content is not None:
                 assistant["reasoning_content"] = message.reasoning_content
             if message.tool_calls:
                 assistant["tool_calls"] = [
@@ -111,7 +130,7 @@ def _to_openai_messages(messages: Sequence[LLMMessage]) -> list[dict[str, Any]]:
                 }
             )
         else:
-            raise ValueError(f"unsupported DeepSeek message role: {message.role}")
+            raise ValueError(f"unsupported chat message role: {message.role}")
     return converted
 
 
@@ -158,27 +177,50 @@ def _completion_choice(completion: Any) -> Any:
     """Return the first choice of an OpenAI completion, or raise."""
     choices = getattr(completion, "choices", None) or []
     if not choices:
-        raise ValueError("DeepSeek returned no choices")
+        raise ValueError("the provider returned no choices")
     return choices[0]
 
 
-def _usage_from_completion(completion: Any, model: str) -> LLMUsage:
+#: Integer usage fields read from the top level of an OpenAI-compatible usage object.
+_USAGE_FIELDS = (
+    "prompt_tokens",
+    "completion_tokens",
+    "total_tokens",
+    "prompt_cache_hit_tokens",
+    "prompt_cache_miss_tokens",
+)
+
+
+def _details_field(usage_obj: Any, details: str, name: str) -> int:
+    """Read ``usage.<details>.<name>``, which may be an object, a dict or absent."""
+    container = getattr(usage_obj, details, None)
+    if container is None:
+        extra = getattr(usage_obj, "model_extra", None) or {}
+        container = extra.get(details)
+    if isinstance(container, dict):
+        value = container.get(name)
+        return 0 if value is None else int(value)
+    return _field(container, name)
+
+
+def _usage_dict(usage_obj: Any) -> dict[str, Any]:
+    """Flatten an SDK usage object into the dict shape the gateway meters."""
+    usage: dict[str, Any] = {name: _field(usage_obj, name) for name in _USAGE_FIELDS}
+    usage["prompt_tokens_details"] = {
+        "cached_tokens": _details_field(usage_obj, "prompt_tokens_details", "cached_tokens")
+    }
+    return usage
+
+
+def _usage_from_completion(completion: Any, model: str, provider: str) -> LLMUsage:
     """Read one OpenAI completion into Gaia's neutral usage shape."""
     usage_obj = getattr(completion, "usage", None)
-    prompt_tokens = _field(usage_obj, "prompt_tokens")
-    completion_tokens = _field(usage_obj, "completion_tokens")
-    cache_hit_tokens = _field(usage_obj, "prompt_cache_hit_tokens")
-    cache_miss_tokens = _field(usage_obj, "prompt_cache_miss_tokens")
-    input_tokens, cache_read_tokens = deepseek_token_buckets(
-        prompt_tokens=prompt_tokens,
-        cache_hit_tokens=cache_hit_tokens,
-        cache_miss_tokens=cache_miss_tokens,
-    )
+    input_tokens, cache_read_tokens, output_tokens = openai_compat_buckets(_usage_dict(usage_obj))
     return LLMUsage(
-        provider="deepseek",
+        provider=provider,
         model=getattr(completion, "model", None) or model,
         input_tokens=input_tokens,
-        output_tokens=completion_tokens,
+        output_tokens=output_tokens,
         cache_read_tokens=cache_read_tokens,
         cache_creation_tokens=0,
         request_id=_request_id(completion),
@@ -215,7 +257,11 @@ def _format_parse_validation_errors(exc: ValidationError) -> str:
 
 
 def _json_schema_system(system: str, output_model: type[BaseModel]) -> str:
-    """Append DeepSeek's JSON-mode instruction after the caller's system text."""
+    """Append the JSON-mode instruction after the caller's system text.
+
+    OpenAI's JSON mode also requires the word "JSON" somewhere in the messages;
+    this instruction always contains it.
+    """
     schema = json.dumps(output_model.model_json_schema(), sort_keys=True)
     instruction = (
         f"Respond with a single JSON object that validates against this JSON schema:\n{schema}"
@@ -223,12 +269,13 @@ def _json_schema_system(system: str, output_model: type[BaseModel]) -> str:
     return f"{system}\n\n{instruction}" if system else instruction
 
 
-class DeepSeekClient:
-    """Async client for one DeepSeek model over OpenAI's chat completions."""
+class OpenAICompatClient:
+    """Async client for one model on an OpenAI-compatible chat-completions API."""
 
     def __init__(
         self,
         *,
+        provider: str,
         api_key: SecretStr,
         model: str,
         base_url: str,
@@ -241,9 +288,15 @@ class DeepSeekClient:
         # this ``None``; the in-process gateway test supplies an ASGI transport.
         http_client: Any | None = None,
     ) -> None:
+        self._provider = LLMProvider(provider)
+        if self._provider is LLMProvider.ANTHROPIC:
+            raise ValueError(
+                "Anthropic models use AnthropicClient, not the OpenAI-compatible client"
+            )
         price_table.require(model)
         self._model = model
         self._base_url = base_url
+        self._log = logger.bind(provider=self._provider.value)
         self._recorder = recorder
         self._price_table = price_table
         self._client = client or openai.AsyncOpenAI(
@@ -262,8 +315,8 @@ class DeepSeekClient:
         """Send one chat completion, record it, and return a neutral response."""
         request: dict[str, Any] = {
             "model": self._model,
-            "messages": _to_openai_messages(messages),
-            "max_tokens": max_tokens,
+            "messages": self._messages(messages),
+            self._token_limit_param: max_tokens,
         }
         if tools:
             request["tools"] = _to_openai_tools(tools)
@@ -273,31 +326,50 @@ class DeepSeekClient:
         except openai.PermissionDeniedError as exc:
             if _budget_exceeded_body(exc):
                 raise LLMBudgetExceeded() from exc
-            logger.error(
-                "deepseek.api_status_error",
+            self._log.error(
+                "llm_compat.api_status_error",
                 model=self._model,
                 request_id=exc.request_id,
                 exc_info=exc,
             )
             raise
         except openai.RateLimitError as exc:
-            logger.error(
-                "deepseek.rate_limited", model=self._model, request_id=exc.request_id, exc_info=exc
+            self._log.error(
+                "llm_compat.rate_limited",
+                model=self._model,
+                request_id=exc.request_id,
+                exc_info=exc,
             )
             raise
         except openai.APIStatusError as exc:
-            logger.error(
-                "deepseek.api_status_error",
+            self._log.error(
+                "llm_compat.api_status_error",
                 model=self._model,
                 request_id=exc.request_id,
                 exc_info=exc,
             )
             raise
         except openai.APIConnectionError as exc:
-            logger.error("deepseek.connection_error", model=self._model, exc_info=exc)
+            self._log.error("llm_compat.connection_error", model=self._model, exc_info=exc)
             raise
 
         return await self._handle_response(completion)
+
+    @property
+    def provider(self) -> str:
+        """The provider this client calls, as a :class:`LLMProvider` value."""
+        return self._provider.value
+
+    @property
+    def _token_limit_param(self) -> str:
+        """The request field that caps output tokens for this provider's dialect."""
+        return "max_tokens" if self._provider is LLMProvider.DEEPSEEK else "max_completion_tokens"
+
+    def _messages(self, messages: Sequence[LLMMessage]) -> list[dict[str, Any]]:
+        """Convert messages for this provider's dialect."""
+        return _to_openai_messages(
+            messages, reasoning_passback=self._provider is LLMProvider.DEEPSEEK
+        )
 
     async def aclose(self) -> None:
         """Close the underlying OpenAI client, if it has an async close method."""
@@ -316,20 +388,21 @@ class DeepSeekClient:
     ) -> ParsedResponse[_ParseModelT]:
         """Return one parsed JSON-mode completion, repairing invalid JSON once.
 
-        DeepSeek's JSON mode has no schema support; the schema travels in the
-        system prompt instead. Every call is recorded before it is parsed, and
+        ``json_object`` mode has no schema support on DeepSeek, so the schema
+        travels in the system prompt for every provider (one code path, the
+        same Pydantic validation and repair). Every call is recorded before it is parsed, and
         blank or invalid content gets exactly one repair call before
         :class:`LLMStop("invalid_output")`.
         """
-        del enable_fallback  # DeepSeek has no server-side refusal fallback
+        del enable_fallback  # these providers have no server-side refusal fallback
         openai_messages: list[dict[str, Any]] = [
             {"role": "system", "content": _json_schema_system(system, output_model)},
-            *_to_openai_messages(messages),
+            *self._messages(messages),
         ]
         request: dict[str, Any] = {
             "model": self._model,
             "messages": openai_messages,
-            "max_tokens": max_tokens,
+            self._token_limit_param: max_tokens,
             "response_format": {"type": "json_object"},
         }
 
@@ -362,23 +435,23 @@ class DeepSeekClient:
         except openai.PermissionDeniedError as exc:
             if _budget_exceeded_body(exc):
                 raise LLMBudgetExceeded() from exc
-            logger.error(
-                "deepseek.parse_api_status_error",
+            self._log.error(
+                "llm_compat.parse_api_status_error",
                 model=self._model,
                 request_id=exc.request_id,
                 exc_info=exc,
             )
             raise
         except openai.APIStatusError as exc:
-            logger.error(
-                "deepseek.parse_api_status_error",
+            self._log.error(
+                "llm_compat.parse_api_status_error",
                 model=self._model,
                 request_id=exc.request_id,
                 exc_info=exc,
             )
             raise
         except openai.APIConnectionError as exc:
-            logger.error("deepseek.parse_connection_error", model=self._model, exc_info=exc)
+            self._log.error("llm_compat.parse_connection_error", model=self._model, exc_info=exc)
             raise
 
     async def _parse_once(
@@ -389,13 +462,13 @@ class DeepSeekClient:
         """Record one JSON-mode completion and validate its parsed output."""
         choice = _completion_choice(completion)
         finish_reason = getattr(choice, "finish_reason", None) or "stop"
-        usage = _usage_from_completion(completion, self._model)
+        usage = _usage_from_completion(completion, self._model, self._provider.value)
         request_id = usage.request_id
         quote = self._price_table.quote_or_price_as(usage, at=_utcnow(), fallback_model=self._model)
         await self._recorder.record(usage, cost_usd=quote.cost_usd, price_tier=quote.price_tier)
 
-        logger.info(
-            "deepseek.parse_recorded",
+        self._log.info(
+            "llm_compat.parse_recorded",
             model=usage.model,
             request_id=request_id,
             finish_reason=finish_reason,
@@ -435,13 +508,13 @@ class DeepSeekClient:
         message = getattr(choice, "message", None)
         finish_reason = getattr(choice, "finish_reason", None) or "stop"
 
-        usage = _usage_from_completion(completion, self._model)
+        usage = _usage_from_completion(completion, self._model, self._provider.value)
         request_id = usage.request_id
         quote = self._price_table.quote_or_price_as(usage, at=_utcnow(), fallback_model=self._model)
         await self._recorder.record(usage, cost_usd=quote.cost_usd, price_tier=quote.price_tier)
 
-        logger.info(
-            "deepseek.call_recorded",
+        self._log.info(
+            "llm_compat.call_recorded",
             model=usage.model,
             request_id=request_id,
             finish_reason=finish_reason,
@@ -467,4 +540,30 @@ class DeepSeekClient:
             model=usage.model,
             request_id=request_id,
             reasoning_content=_reasoning_content(message),
+        )
+
+
+class DeepSeekClient(OpenAICompatClient):
+    """The OpenAI-compatible client with DeepSeek's dialect (doc 07)."""
+
+    def __init__(
+        self,
+        *,
+        api_key: SecretStr,
+        model: str,
+        base_url: str,
+        recorder: UsageRecorder,
+        price_table: PriceTable,
+        client: Any | None = None,
+        http_client: Any | None = None,
+    ) -> None:
+        super().__init__(
+            provider=LLMProvider.DEEPSEEK.value,
+            api_key=api_key,
+            model=model,
+            base_url=base_url,
+            recorder=recorder,
+            price_table=price_table,
+            client=client,
+            http_client=http_client,
         )

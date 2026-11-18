@@ -15,7 +15,7 @@ from gaia.config.secrets import SecretName, SecretStore, get_secret_store
 from gaia.config.settings import get_settings
 from gaia.llm.anthropic_client import AnthropicClient
 from gaia.llm.base import LLMMessage, LLMUsage, UsageRecorder
-from gaia.llm.deepseek_client import DeepSeekClient
+from gaia.llm.openai_compat_client import DeepSeekClient
 from gaia.services.costs import load_price_table
 
 

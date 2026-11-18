@@ -1,8 +1,8 @@
 """Provider-neutral LLM handle construction for the native runtime (doc 10b).
 
 The native loop never builds a vendor client. This module owns the one place a
-``gaia dev run-task --runtime native`` process turns a per-task run token into a
-:class:`~gaia.llm.deepseek_client.DeepSeekClient` pointed at the gateway. The
+``gaia dev run-task --runtime native`` process turns a per-task run token into an
+OpenAI-compatible client (DeepSeek, OpenAI or xAI) pointed at the gateway. The
 gateway remains the only writer of ``llm_usage`` rows (ADR-001 P4), so the
 client's recorder is an in-memory :class:`UsageTally`, never a database writer.
 """
@@ -12,15 +12,16 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from gaia.config.settings import Settings
 from gaia.db.engine import session_scope
+from gaia.domain.enums import LLMProvider
 from gaia.llm import run_tokens
 from gaia.llm.base import LLMUsage, ToolChatLLM
-from gaia.llm.deepseek_client import DeepSeekClient
+from gaia.llm.providers import build_chat_llm
 from gaia.runtimes.base import AgentTask, RuntimeUsage
 from gaia.services.costs import PriceTable
 
@@ -77,7 +78,7 @@ def gateway_llm_factory(
     sessions: async_sessionmaker[AsyncSession],
     price_table: PriceTable,
     model: str,
-    provider: Literal["deepseek"] = "deepseek",
+    provider: str = LLMProvider.DEEPSEEK.value,
     ttl_s: int = 7200,
     gateway_base: str | None = None,
     # Test seam: the in-process gateway test supplies an ASGI transport for the
@@ -89,7 +90,13 @@ def gateway_llm_factory(
     Each task gets one run token, minted in its own transaction and revoked when
     the returned handle is closed. The client's only credential is that token:
     no provider key ever enters this module's runtime path.
+
+    ``provider`` must be an OpenAI-compatible provider (DeepSeek, OpenAI or
+    xAI): the native loop sends its system prompt as a chat message, which the
+    Anthropic client does not take. Claude runs on the Agent SDK runtime.
     """
+    if LLMProvider(provider) is LLMProvider.ANTHROPIC:
+        raise ValueError("the native runtime needs an OpenAI-compatible provider, not anthropic")
 
     async def factory(task: AgentTask) -> LlmHandle:
         async with session_scope(sessions) as session:
@@ -107,11 +114,12 @@ def gateway_llm_factory(
         # ``gateway_base`` is the server origin, like the default; the provider
         # route is always appended (lead review N3).
         origin = (gateway_base or f"http://{settings.host}:{settings.port}").rstrip("/")
-        base_url = f"{origin}/llm/deepseek"
+        base_url = f"{origin}/llm/{provider}"
         tally = UsageTally()
-        client = DeepSeekClient(
-            api_key=minted.token,
+        client = build_chat_llm(
+            provider=provider,
             model=model,
+            api_key=minted.token,
             base_url=base_url,
             recorder=tally,
             price_table=price_table,

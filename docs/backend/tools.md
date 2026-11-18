@@ -136,7 +136,8 @@ stop its own audit trail by making a tool fail.
 - **Approvals inside the turn** (doc 10, requirement 8). Returning to the graph to ask would end
   the model session; a resumed node starts the whole step again.
 - **Auto mode is opt-in per call site.** `ToolContext.auto_approve` is a callable the composition
-  root binds to the runtime's model family (`wiring.py`: native → DeepSeek, Agent SDK → Claude).
+  root binds to the runtime's model family (`wiring.py`: Agent SDK → Claude; native → the family of
+  its model's provider, via `family_for_provider`: DeepSeek, OpenAI or xAI since 19a).
   It is read when a command asks, so a switch flipped mid-run applies at the next command. Only
   `run_command` passes `auto_mode_applies=True` to `approve()`; the file tools never do, because a
   protected file (hooks, CI, `.envrc`) can run code outside the sandbox.

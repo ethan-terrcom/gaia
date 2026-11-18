@@ -26,6 +26,7 @@ from pathlib import Path
 import structlog
 
 from gaia.db.types import utcnow
+from gaia.domain.enums import LLMProvider
 
 logger = structlog.get_logger(__name__)
 
@@ -37,10 +38,29 @@ FILE_MODE = 0o600
 
 
 class ModelFamily(StrEnum):
-    """The model families an owner can switch auto mode on for, one by one."""
+    """The model families an owner can switch auto mode on for, one by one.
+
+    One family per provider (19a added OpenAI and xAI). The values are the keys
+    of the state file, so ``claude`` keeps its original name.
+    """
 
     CLAUDE = "claude"
     DEEPSEEK = "deepseek"
+    OPENAI = "openai"
+    XAI = "xai"
+
+
+_FAMILY_BY_PROVIDER: dict[LLMProvider, ModelFamily] = {
+    LLMProvider.ANTHROPIC: ModelFamily.CLAUDE,
+    LLMProvider.DEEPSEEK: ModelFamily.DEEPSEEK,
+    LLMProvider.OPENAI: ModelFamily.OPENAI,
+    LLMProvider.XAI: ModelFamily.XAI,
+}
+
+
+def family_for_provider(provider: str) -> ModelFamily:
+    """Return the auto-mode family of a provider; ``ValueError`` if it is unknown."""
+    return _FAMILY_BY_PROVIDER[LLMProvider(provider)]
 
 
 @dataclass(frozen=True)
@@ -49,10 +69,17 @@ class AutoModeState:
 
     claude: bool = False
     deepseek: bool = False
+    openai: bool = False
+    xai: bool = False
 
     def enabled_for(self, family: ModelFamily) -> bool:
         """Return whether auto mode is on for ``family``."""
-        return self.claude if family is ModelFamily.CLAUDE else self.deepseek
+        enabled: bool = getattr(self, family.value)
+        return enabled
+
+    def as_dict(self) -> dict[str, bool]:
+        """Return one ``family: enabled`` entry per family."""
+        return {family.value: self.enabled_for(family) for family in ModelFamily}
 
 
 class AutoModeSwitch:
@@ -76,8 +103,7 @@ class AutoModeSwitch:
         # Only a literal ``true`` switches a family on: a string or a number in
         # a hand-edited file must not.
         return AutoModeState(
-            claude=data.get(ModelFamily.CLAUDE.value) is True,
-            deepseek=data.get(ModelFamily.DEEPSEEK.value) is True,
+            **{family.value: data.get(family.value) is True for family in ModelFamily}
         )
 
     def enabled(self, family: ModelFamily) -> bool:
@@ -87,9 +113,8 @@ class AutoModeSwitch:
     def write(self, state: AutoModeState) -> None:
         """Store ``state`` atomically (temp file + ``os.replace``), mode ``0o600``."""
         self._path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        payload = {
-            ModelFamily.CLAUDE.value: state.claude,
-            ModelFamily.DEEPSEEK.value: state.deepseek,
+        payload: dict[str, object] = {
+            **state.as_dict(),
             "updated_at": utcnow().isoformat(),
         }
         fd, temp_name = tempfile.mkstemp(dir=self._path.parent, prefix=".auto-mode-", suffix=".tmp")

@@ -520,7 +520,7 @@ async def test_deepseek_anthropic_endpoint_uses_anthropic_parser(
     def handler(request: httpx.Request) -> httpx.Response:
         return _json_response(
             {
-                "model": "claude-opus-5-5",
+                "model": "deepseek-v4-pro",
                 "usage": {"input_tokens": 7, "output_tokens": 2},
             },
             headers={"request-id": "req_deepseek_anthropic"},
@@ -529,7 +529,7 @@ async def test_deepseek_anthropic_endpoint_uses_anthropic_parser(
     gateway.set_handler(handler)
     response = await gateway.client.post(
         "/llm/deepseek/anthropic/v1/messages",
-        content=json.dumps({"model": "claude-opus-5-5", "max_tokens": 10}),
+        content=json.dumps({"model": "deepseek-v4-pro", "max_tokens": 10}),
         headers={"Authorization": f"Bearer {gateway.deepseek_token}"},
     )
 
@@ -1150,3 +1150,167 @@ async def test_a_client_disconnect_mid_stream_still_records_usage(
         usage = await _last_usage(session, gateway.workspace_id)
         assert usage.input_tokens == 1000
         assert usage.cost_usd > 0
+
+
+# --- OpenAI and xAI routes (19a) -------------------------------------------
+
+OPENAI_KEY = "sk-openai-test-" + "x" * 40
+XAI_KEY = "xai-test-" + "x" * 40
+
+
+async def _mint_for(gateway: Gateway, database: Database, provider: str) -> str:
+    async with session_scope(database.sessions) as session:
+        minted = await mint(
+            session,
+            workspace_id=gateway.workspace_id,
+            run_id=gateway.run_id,
+            provider=provider,
+            ttl_s=3600,
+            run_step_id=gateway.chain.step.id,
+            agent_id=gateway.chain.agent.id,
+        )
+    return minted.token.get_secret_value()
+
+
+@pytest.mark.parametrize(
+    ("provider", "model", "key", "secret", "upstream"),
+    [
+        (
+            "openai",
+            "gpt-6.2-sol",
+            OPENAI_KEY,
+            SecretName.OPENAI_API_KEY,
+            "https://api.openai.com/v1/chat/completions",
+        ),
+        (
+            "xai",
+            "grok-4.7",
+            XAI_KEY,
+            SecretName.XAI_API_KEY,
+            "https://api.x.ai/v1/chat/completions",
+        ),
+    ],
+)
+async def test_openai_compatible_routes_forward_with_the_real_key_and_meter(
+    gateway: Gateway,
+    database: Database,
+    provider: str,
+    model: str,
+    key: str,
+    secret: SecretName,
+    upstream: str,
+) -> None:
+    gateway.store.set(secret, key)
+    token = await _mint_for(gateway, database, provider)
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return _json_response(
+            {
+                "model": model,
+                "usage": {
+                    "prompt_tokens": 100,
+                    "completion_tokens": 10,
+                    "total_tokens": 150,
+                    "prompt_tokens_details": {"cached_tokens": 60},
+                },
+            },
+            headers={"x-request-id": f"req_{provider}"},
+        )
+
+    gateway.set_handler(handler)
+    response = await gateway.client.post(
+        f"/llm/{provider}/chat/completions",
+        content=json.dumps({"model": model, "messages": []}),
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    assert str(seen[0].url) == upstream
+    assert seen[0].headers["authorization"] == f"Bearer {key}"
+    assert token not in seen[0].headers["authorization"]
+    async with session_scope(database.sessions) as session:
+        usage = await _last_usage(session, gateway.workspace_id)
+    assert usage.provider == provider
+    assert usage.model == model
+    assert usage.input_tokens == 40
+    assert usage.cache_read_tokens == 60
+    # Reasoning reported outside completion_tokens is billed as output.
+    assert usage.output_tokens == 50
+
+
+async def test_openai_stream_gets_include_usage(gateway: Gateway, database: Database) -> None:
+    gateway.store.set(SecretName.OPENAI_API_KEY, OPENAI_KEY)
+    token = await _mint_for(gateway, database, "openai")
+    bodies: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            stream=ChunkedBody(
+                [
+                    b'data: {"model": "gpt-6-luna", "usage": {"prompt_tokens": 5, '
+                    b'"completion_tokens": 2, "total_tokens": 7}}\n\n',
+                    b"data: [DONE]\n\n",
+                ]
+            ),
+        )
+
+    gateway.set_handler(handler)
+    response = await gateway.client.post(
+        "/llm/openai/chat/completions",
+        content=json.dumps({"model": "gpt-6-luna", "messages": [], "stream": True}),
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    assert bodies[0]["stream_options"] == {"include_usage": True}
+    async with session_scope(database.sessions) as session:
+        usage = await _last_usage(session, gateway.workspace_id)
+    assert (usage.input_tokens, usage.output_tokens) == (5, 2)
+
+
+async def test_a_model_on_another_providers_route_is_refused(
+    gateway: Gateway, database: Database
+) -> None:
+    gateway.store.set(SecretName.XAI_API_KEY, XAI_KEY)
+    token = await _mint_for(gateway, database, "xai")
+
+    response = await gateway.client.post(
+        "/llm/xai/chat/completions",
+        content=json.dumps({"model": "gpt-6.2-sol", "messages": []}),
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 400
+    assert "not configured for this provider" in response.json()["error"]["message"]
+
+
+async def test_openai_route_without_a_key_is_503(gateway: Gateway, database: Database) -> None:
+    token = await _mint_for(gateway, database, "openai")
+
+    response = await gateway.client.post(
+        "/llm/openai/chat/completions",
+        content=json.dumps({"model": "gpt-6.2-sol", "messages": []}),
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "provider_not_configured"
+
+
+async def test_xai_route_forwards_only_chat_completions(
+    gateway: Gateway, database: Database
+) -> None:
+    token = await _mint_for(gateway, database, "xai")
+
+    response = await gateway.client.post(
+        "/llm/xai/responses",
+        content=json.dumps({"model": "grok-4.7"}),
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 404

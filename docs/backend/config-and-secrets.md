@@ -55,7 +55,10 @@ gaia secrets set DEEPSEEK_API_KEY ──getpass──▶ KeyringSecretStore.set 
                                                        └─▶ register_secret(value)   (mask it from now on)
 ```
 
-- `SecretName` is a closed list. Anything else can't be stored, and the CLI rejects unknown names.
+- `SecretName` is a closed list: `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, `OPENAI_API_KEY`,
+  `XAI_API_KEY` (19a), `GITHUB_TOKEN`, `GAIA_API_TOKEN`. Anything else can't be stored, and the CLI
+  rejects unknown names. `PROVIDER_SECRETS` / `provider_secret(provider)` map each LLM provider to
+  its entry; only the gateway reads provider keys.
 - `get()` returns a `SecretStr` or `None`. `require()` raises `MissingSecretError`, whose message is the
   command that fixes it.
 - Every value a store hands out is registered for redaction automatically, so a key that later shows

@@ -182,3 +182,16 @@ async def test_factory_revokes_the_run_token_on_close(
             rows = await ScopedRepo(session, RunToken, gateway.workspace_id).list()
             assert len(rows) == 1
             assert rows[0].revoked_at is not None
+
+
+def test_factory_refuses_anthropic(tmp_path: Path) -> None:
+    from gaia.services.costs import PriceTable
+
+    with pytest.raises(ValueError, match="OpenAI-compatible"):
+        gateway_llm_factory(
+            settings=Settings(data_dir=tmp_path),
+            sessions=None,  # type: ignore[arg-type]
+            price_table=PriceTable({}),
+            model="claude-opus-5-5",
+            provider="anthropic",
+        )

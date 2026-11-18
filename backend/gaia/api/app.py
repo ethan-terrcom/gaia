@@ -55,6 +55,7 @@ from gaia.api.routes import (
     dev,
     health,
     metrics,
+    models,
     pull_requests,
     repositories,
     runs,
@@ -335,6 +336,7 @@ def api_v1_router(*, dev_routes: bool = False) -> APIRouter:
     router.include_router(stream.router)
     router.include_router(approvals.router)
     router.include_router(costs.router)
+    router.include_router(models.router)
     router.include_router(metrics.router)
     router.include_router(runs.router)
     router.include_router(admin.router)

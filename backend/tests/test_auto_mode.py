@@ -109,7 +109,7 @@ async def test_get_auto_mode_defaults_to_off(auto_api: Api) -> None:
     response = await auto_api.client.get("/api/v1/admin/auto-mode", headers=auto_api.auth)
 
     assert response.status_code == 200
-    assert response.json() == {"claude": False, "deepseek": False}
+    assert response.json() == {"claude": False, "deepseek": False, "openai": False, "xai": False}
 
 
 async def test_patch_auto_mode_switches_one_family_and_audits(
@@ -125,9 +125,9 @@ async def test_patch_auto_mode_switches_one_family_and_audits(
         "/api/v1/admin/auto-mode", json={"deepseek": False}, headers=auto_api.auth
     )
 
-    assert on.json() == {"claude": False, "deepseek": True}
-    assert also.json() == {"claude": True, "deepseek": True}
-    assert off.json() == {"claude": True, "deepseek": False}
+    assert on.json() == {"claude": False, "deepseek": True, "openai": False, "xai": False}
+    assert also.json() == {"claude": True, "deepseek": True, "openai": False, "xai": False}
+    assert off.json() == {"claude": True, "deepseek": False, "openai": False, "xai": False}
     switch: AutoModeSwitch = auto_api.app.state.services.auto_mode
     assert switch.read() == AutoModeState(claude=True, deepseek=False)
 
@@ -135,11 +135,16 @@ async def test_patch_auto_mode_switches_one_family_and_audits(
     async with database.sessions() as session:
         rows = await AuditLogRepo(session, AuditLog, workspace_id).list(action="admin.auto_mode")
     assert [row.details_json["after"] for row in rows] == [
-        {"claude": False, "deepseek": True},
-        {"claude": True, "deepseek": True},
-        {"claude": True, "deepseek": False},
+        {"claude": False, "deepseek": True, "openai": False, "xai": False},
+        {"claude": True, "deepseek": True, "openai": False, "xai": False},
+        {"claude": True, "deepseek": False, "openai": False, "xai": False},
     ]
-    assert rows[0].details_json["before"] == {"claude": False, "deepseek": False}
+    assert rows[0].details_json["before"] == {
+        "claude": False,
+        "deepseek": False,
+        "openai": False,
+        "xai": False,
+    }
 
 
 async def test_patch_auto_mode_rejects_unknown_fields(auto_api: Api) -> None:

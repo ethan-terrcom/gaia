@@ -12,12 +12,22 @@ const FAMILIES: readonly { family: Family; label: string; detail: string }[] = [
   {
     family: 'claude',
     label: 'Claude',
-    detail: 'The lead agent, and steps escalated to it.',
+    detail: 'Agents running an Anthropic model.',
   },
   {
     family: 'deepseek',
     label: 'DeepSeek',
-    detail: 'The junior agents that implement each step.',
+    detail: 'Agents running a DeepSeek model.',
+  },
+  {
+    family: 'openai',
+    label: 'OpenAI',
+    detail: 'Agents running an OpenAI (GPT) model.',
+  },
+  {
+    family: 'xai',
+    label: 'xAI',
+    detail: 'Agents running an xAI (Grok) model.',
   },
 ]
 

@@ -52,7 +52,7 @@ async def test_mint_returns_a_token_once_and_stores_only_its_hash(session: Async
     assert row.revoked_at is None
 
 
-@pytest.mark.parametrize("provider", ["", "openai"])
+@pytest.mark.parametrize("provider", ["", "gemini"])
 async def test_mint_rejects_an_unknown_provider(session: AsyncSession, provider: str) -> None:
     chain = await make_chain(session, slug=f"provider-{provider or 'empty'}")
     with pytest.raises(ValueError, match="unknown LLM provider"):

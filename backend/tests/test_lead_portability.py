@@ -10,7 +10,7 @@ from pydantic import SecretStr
 
 from gaia.domain.plans import Plan, TicketInput
 from gaia.llm.base import LLMUsage
-from gaia.llm.deepseek_client import DeepSeekClient
+from gaia.llm.openai_compat_client import DeepSeekClient
 from gaia.orchestrator.lead import LeadEngineer
 from gaia.orchestrator.repo_context import RepoContext
 from gaia.security.commands import CommandPolicy

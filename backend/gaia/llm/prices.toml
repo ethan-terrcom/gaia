@@ -1,16 +1,72 @@
-# LLM prices, USD per 1M tokens.
+# LLM prices, USD per 1M tokens, and the model catalog (19a).
 #
 # Every value is loaded by gaia.services.costs.load_price_table and can be
 # edited without a code change. Tests do not use this file; they build their
 # own PriceTable so a placeholder here can never make a test pass or fail.
+#
+# A model can be used by Gaia only when it is listed here: the gateway refuses
+# an unpriced model, and a model is offered for a role only when it has a
+# `provider`. Keys per model:
+#   provider  anthropic | deepseek | openai | xai   (the gateway route that serves it)
+#   label     the name shown in the UI
+#   tier      frontier | mid | fast                 (a hint for the UI, never a rule)
+#   input, output, cache_read, cache_write          (USD per 1M tokens)
+#   [models.<id>.long_context]  from_prompt_tokens plus the four rates: the whole
+#       request is billed at these rates once its prompt (uncached input + cache
+#       reads + cache writes) reaches the threshold.
+
+# --- Anthropic -------------------------------------------------------------
+# Read 2026-11-17 from the claude-api reference (model table cached
+# 2026-11-03). Cache writes are the 5-minute rate, 1.25x input. Where Anthropic
+# lists no cache-read rate (Haiku 5.5) Gaia assumes 0.1x input, which can only
+# over-count.
+
+[models.claude-fable-5-2]
+provider = "anthropic"
+label = "Claude Fable 5.2"
+tier = "frontier"
+input = 8.0
+output = 40.0
+cache_read = 0.20
+cache_write = 10.0
 
 [models.claude-opus-5-5]
+provider = "anthropic"
+label = "Claude Opus 5.5"
+tier = "frontier"
 input = 4.0
 output = 20.0
 cache_read = 0.20
 cache_write = 5.0
 
-# DeepSeek: read 2026-11-14 from https://api-docs.deepseek.com/quick_start/pricing
+[models.claude-sonnet-5-5]
+provider = "anthropic"
+label = "Claude Sonnet 5.5"
+tier = "mid"
+input = 2.0
+output = 10.0
+cache_read = 0.10
+cache_write = 2.5
+
+[models.claude-haiku-5-5]
+provider = "anthropic"
+label = "Claude Haiku 5.5"
+tier = "fast"
+input = 0.10
+output = 0.50
+cache_read = 0.01
+cache_write = 0.125
+
+# Haiku 5.5 prompts over 100K tokens cost $0.50 / $2.50.
+[models.claude-haiku-5-5.long_context]
+from_prompt_tokens = 100001
+input = 0.50
+output = 2.50
+cache_read = 0.05
+cache_write = 0.625
+
+# --- DeepSeek --------------------------------------------------------------
+# Read 2026-11-14 from https://api-docs.deepseek.com/quick_start/pricing
 # (lead review 07b). Peak is 01:00-04:00 and 06:00-10:00 UTC, Monday to Friday;
 # every other hour is off-peak at half price. DeepSeek also treats Chinese
 # public holidays as off-peak; Gaia prices them at peak (it over-counts slightly,
@@ -18,6 +74,9 @@ cache_write = 5.0
 # `input` is the cache-miss rate and `cache_read` the cache-hit rate.
 
 [models.deepseek-v4-pro]
+provider = "deepseek"
+label = "DeepSeek V4 Pro"
+tier = "mid"
 input = 1.32
 output = 3.96
 cache_read = 0.044
@@ -32,6 +91,9 @@ cache_read = 0.022
 cache_write = 0.0
 
 [models.deepseek-flash]
+provider = "deepseek"
+label = "DeepSeek Flash"
+tier = "fast"
 input = 0.30
 output = 1.20
 cache_read = 0.006
@@ -43,4 +105,131 @@ peak_weekdays_only = true
 input = 0.15
 output = 0.60
 cache_read = 0.003
+cache_write = 0.0
+
+# --- OpenAI ----------------------------------------------------------------
+# Read 2026-11-17 from https://developers.openai.com/api/docs/pricing (Standard
+# tier). Long context is a prompt over 272K tokens: input and cache rates
+# double and output is 1.5x, for the whole request. OpenAI lists a 30-minute
+# cache-write rate, but Chat Completions usage does not report cache writes
+# separately, so `cache_write` is recorded for reference and Gaia bills every
+# uncached prompt token at `input`. Check this against the first OpenAI bill.
+# Model ids that contain a dot are quoted TOML keys.
+
+[models."gpt-6.2-astra"]
+provider = "openai"
+label = "GPT-6.2 Astra"
+tier = "frontier"
+input = 8.0
+output = 40.0
+cache_read = 0.40
+cache_write = 10.0
+
+[models."gpt-6.2-astra".long_context]
+from_prompt_tokens = 272001
+input = 16.0
+output = 60.0
+cache_read = 0.80
+cache_write = 20.0
+
+[models."gpt-6.2-sol"]
+provider = "openai"
+label = "GPT-6.2 Sol"
+tier = "mid"
+input = 2.0
+output = 10.0
+cache_read = 0.10
+cache_write = 2.5
+
+[models."gpt-6.2-sol".long_context]
+from_prompt_tokens = 272001
+input = 4.0
+output = 15.0
+cache_read = 0.20
+cache_write = 5.0
+
+[models."gpt-6.1-terra"]
+provider = "openai"
+label = "GPT-6.1 Terra"
+tier = "mid"
+input = 1.0
+output = 5.0
+cache_read = 0.05
+cache_write = 1.25
+
+[models."gpt-6.1-terra".long_context]
+from_prompt_tokens = 272001
+input = 2.0
+output = 7.5
+cache_read = 0.10
+cache_write = 2.5
+
+[models.gpt-6-luna]
+provider = "openai"
+label = "GPT-6 Luna"
+tier = "fast"
+input = 0.10
+output = 0.50
+cache_read = 0.01
+cache_write = 0.125
+
+[models.gpt-6-luna.long_context]
+from_prompt_tokens = 272001
+input = 0.20
+output = 0.75
+cache_read = 0.02
+cache_write = 0.25
+
+# --- xAI -------------------------------------------------------------------
+# Read 2026-11-17 from https://docs.x.ai/docs/models. A request whose prompt
+# reaches 200K tokens is billed at the higher rate for all of its tokens. xAI
+# reports reasoning tokens outside `completion_tokens`; Gaia's usage parser
+# bills them as output (19a). xAI lists no cache-write charge.
+
+[models."grok-4.7"]
+provider = "xai"
+label = "Grok 4.7"
+tier = "frontier"
+input = 2.0
+output = 6.0
+cache_read = 0.50
+cache_write = 0.0
+
+[models."grok-4.7".long_context]
+from_prompt_tokens = 200000
+input = 4.0
+output = 12.0
+cache_read = 1.0
+cache_write = 0.0
+
+[models."grok-4.3"]
+provider = "xai"
+label = "Grok 4.3"
+tier = "mid"
+input = 1.25
+output = 2.50
+cache_read = 0.20
+cache_write = 0.0
+
+[models."grok-4.3".long_context]
+from_prompt_tokens = 200000
+input = 2.50
+output = 5.0
+cache_read = 0.40
+cache_write = 0.0
+
+[models."grok-build-0.1"]
+provider = "xai"
+label = "Grok Build 0.1"
+tier = "fast"
+input = 1.0
+output = 2.0
+cache_read = 0.20
+cache_write = 0.0
+
+[models."grok-build-0.1".long_context]
+from_prompt_tokens = 200000
+input = 2.0
+output = 4.0
+cache_read = 0.40
 cache_write = 0.0

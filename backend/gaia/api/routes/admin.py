@@ -108,8 +108,7 @@ async def get_auto_mode(request: Request, services: ServicesDep) -> AutoModeStat
     """Return which model families run commands without asking."""
     if services.auto_mode is None:
         return _unavailable(request)
-    state = services.auto_mode.read()
-    return AutoModeStatus(claude=state.claude, deepseek=state.deepseek)
+    return AutoModeStatus(**services.auto_mode.read().as_dict())
 
 
 @router.patch("/admin/auto-mode", response_model=AutoModeStatus, summary="Switch auto mode")
@@ -128,19 +127,14 @@ async def update_auto_mode(
     if services.auto_mode is None:
         return _unavailable(request)
     before = services.auto_mode.read()
-    after = AutoModeState(
-        claude=before.claude if payload.claude is None else payload.claude,
-        deepseek=before.deepseek if payload.deepseek is None else payload.deepseek,
-    )
+    requested = payload.model_dump(exclude_none=True)
+    after = AutoModeState(**{**before.as_dict(), **requested})
     services.auto_mode.write(after)
     await append_audit_log(
         scoped.session,
         scoped.workspace_id,
         actor_user_id=principal.user_id,
         action="admin.auto_mode",
-        details={
-            "before": {"claude": before.claude, "deepseek": before.deepseek},
-            "after": {"claude": after.claude, "deepseek": after.deepseek},
-        },
+        details={"before": before.as_dict(), "after": after.as_dict()},
     )
-    return AutoModeStatus(claude=after.claude, deepseek=after.deepseek)
+    return AutoModeStatus(**after.as_dict())

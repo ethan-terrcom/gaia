@@ -12,7 +12,7 @@ import pytest
 from pydantic import BaseModel, SecretStr
 
 from gaia.llm.base import LLMBudgetExceeded, LLMMessage, LLMStop, LLMUsage
-from gaia.llm.deepseek_client import DeepSeekClient
+from gaia.llm.openai_compat_client import DeepSeekClient
 from gaia.services.costs import ModelPrice, PriceRates, PriceTable
 
 

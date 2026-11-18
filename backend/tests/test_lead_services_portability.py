@@ -29,7 +29,7 @@ from gaia.db.models import Run, RunStep, RunToken, Worktree
 from gaia.db.repo import RunRepo, ScopedRepo
 from gaia.domain.plans import Plan, PlanStep, Review
 from gaia.llm.base import LLMUsage, ParsedResponse
-from gaia.llm.deepseek_client import DeepSeekClient
+from gaia.llm.openai_compat_client import DeepSeekClient
 from gaia.orchestrator.deps import CheckOutcome, StepOutcome
 from gaia.orchestrator.impl import lead_llm as lead_llm_module
 from gaia.orchestrator.impl import planning as planning_module

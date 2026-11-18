@@ -8,7 +8,7 @@ from pydantic import SecretStr
 
 from gaia.llm.anthropic_client import AnthropicClient
 from gaia.llm.base import LLMUsage
-from gaia.llm.deepseek_client import DeepSeekClient
+from gaia.llm.openai_compat_client import DeepSeekClient
 from gaia.llm.providers import build_structured_llm
 from gaia.services.costs import ModelPrice, PriceRates, PriceTable
 

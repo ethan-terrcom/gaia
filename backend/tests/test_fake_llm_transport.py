@@ -22,7 +22,7 @@ from gaia.dev.fake_llm import DEMO_PLAN_JSON, DEMO_REVIEW_JSON, FakeProviderTran
 from gaia.domain.plans import Plan, Review
 from gaia.llm.anthropic_client import AnthropicClient
 from gaia.llm.base import LLMMessage, LLMTool
-from gaia.llm.deepseek_client import DeepSeekClient
+from gaia.llm.openai_compat_client import DeepSeekClient
 from gaia.services.costs import ModelPrice, PriceRates, PriceTable
 
 
