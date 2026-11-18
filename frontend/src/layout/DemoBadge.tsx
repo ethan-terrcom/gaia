@@ -15,9 +15,9 @@ export function DemoBadge() {
   return (
     <span
       title="GAIA_FAKE_LLM=1: no real model is called"
-      className="rounded-full bg-amber-500 px-2 py-0.5 text-xs font-medium text-black"
+      className="rounded-full bg-[var(--color-warning)] px-2 py-0.5 text-[11px] font-medium tracking-[-0.01em] text-black"
     >
-      Demo mode
+      Demo
     </span>
   )
 }

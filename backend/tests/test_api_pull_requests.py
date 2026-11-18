@@ -129,3 +129,48 @@ async def test_list_pull_requests_direct_call(api: Api, database: Database) -> N
         page = await list_pull_requests(Scoped(session, workspace_id))
 
     assert [item.number for item in page.items] == [20]
+
+
+async def test_get_pull_request_returns_desk_fields(api: Api, database: Database) -> None:
+    from gaia.db.models import Approval
+    from gaia.domain.enums import ApprovalKind, ApprovalStatus
+
+    workspace_id = api.app.state.services.principal.workspace_id
+    pr, run, _ticket, _repo = await _create_pr(
+        database, workspace_id, number=30, created_at=_dt(15)
+    )
+
+    async with database.sessions() as session:
+        await ScopedRepo(session, Approval, workspace_id).create(
+            run_id=run.id,
+            kind=ApprovalKind.MERGE.value,
+            status=ApprovalStatus.PENDING.value,
+            idempotency_key=f"merge-{run.id}",
+            payload_json={"pr_number": 30},
+        )
+        await session.commit()
+
+    response = await api.client.get(f"/api/v1/pull-requests/{pr.id}", headers=api.auth)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == pr.id
+    assert body["number"] == 30
+    assert body["run_id"] == run.id
+    assert body["ticket_title"] == "Ticket 30"
+    assert body["pending_approvals"] == [
+        {"id": body["pending_approvals"][0]["id"], "kind": "merge"}
+    ]
+    assert body["pending_approvals"][0]["id"]
+
+
+async def test_get_pull_request_is_404_for_foreign_workspace(api: Api, database: Database) -> None:
+    async with database.sessions() as session:
+        other = await make_workspace(session, slug="other-pr-detail")
+        other_workspace_id = other.id
+        await session.commit()
+    pr, _run, _ticket, _repo = await _create_pr(
+        database, other_workspace_id, number=40, created_at=_dt(16)
+    )
+
+    response = await api.client.get(f"/api/v1/pull-requests/{pr.id}", headers=api.auth)
+    assert response.status_code == 404

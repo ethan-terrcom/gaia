@@ -1022,6 +1022,127 @@
         "title": "ProviderStatus",
         "type": "object"
       },
+      "PullRequestDetail": {
+        "description": "One PR for the in-app desk: list fields plus worktree and pending gates.",
+        "properties": {
+          "ci_status": {
+            "$ref": "#/components/schemas/CiStatus"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "head_sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Head Sha"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "number": {
+            "title": "Number",
+            "type": "integer"
+          },
+          "pending_approvals": {
+            "items": {
+              "$ref": "#/components/schemas/PullRequestPendingApproval"
+            },
+            "title": "Pending Approvals",
+            "type": "array"
+          },
+          "repo_name": {
+            "title": "Repo Name",
+            "type": "string"
+          },
+          "review_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review State"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "run_status": {
+            "$ref": "#/components/schemas/RunStatus"
+          },
+          "state": {
+            "$ref": "#/components/schemas/PullRequestState"
+          },
+          "ticket_id": {
+            "title": "Ticket Id",
+            "type": "string"
+          },
+          "ticket_title": {
+            "title": "Ticket Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          },
+          "worktree_branch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worktree Branch"
+          },
+          "worktree_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worktree Path"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "updated_at",
+          "number",
+          "url",
+          "state",
+          "ci_status",
+          "review_state",
+          "head_sha",
+          "run_id",
+          "run_status",
+          "ticket_id",
+          "ticket_title",
+          "repo_name"
+        ],
+        "title": "PullRequestDetail",
+        "type": "object"
+      },
       "PullRequestPage": {
         "description": "One page of pull requests (doc 15b).",
         "properties": {
@@ -1037,6 +1158,24 @@
           "items"
         ],
         "title": "PullRequestPage",
+        "type": "object"
+      },
+      "PullRequestPendingApproval": {
+        "description": "A pending gate on the PR's run that the PR desk can deep-link to.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ApprovalKind"
+          }
+        },
+        "required": [
+          "id",
+          "kind"
+        ],
+        "title": "PullRequestPendingApproval",
         "type": "object"
       },
       "PullRequestRead": {
@@ -3434,6 +3573,54 @@
         ]
       }
     },
+    "/api/v1/pull-requests/{pull_request_id}": {
+      "get": {
+        "description": "Return one PR for the in-app desk, with worktree path and pending gates.",
+        "operationId": "get_pull_request_api_v1_pull_requests__pull_request_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pull_request_id",
+            "required": true,
+            "schema": {
+              "title": "Pull Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PullRequestDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Get a pull request",
+        "tags": [
+          "pull-requests"
+        ]
+      }
+    },
     "/api/v1/repositories": {
       "get": {
         "description": "Return every repository registered in this workspace.",
@@ -4344,6 +4531,45 @@
       }
     },
     "/api/v1/tickets/{ticket_id}": {
+      "delete": {
+        "description": "Delete a ticket and its cascade history, or 409 while a run is active.",
+        "operationId": "delete_ticket_api_v1_tickets__ticket_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Delete a ticket",
+        "tags": [
+          "tickets"
+        ]
+      },
       "get": {
         "description": "Return one ticket, or 404 - the same answer for another workspace.",
         "operationId": "get_ticket_api_v1_tickets__ticket_id__get",

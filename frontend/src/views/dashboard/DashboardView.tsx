@@ -117,7 +117,7 @@ function Card({
   children: ReactNode
 }) {
   return (
-    <section className="rounded border border-gray-200 p-4 dark:border-gray-800">
+    <section className="rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface-raised)] p-5 shadow-[var(--shadow-panel)]">
       <div className="mb-3 flex items-center justify-between gap-3">
         <h2 className="text-lg font-semibold">{title}</h2>
         {linkTo ? (
@@ -137,7 +137,7 @@ function Card({
 function ActiveRunItem({ run }: { run: RunSummary }) {
   const step = run.current_step
   return (
-    <article className="rounded border border-gray-200 p-3 dark:border-gray-800">
+    <article className="rounded-[var(--radius-lg)] bg-[var(--color-surface-muted)] p-3">
       <div className="flex items-start justify-between gap-3">
         <Link
           to={`/runs/${run.id}`}
@@ -356,8 +356,8 @@ function OpenPrsCard() {
             >
               <td className="px-2 py-2">
                 <Link
-                  to="/prs"
-                  className="text-blue-600 hover:underline dark:text-blue-400"
+                  to={`/prs/${pr.id}`}
+                  className="text-[var(--color-accent-ink)] hover:underline"
                 >
                   #{pr.number}
                 </Link>

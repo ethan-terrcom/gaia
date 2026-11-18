@@ -102,7 +102,8 @@ server-side with the traceback, and the client only sees "the server hit an unex
 | GET | `/repositories/{id}/command-suggestions` | Prefixes of commands approved in this repository that would still ask, most often approved first → `{items: [{argv, times_approved}]}`. Read-only |
 | GET / PATCH / DELETE | `/repositories/{id}` | Detail with worktree and active-run counts / change the setup, test and allowed commands (only the fields sent; `null` clears; `allowed_commands` replaces the list, deduplicated, and each entry must pass `allowed_entry_problem`; audited as `repository.update`; 422 if none sent) / unregister, **409 if it has tickets or live worktrees** |
 | POST / GET | `/tickets` | Create (repo loaded in your workspace) / page with `status`, `repo_id`, `q`, `limit` ≤ 100, `cursor` → `{items, next_cursor}` |
-| GET / PATCH | `/tickets/{id}` | Read / update text fields and status (illegal move → 409) |
+| GET / PATCH / DELETE | `/tickets/{id}` | Read / update text fields and status (illegal move → 409) / delete (**409 if the ticket has an active run**; cascades runs and run-scoped history; audited as `ticket.delete`) |
+| GET | `/pull-requests/{id}` | PR desk detail: list fields plus worktree path/branch and pending `pr_open` / `merge` approvals for the run |
 | GET | `/agents` | The seeded roster (`lead`, `junior-1`) |
 | GET | `/worktrees?repo_id=` | Rows with `orphan`, `exists`, `dirty`, `tampered`, plus `unknown_paths` |
 | DELETE | `/worktrees/{id}?force=` | Remove from disk, keep the row; dirty → 409 unless `force`; tampered → always 409 |

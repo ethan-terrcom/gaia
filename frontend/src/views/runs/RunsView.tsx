@@ -1,4 +1,5 @@
 import { useInfiniteQuery } from '@tanstack/react-query'
+import { Radio } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router'
 import { api } from '../../api/client'
 import type { components } from '../../api/schema'
@@ -10,6 +11,8 @@ import {
   PageHeader,
 } from '../../components/States'
 import { StatusBadge } from '../../components/StatusBadge'
+import { Button } from '../../components/ui/Button'
+import { SegmentedControl } from '../../components/ui/SegmentedControl'
 
 type RunPage = components['schemas']['RunPage']
 type RunStatus = components['schemas']['RunStatus']
@@ -75,18 +78,27 @@ function RunRow({ run }: { run: RunSummary }) {
   // `started_at` is set when the graph starts; a run that failed before then
   // only has `created_at`.
   const startedAt = run.started_at ?? run.created_at
+  const live = !TERMINAL_RUN_STATUSES.has(run.status)
   return (
-    <tr className="border-t border-gray-200 dark:border-gray-800">
-      <td className="px-3 py-2">
+    <tr className="border-t border-[var(--color-border)] hover:bg-[var(--color-surface-muted)]/60">
+      <td className="px-3 py-3">
         <Link
           to={`/runs/${run.id}`}
-          className="font-medium text-blue-600 hover:underline dark:text-blue-400"
+          className="font-medium text-[var(--color-accent-ink)] hover:underline"
         >
           {run.ticket_title}
         </Link>
       </td>
-      <td className="px-3 py-2">
-        <StatusBadge status={run.status} />
+      <td className="px-3 py-3">
+        <span className="inline-flex items-center gap-2">
+          <StatusBadge status={run.status} />
+          {live ? (
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+              <Radio className="size-3 animate-pulse" aria-hidden />
+              Live
+            </span>
+          ) : null}
+        </span>
       </td>
       <td className="px-3 py-2">
         {step ? `Step ${step.index + 1}: ${step.title}` : '—'}
@@ -137,28 +149,14 @@ export function RunsView() {
     <section>
       <PageHeader
         title="Runs"
+        description="Watch agents work live from a run’s timeline and diff."
         actions={
-          <div
-            role="group"
-            aria-label="Run status filter"
-            className="flex rounded border border-gray-300 p-0.5 dark:border-gray-700"
-          >
-            {FILTERS.map(({ value, label }) => (
-              <button
-                key={value}
-                type="button"
-                aria-pressed={filter === value}
-                onClick={() => selectFilter(value)}
-                className={`rounded px-3 py-1.5 text-sm ${
-                  filter === value
-                    ? 'bg-blue-600 text-white'
-                    : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          <SegmentedControl
+            label="Run status filter"
+            value={filter}
+            options={FILTERS}
+            onChange={selectFilter}
+          />
         }
       />
 
@@ -179,26 +177,26 @@ export function RunsView() {
       ) : null}
 
       {runs.length > 0 ? (
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface-raised)] shadow-[var(--shadow-panel)]">
           <table className="w-full text-left text-sm">
-            <thead className="text-xs uppercase text-gray-500 dark:text-gray-400">
+            <thead className="text-xs tracking-wide text-[var(--color-ink-muted)] uppercase">
               <tr>
-                <th scope="col" className="px-3 py-2">
+                <th scope="col" className="px-3 py-3">
                   Ticket
                 </th>
-                <th scope="col" className="px-3 py-2">
+                <th scope="col" className="px-3 py-3">
                   Status
                 </th>
-                <th scope="col" className="px-3 py-2">
+                <th scope="col" className="px-3 py-3">
                   Current step
                 </th>
-                <th scope="col" className="px-3 py-2">
+                <th scope="col" className="px-3 py-3">
                   Cost
                 </th>
-                <th scope="col" className="px-3 py-2">
+                <th scope="col" className="px-3 py-3">
                   PR
                 </th>
-                <th scope="col" className="px-3 py-2">
+                <th scope="col" className="px-3 py-3">
                   Started
                 </th>
               </tr>
@@ -214,14 +212,14 @@ export function RunsView() {
 
       {query.hasNextPage ? (
         <div className="mt-4">
-          <button
+          <Button
             type="button"
+            variant="secondary"
             onClick={() => void query.fetchNextPage()}
             disabled={query.isFetchingNextPage}
-            className="rounded border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-700"
           >
             {query.isFetchingNextPage ? 'Loading more…' : 'Load more'}
-          </button>
+          </Button>
         </div>
       ) : null}
     </section>

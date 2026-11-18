@@ -547,6 +547,36 @@ class PullRequestRepo:
             for pr, run, ticket, repository in rows
         ]
 
+    async def get_with_context(
+        self,
+        workspace_id: str,
+        pull_request_id: str,
+    ) -> PullRequestWithContext | None:
+        """Return one workspace-scoped PR with run/ticket/repository, or None."""
+        statement = (
+            select(PullRequest, Run, Ticket, Repository)
+            .join(Run, Run.id == PullRequest.run_id)
+            .join(Ticket, Ticket.id == Run.ticket_id)
+            .join(Repository, Repository.id == Run.repo_id)
+            .where(
+                PullRequest.id == pull_request_id,
+                PullRequest.workspace_id == workspace_id,
+                Run.workspace_id == workspace_id,
+                Ticket.workspace_id == workspace_id,
+                Repository.workspace_id == workspace_id,
+            )
+        )
+        row = (await self.session.execute(statement)).first()
+        if row is None:
+            return None
+        pr, run, ticket, repository = row
+        return PullRequestWithContext(
+            pull_request=pr,
+            run=run,
+            ticket=ticket,
+            repository=repository,
+        )
+
 
 async def add_run_cost(session: AsyncSession, run_id: str, cost_usd: Decimal) -> None:
     """Add ``cost_usd`` to ``run.cost_usd`` atomically (doc 07b).

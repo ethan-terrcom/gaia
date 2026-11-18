@@ -16,7 +16,7 @@ export function StatusBadge({
   const text = label ?? (status ? status.replaceAll('_', ' ') : '—')
   return (
     <span
-      className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${TONE_CLASSES[toneOf(status)]}`}
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium tracking-[-0.01em] ${TONE_CLASSES[toneOf(status)]}`}
     >
       {text}
     </span>

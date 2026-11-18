@@ -462,6 +462,9 @@ MUTATING_ROUTE_AUDIT_EVIDENCE: dict[tuple[str, str], str] = {
     ("PATCH", "/api/v1/tickets/{ticket_id}"): (
         "tests/test_api_tickets.py::test_mutating_ticket_routes_write_audit_rows"
     ),
+    ("DELETE", "/api/v1/tickets/{ticket_id}"): (
+        "tests/test_api_tickets.py::test_delete_ticket_removes_the_row_and_audits"
+    ),
     ("DELETE", "/api/v1/worktrees/{worktree_id}"): (
         "tests/test_security_checklist.py::test_worktree_remove_writes_audit_row"
     ),

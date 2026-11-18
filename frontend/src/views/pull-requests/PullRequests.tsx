@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { ExternalLink } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router'
 import { api } from '../../api/client'
 import {
@@ -9,6 +10,7 @@ import {
 } from '../../components/States'
 import { StatusBadge } from '../../components/StatusBadge'
 import { formatRelative } from '../../components/format'
+import { SegmentedControl } from '../../components/ui/SegmentedControl'
 import type { components } from '../../api/schema'
 
 type PullRequestState = components['schemas']['PullRequestState']
@@ -48,9 +50,6 @@ export function PullRequestsView() {
             state: filter === 'all' ? undefined : filter,
           },
         },
-        // Keep this testable: openapi-fetch captures `globalThis.fetch` when
-        // the client is created, so passing the current global lets tests stub
-        // `fetch` after module import.
         fetch,
       })
       if (response.error) {
@@ -74,28 +73,14 @@ export function PullRequestsView() {
     <section>
       <PageHeader
         title="Pull requests"
+        description="Review CI and diffs in Gaia; GitHub stays the escape hatch."
         actions={
-          <div
-            role="group"
-            aria-label="Pull request state filter"
-            className="flex rounded border border-gray-300 p-0.5 dark:border-gray-700"
-          >
-            {FILTERS.map(({ value, label }) => (
-              <button
-                key={value}
-                type="button"
-                aria-pressed={filter === value}
-                onClick={() => selectFilter(value)}
-                className={`rounded px-3 py-1.5 text-sm ${
-                  filter === value
-                    ? 'bg-blue-600 text-white'
-                    : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          <SegmentedControl
+            label="Pull request state filter"
+            value={filter}
+            options={FILTERS}
+            onChange={selectFilter}
+          />
         }
       />
 
@@ -112,29 +97,29 @@ export function PullRequestsView() {
       ) : null}
 
       {data && data.items.length > 0 ? (
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface-raised)] shadow-[var(--shadow-panel)]">
           <table className="w-full text-left text-sm">
-            <thead className="text-xs uppercase text-gray-500 dark:text-gray-400">
+            <thead className="text-xs tracking-wide text-[var(--color-ink-muted)] uppercase">
               <tr>
-                <th scope="col" className="px-3 py-2">
+                <th scope="col" className="px-3 py-3">
                   PR
                 </th>
-                <th scope="col" className="px-3 py-2">
+                <th scope="col" className="px-3 py-3">
                   Ticket
                 </th>
-                <th scope="col" className="px-3 py-2">
+                <th scope="col" className="px-3 py-3">
                   Repo
                 </th>
-                <th scope="col" className="px-3 py-2">
+                <th scope="col" className="px-3 py-3">
                   Run
                 </th>
-                <th scope="col" className="px-3 py-2">
+                <th scope="col" className="px-3 py-3">
                   CI
                 </th>
-                <th scope="col" className="px-3 py-2">
+                <th scope="col" className="px-3 py-3">
                   Review
                 </th>
-                <th scope="col" className="px-3 py-2">
+                <th scope="col" className="px-3 py-3">
                   Age
                 </th>
               </tr>
@@ -143,43 +128,49 @@ export function PullRequestsView() {
               {data.items.map((pr) => (
                 <tr
                   key={pr.id}
-                  className="border-t border-gray-200 dark:border-gray-800"
+                  className="border-t border-[var(--color-border)] hover:bg-[var(--color-surface-muted)]/60"
                 >
-                  <td className="px-3 py-2">
-                    {isGitHubUrl(pr.url) ? (
-                      <a
-                        href={pr.url}
-                        target="_blank"
-                        rel="noreferrer noopener"
-                        className="text-blue-600 hover:underline dark:text-blue-400"
+                  <td className="px-3 py-3">
+                    <span className="inline-flex items-center gap-2">
+                      <Link
+                        to={`/prs/${pr.id}`}
+                        className="font-medium text-[var(--color-accent-ink)] hover:underline"
                       >
                         #{pr.number}
-                      </a>
-                    ) : (
-                      <span>#{pr.number}</span>
-                    )}
+                      </Link>
+                      {isGitHubUrl(pr.url) ? (
+                        <a
+                          href={pr.url}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                          aria-label={`Open PR #${pr.number} on GitHub`}
+                          className="text-[var(--color-ink-subtle)] hover:text-[var(--color-ink)]"
+                        >
+                          <ExternalLink className="size-3.5" />
+                        </a>
+                      ) : null}
+                    </span>
                   </td>
-                  <td className="px-3 py-2">{pr.ticket_title}</td>
-                  <td className="px-3 py-2">{pr.repo_name}</td>
-                  <td className="px-3 py-2">
-                    <Link
-                      to={`/runs/${pr.run_id}`}
-                      className="text-blue-600 hover:underline dark:text-blue-400"
-                    >
+                  <td className="px-3 py-3">{pr.ticket_title}</td>
+                  <td className="px-3 py-3 text-[var(--color-ink-muted)]">
+                    {pr.repo_name}
+                  </td>
+                  <td className="px-3 py-3">
+                    <Link to={`/runs/${pr.run_id}`}>
                       <StatusBadge status={pr.run_status} />
                     </Link>
                   </td>
-                  <td className="px-3 py-2">
+                  <td className="px-3 py-3">
                     <StatusBadge status={pr.ci_status} />
                   </td>
-                  <td className="px-3 py-2">
+                  <td className="px-3 py-3">
                     <StatusBadge
                       status={
                         pr.review_state === 'none' ? null : pr.review_state
                       }
                     />
                   </td>
-                  <td className="px-3 py-2" title={pr.created_at}>
+                  <td className="px-3 py-3" title={pr.created_at}>
                     {formatRelative(pr.created_at)}
                   </td>
                 </tr>

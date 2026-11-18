@@ -1,15 +1,144 @@
 @import 'tailwindcss';
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/geist-mono';
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/*
+  Cursor-inspired black/grey control plane.
+  Dark is the product default; light is a quieter grey companion.
+*/
 @theme {
-  --font-sans: system-ui, sans-serif;
+  --font-sans: 'Geist Variable', 'Geist', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Geist Mono Variable', 'Geist Mono', ui-monospace, monospace;
+
+  /* Light companion (rarely preferred) */
+  --color-surface: #f4f4f5;
+  --color-surface-muted: #ececee;
+  --color-surface-raised: #ffffff;
+  --color-surface-overlay: #ffffff;
+  --color-border: #e4e4e7;
+  --color-border-strong: #d4d4d8;
+  --color-ink: #18181b;
+  --color-ink-muted: #71717a;
+  --color-ink-subtle: #a1a1aa;
+  --color-accent: #3b82f6;
+  --color-accent-soft: rgb(59 130 246 / 0.12);
+  --color-accent-ink: #2563eb;
+  --color-danger: #ef4444;
+  --color-danger-soft: rgb(239 68 68 / 0.12);
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+
+  --radius-sm: 0.3125rem;
+  --radius-md: 0.4375rem;
+  --radius-lg: 0.5625rem;
+  --radius-xl: 0.75rem;
+
+  --control-h: 2.25rem;
+  --control-px: 0.75rem;
+  --control-text: 0.8125rem;
+
+  --shadow-soft: 0 0 0 1px rgb(0 0 0 / 0.03);
+  --shadow-panel: 0 0 0 1px rgb(0 0 0 / 0.04), 0 8px 24px rgb(0 0 0 / 0.04);
+}
+
+.dark {
+  --color-surface: #0a0a0a;
+  --color-surface-muted: #111111;
+  --color-surface-raised: #141414;
+  --color-surface-overlay: #1a1a1a;
+  --color-border: #242424;
+  --color-border-strong: #333333;
+  --color-ink: #ededed;
+  --color-ink-muted: #8a8a8a;
+  --color-ink-subtle: #5c5c5c;
+  --color-accent: #5b9cff;
+  --color-accent-soft: rgb(91 156 255 / 0.14);
+  --color-accent-ink: #8bb4ff;
+  --color-danger: #f07178;
+  --color-danger-soft: rgb(240 113 120 / 0.14);
+  --color-success: #3dd68c;
+  --color-warning: #e6b450;
+
+  --shadow-soft: none;
+  --shadow-panel: 0 0 0 1px rgb(255 255 255 / 0.03);
 }
 
 :root {
-  color-scheme: light dark;
+  color-scheme: dark light;
+}
+
+html {
+  color-scheme: dark;
+}
+
+html:not(.dark) {
+  color-scheme: light;
 }
 
 body {
   margin: 0;
+  min-height: 100vh;
+  font-family: var(--font-sans);
+  font-optical-sizing: auto;
+  font-feature-settings:
+    'ss01' on,
+    'cv11' on;
+  letter-spacing: -0.011em;
+  background: var(--color-surface);
+  color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  border-color: var(--color-border);
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-accent) 32%, transparent);
+}
+
+/* Shared control geometry — keeps every text box the same height/padding */
+.gaia-control {
+  box-sizing: border-box;
+  height: var(--control-h);
+  min-height: var(--control-h);
+  padding-inline: var(--control-px);
+  font-size: var(--control-text);
+  line-height: 1.25;
+  border-radius: var(--radius-md);
+}
+
+.gaia-control-multiline {
+  box-sizing: border-box;
+  min-height: 7.5rem;
+  padding: 0.625rem var(--control-px);
+  font-size: var(--control-text);
+  line-height: 1.45;
+  border-radius: var(--radius-md);
+}
+
+/* Scrollbars — quiet Cursor-like chrome */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-strong) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
 }

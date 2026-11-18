@@ -76,8 +76,10 @@ once and the selection moves to the next one.
   **Deviation:** the step shows as "Step n: title", because the list has no step total.
 - The cost-per-day bars are plain divs; no chart library.
 
-### 17e Pull requests (2026-11-14, [`review-17e`](../reviews/2026-11-14-review-17e.md))
+### 17e Pull requests (2026-11-14, [`review-17e`](../reviews/2026-11-14-review-17e.md); PR desk 2026-11-17)
 - The view lives in `src/views/pull-requests/`; `src/pages/PullRequests.tsx` renders it.
+- **PR desk:** `/prs/:id` loads `GET /api/v1/pull-requests/{id}` (worktree + pending `pr_open`/`merge`
+  gates) and embeds `GET /runs/{id}/diff`. List rows link to the desk; GitHub is the escape hatch.
 - The state filter (Open, the default; Merged; Closed; All) is kept in the URL (`?state=merged`),
   so a filtered view can be linked and survives a reload. "All" omits `state` from the request.
 - The query key is `['pull-requests', {state}]`; the global stream's `pr.*`/`ci.*` invalidation

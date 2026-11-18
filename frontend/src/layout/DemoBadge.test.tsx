@@ -33,7 +33,7 @@ describe('DemoBadge', () => {
 
     renderBadge()
 
-    const badge = await screen.findByText('Demo mode')
+    const badge = await screen.findByText('Demo')
     expect(badge.getAttribute('title')).toBe(
       'GAIA_FAKE_LLM=1: no real model is called',
     )
@@ -49,7 +49,7 @@ describe('DemoBadge', () => {
     renderBadge()
 
     await waitFor(() => {
-      expect(screen.queryByText('Demo mode')).toBeNull()
+      expect(screen.queryByText('Demo')).toBeNull()
     })
   })
 })

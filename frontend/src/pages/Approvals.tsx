@@ -1,5 +1,10 @@
+import { PageShell } from '../components/ui/PageShell'
 import { ApprovalsView } from '../views/approvals/ApprovalsView'
 
 export default function Approvals() {
-  return <ApprovalsView />
+  return (
+    <PageShell wide>
+      <ApprovalsView />
+    </PageShell>
+  )
 }

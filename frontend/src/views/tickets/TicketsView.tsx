@@ -4,11 +4,13 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query'
+import { Plus, Trash2 } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import { api } from '../../api/client'
 import { ApiError } from '../../api/errors'
 import type { components } from '../../api/schema'
+import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { StatusBadge } from '../../components/StatusBadge'
 import {
   EmptyState,
@@ -17,6 +19,10 @@ import {
   PageHeader,
 } from '../../components/States'
 import { formatRelative } from '../../components/format'
+import { Button } from '../../components/ui/Button'
+import { Field, FieldGrid } from '../../components/ui/Field'
+import { Input, Select, Textarea } from '../../components/ui/Input'
+import { SegmentedControl } from '../../components/ui/SegmentedControl'
 import { AgentModeEditor } from '../agent-modes/AgentModeEditor'
 import {
   AGENT_MODE_QUERY_KEY,
@@ -67,7 +73,7 @@ function InlineApiError({ error }: { error: unknown }) {
   return (
     <p
       role="alert"
-      className="mt-3 rounded border border-red-300 bg-red-50 p-3 text-sm text-red-900 dark:border-red-800 dark:bg-red-950 dark:text-red-100"
+      className="rounded-[var(--radius-md)] border border-[var(--color-danger)]/30 bg-[var(--color-danger-soft)] p-3 text-[13px] text-[var(--color-danger)]"
     >
       {message}
     </p>
@@ -147,6 +153,16 @@ async function updateTicket(input: {
   return data
 }
 
+async function deleteTicket(ticketId: string): Promise<void> {
+  const { error } = await api.DELETE('/api/v1/tickets/{ticket_id}', {
+    params: { path: { ticket_id: ticketId } },
+    fetch,
+  })
+  if (error) {
+    throw error
+  }
+}
+
 async function startRun(input: {
   ticket_id: string
   agent_config?: AgentModeConfig
@@ -172,10 +188,12 @@ function TicketModal({
   ticket,
   repositories,
   onClose,
+  onDelete,
 }: {
   ticket: TicketRead | null
   repositories: RepositoryRead[]
   onClose: () => void
+  onDelete?: (ticket: TicketRead) => void
 }) {
   const queryClient = useQueryClient()
   const isEdit = ticket !== null
@@ -238,122 +256,115 @@ function TicketModal({
     Number.isFinite(Number(priority))
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-[3px]">
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="ticket-modal-title"
-        className="w-full max-w-lg rounded-lg bg-white p-5 shadow-xl dark:bg-gray-900"
+        className="w-full max-w-2xl rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface-overlay)] p-5 shadow-[var(--shadow-panel)]"
       >
-        <h2 id="ticket-modal-title" className="text-lg font-semibold">
+        <h2
+          id="ticket-modal-title"
+          className="text-[16px] font-semibold tracking-[-0.02em]"
+        >
           {isEdit ? 'Edit ticket' : 'Create ticket'}
         </h2>
-        <form onSubmit={onSubmit} className="mt-4 grid gap-3">
-          <div>
-            <label htmlFor="ticket-title" className="block text-sm">
-              Title
-            </label>
-            <input
+        <form onSubmit={onSubmit} className="mt-5 grid gap-4">
+          <Field label="Title" htmlFor="ticket-title">
+            <Input
               id="ticket-title"
               value={title}
               onChange={(event) => setTitle(event.target.value)}
               required
               autoFocus
-              className="mt-1 w-full rounded border border-gray-300 px-2 py-1 dark:border-gray-700 dark:bg-gray-950"
             />
-          </div>
-          <div>
-            <label htmlFor="ticket-body" className="block text-sm">
-              Body
-            </label>
-            <textarea
+          </Field>
+          <Field label="Body" htmlFor="ticket-body">
+            <Textarea
               id="ticket-body"
               value={body}
               onChange={(event) => setBody(event.target.value)}
-              rows={6}
-              className="mt-1 w-full rounded border border-gray-300 px-2 py-1 font-mono dark:border-gray-700 dark:bg-gray-950"
+              rows={8}
+              className="font-mono"
             />
-          </div>
-          {!isEdit ? (
-            <div>
-              <label htmlFor="ticket-repository" className="block text-sm">
-                Repository
-              </label>
-              <select
-                id="ticket-repository"
-                value={repoId}
-                onChange={(event) => setRepoId(event.target.value)}
+          </Field>
+          <FieldGrid>
+            {!isEdit ? (
+              <Field label="Repository" htmlFor="ticket-repository">
+                <Select
+                  id="ticket-repository"
+                  value={repoId}
+                  onChange={(event) => setRepoId(event.target.value)}
+                  required
+                >
+                  {repositories.length === 0 ? (
+                    <option value="">No repositories</option>
+                  ) : (
+                    repositories.map((repository) => (
+                      <option key={repository.id} value={repository.id}>
+                        {repository.name}
+                      </option>
+                    ))
+                  )}
+                </Select>
+              </Field>
+            ) : null}
+            <Field label="Priority" htmlFor="ticket-priority">
+              <Input
+                id="ticket-priority"
+                type="number"
+                min="0"
+                step="1"
+                value={priority}
+                onChange={(event) => setPriority(event.target.value)}
                 required
-                className="mt-1 w-full rounded border border-gray-300 px-2 py-1 dark:border-gray-700 dark:bg-gray-950"
-              >
-                {repositories.length === 0 ? (
-                  <option value="">No repositories</option>
-                ) : (
-                  repositories.map((repository) => (
-                    <option key={repository.id} value={repository.id}>
-                      {repository.name}
+              />
+            </Field>
+            {isEdit ? (
+              <Field label="Status" htmlFor="ticket-status">
+                <Select
+                  id="ticket-status"
+                  value={status}
+                  onChange={(event) =>
+                    setStatus(event.target.value as TicketStatus)
+                  }
+                >
+                  {TICKET_STATUSES.map((value) => (
+                    <option key={value} value={value}>
+                      {STATUS_LABELS[value]}
                     </option>
-                  ))
-                )}
-              </select>
-            </div>
-          ) : null}
-          <div>
-            <label htmlFor="ticket-priority" className="block text-sm">
-              Priority
-            </label>
-            <input
-              id="ticket-priority"
-              type="number"
-              min="0"
-              step="1"
-              value={priority}
-              onChange={(event) => setPriority(event.target.value)}
-              required
-              className="mt-1 w-full rounded border border-gray-300 px-2 py-1 dark:border-gray-700 dark:bg-gray-950"
-            />
-          </div>
-          {isEdit ? (
-            <div>
-              <label htmlFor="ticket-status" className="block text-sm">
-                Status
-              </label>
-              <select
-                id="ticket-status"
-                value={status}
-                onChange={(event) =>
-                  setStatus(event.target.value as TicketStatus)
-                }
-                className="mt-1 w-full rounded border border-gray-300 px-2 py-1 dark:border-gray-700 dark:bg-gray-950"
-              >
-                {TICKET_STATUSES.map((value) => (
-                  <option key={value} value={value}>
-                    {STATUS_LABELS[value]}
-                  </option>
-                ))}
-              </select>
-            </div>
-          ) : null}
+                  ))}
+                </Select>
+              </Field>
+            ) : null}
+          </FieldGrid>
           {mutation.isError ? <InlineApiError error={mutation.error} /> : null}
-          <div className="mt-2 flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded border border-gray-300 px-3 py-1.5 dark:border-gray-700"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={!canSubmit}
-              className="rounded bg-blue-600 px-3 py-1.5 text-white disabled:opacity-50"
-            >
-              {mutation.isPending
-                ? 'Saving…'
-                : isEdit
-                  ? 'Save changes'
-                  : 'Create ticket'}
-            </button>
+          <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+            {isEdit && ticket && onDelete ? (
+              <Button
+                type="button"
+                variant="danger"
+                size="sm"
+                onClick={() => onDelete(ticket)}
+              >
+                <Trash2 className="size-3.5" aria-hidden />
+                Delete
+              </Button>
+            ) : (
+              <span />
+            )}
+            <div className="flex gap-2">
+              <Button type="button" variant="secondary" onClick={onClose}>
+                Cancel
+              </Button>
+              <Button type="submit" variant="primary" disabled={!canSubmit}>
+                {mutation.isPending
+                  ? 'Saving…'
+                  : isEdit
+                    ? 'Save changes'
+                    : 'Create ticket'}
+              </Button>
+            </div>
           </div>
         </form>
       </div>
@@ -415,45 +426,52 @@ function StartRunDialog({
   const customInvalid = custom !== null && configProblem(custom) !== null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-[3px]">
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="start-run-modal-title"
-        className={`max-h-[90vh] w-full overflow-y-auto rounded-lg bg-white p-5 shadow-xl dark:bg-gray-900 ${
-          custom ? 'max-w-3xl' : 'max-w-md'
+        className={`max-h-[90vh] w-full overflow-y-auto rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface-overlay)] p-5 shadow-[var(--shadow-panel)] ${
+          custom ? 'max-w-3xl' : 'max-w-lg'
         }`}
       >
-        <h2 id="start-run-modal-title" className="text-lg font-semibold">
+        <h2
+          id="start-run-modal-title"
+          className="text-[16px] font-semibold tracking-[-0.02em]"
+        >
           Start a run
         </h2>
-        <form onSubmit={onSubmit} className="mt-4 grid gap-3">
+        <form onSubmit={onSubmit} className="mt-5 grid gap-4">
           <fieldset>
-            <legend className="block text-sm">Agent mode</legend>
-            <div className="mt-1 grid gap-1 text-sm">
-              <label className="flex items-start gap-2">
+            <legend className="text-[13px] font-medium text-[var(--color-ink-muted)]">
+              Agent mode
+            </legend>
+            <div className="mt-2 grid gap-2 text-[13px]">
+              <label className="flex items-start gap-2.5 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-raised)] px-3 py-2.5">
                 <input
                   type="radio"
                   name="run-agent-mode"
                   checked={custom === null}
                   onChange={() => setCustom(null)}
+                  className="mt-0.5"
                 />
                 <span>
                   Use my default
                   {defaultConfig ? (
-                    <span className="block text-gray-600 dark:text-gray-400">
+                    <span className="mt-0.5 block text-[12px] text-[var(--color-ink-subtle)]">
                       {describeConfig(defaultConfig, catalog?.models)}
                     </span>
                   ) : null}
                 </span>
               </label>
-              <label className="flex items-start gap-2">
+              <label className="flex items-start gap-2.5 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-raised)] px-3 py-2.5">
                 <input
                   type="radio"
                   name="run-agent-mode"
                   checked={custom !== null}
                   disabled={!catalog || !defaultConfig}
                   onChange={() => setCustom(defaultConfig ?? null)}
+                  className="mt-0.5"
                 />
                 <span>Choose for this run</span>
               </label>
@@ -467,41 +485,38 @@ function StartRunDialog({
               onChange={setCustom}
             />
           ) : null}
-          <div>
-            <label htmlFor="run-budget" className="block text-sm">
-              Budget (USD)
-            </label>
-            <input
+          <Field
+            label="Budget (USD)"
+            htmlFor="run-budget"
+            hint="Leave blank to use the daily default."
+            error={
+              budgetInvalid
+                ? 'Budget must be a number greater than 0.'
+                : undefined
+            }
+          >
+            <Input
               id="run-budget"
               type="number"
               min="0.01"
               step="0.01"
               value={budget}
               onChange={(event) => setBudget(event.target.value)}
-              className="mt-1 w-full rounded border border-gray-300 px-2 py-1 dark:border-gray-700 dark:bg-gray-950"
+              placeholder="Optional"
             />
-            {budgetInvalid ? (
-              <p className="mt-1 text-sm text-red-700 dark:text-red-300">
-                Budget must be a number greater than 0.
-              </p>
-            ) : null}
-          </div>
+          </Field>
           {mutation.isError ? <StartRunError error={mutation.error} /> : null}
-          <div className="mt-2 flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded border border-gray-300 px-3 py-1.5 dark:border-gray-700"
-            >
+          <div className="mt-1 flex justify-end gap-2">
+            <Button type="button" variant="secondary" onClick={onClose}>
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
               type="submit"
+              variant="primary"
               disabled={mutation.isPending || budgetInvalid || customInvalid}
-              className="rounded bg-blue-600 px-3 py-1.5 text-white disabled:opacity-50"
             >
               {mutation.isPending ? 'Starting…' : 'Start run'}
-            </button>
+            </Button>
           </div>
         </form>
       </div>
@@ -529,39 +544,50 @@ function TicketCard({
   repoName,
   onEdit,
   onStart,
+  onDelete,
 }: {
   ticket: TicketRead
   repoName: string
   onEdit: () => void
   onStart: () => void
+  onDelete: () => void
 }) {
   const canStart = ticket.status !== 'done' && ticket.status !== 'cancelled'
   return (
-    <article className="rounded border border-gray-200 bg-white p-3 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+    <article className="rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface-raised)] p-3.5 shadow-[var(--shadow-soft)]">
       <div className="flex items-start justify-between gap-2">
-        <h3 className="text-sm font-medium">{ticket.title}</h3>
-        <button
-          type="button"
-          onClick={onEdit}
-          className="shrink-0 rounded border border-gray-300 px-2 py-1 text-xs dark:border-gray-700"
-        >
-          Edit
-        </button>
+        <h3 className="text-sm font-medium text-[var(--color-ink)]">
+          {ticket.title}
+        </h3>
+        <div className="flex shrink-0 gap-1">
+          <Button type="button" variant="ghost" size="sm" onClick={onEdit}>
+            Edit
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            aria-label={`Delete ${ticket.title}`}
+            onClick={onDelete}
+          >
+            <Trash2 className="size-3.5" />
+          </Button>
+        </div>
       </div>
-      <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
-        {repoName}
-      </p>
-      <p className="text-sm text-gray-600 dark:text-gray-300">
+      <p className="mt-2 text-sm text-[var(--color-ink-muted)]">{repoName}</p>
+      <p className="text-sm text-[var(--color-ink-muted)]">
         Priority: {ticket.priority}
       </p>
       {canStart ? (
-        <button
+        <Button
           type="button"
+          variant="primary"
+          size="sm"
+          className="mt-3"
           onClick={onStart}
-          className="mt-3 rounded bg-blue-600 px-2 py-1 text-sm text-white"
         >
           Start run
-        </button>
+        </Button>
       ) : null}
     </article>
   )
@@ -572,11 +598,13 @@ function Board({
   repoName,
   onEdit,
   onStart,
+  onDelete,
 }: {
   tickets: TicketRead[]
   repoName: (ticket: TicketRead) => string
   onEdit: (ticket: TicketRead) => void
   onStart: (ticket: TicketRead) => void
+  onDelete: (ticket: TicketRead) => void
 }) {
   return (
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
@@ -584,15 +612,15 @@ function Board({
         <section
           key={status}
           aria-labelledby={`ticket-status-${status}`}
-          className="rounded border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-900/50"
+          className="rounded-[var(--radius-xl)] bg-[var(--color-surface-muted)]/80 p-3"
         >
           <h2
             id={`ticket-status-${status}`}
-            className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-200"
+            className="mb-3 px-1 text-xs font-semibold tracking-wide text-[var(--color-ink-muted)] uppercase"
           >
             {STATUS_LABELS[status]}
           </h2>
-          <div className="grid gap-2">
+          <div className="grid gap-2.5">
             {tickets
               .filter((ticket) => ticket.status === status)
               .map((ticket) => (
@@ -602,6 +630,7 @@ function Board({
                   repoName={repoName(ticket)}
                   onEdit={() => onEdit(ticket)}
                   onStart={() => onStart(ticket)}
+                  onDelete={() => onDelete(ticket)}
                 />
               ))}
           </div>
@@ -616,42 +645,45 @@ function TicketRow({
   repoName,
   onEdit,
   onStart,
+  onDelete,
 }: {
   ticket: TicketRead
   repoName: string
   onEdit: () => void
   onStart: () => void
+  onDelete: () => void
 }) {
   const canStart = ticket.status !== 'done' && ticket.status !== 'cancelled'
   return (
-    <tr className="border-t border-gray-200 dark:border-gray-800">
-      <td className="px-3 py-2">{ticket.title}</td>
-      <td className="px-3 py-2">{repoName}</td>
-      <td className="px-3 py-2">
+    <tr className="border-t border-[var(--color-border)] hover:bg-[var(--color-surface-muted)]/60">
+      <td className="px-3 py-3 font-medium">{ticket.title}</td>
+      <td className="px-3 py-3 text-[var(--color-ink-muted)]">{repoName}</td>
+      <td className="px-3 py-3">
         <StatusBadge status={ticket.status} />
       </td>
-      <td className="px-3 py-2">{ticket.priority}</td>
-      <td className="px-3 py-2" title={ticket.updated_at}>
+      <td className="px-3 py-3">{ticket.priority}</td>
+      <td className="px-3 py-3" title={ticket.updated_at}>
         {formatRelative(ticket.updated_at)}
       </td>
-      <td className="px-3 py-2">
+      <td className="px-3 py-3">
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={onEdit}
-            className="rounded border border-gray-300 px-2 py-1 text-xs dark:border-gray-700"
-          >
+          <Button type="button" variant="secondary" size="sm" onClick={onEdit}>
             Edit
-          </button>
+          </Button>
           {canStart ? (
-            <button
-              type="button"
-              onClick={onStart}
-              className="rounded bg-blue-600 px-2 py-1 text-xs text-white"
-            >
+            <Button type="button" variant="primary" size="sm" onClick={onStart}>
               Start run
-            </button>
+            </Button>
           ) : null}
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            aria-label={`Delete ${ticket.title}`}
+            onClick={onDelete}
+          >
+            <Trash2 className="size-3.5" />
+          </Button>
         </div>
       </td>
     </tr>
@@ -663,33 +695,35 @@ function TicketsTable({
   repoName,
   onEdit,
   onStart,
+  onDelete,
 }: {
   tickets: TicketRead[]
   repoName: (ticket: TicketRead) => string
   onEdit: (ticket: TicketRead) => void
   onStart: (ticket: TicketRead) => void
+  onDelete: (ticket: TicketRead) => void
 }) {
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface-raised)] shadow-[var(--shadow-panel)]">
       <table className="w-full text-left text-sm">
-        <thead className="text-xs uppercase text-gray-500 dark:text-gray-400">
+        <thead className="text-xs tracking-wide text-[var(--color-ink-muted)] uppercase">
           <tr>
-            <th scope="col" className="px-3 py-2">
+            <th scope="col" className="px-3 py-3">
               Title
             </th>
-            <th scope="col" className="px-3 py-2">
+            <th scope="col" className="px-3 py-3">
               Repo
             </th>
-            <th scope="col" className="px-3 py-2">
+            <th scope="col" className="px-3 py-3">
               Status
             </th>
-            <th scope="col" className="px-3 py-2">
+            <th scope="col" className="px-3 py-3">
               Priority
             </th>
-            <th scope="col" className="px-3 py-2">
+            <th scope="col" className="px-3 py-3">
               Updated
             </th>
-            <th scope="col" className="px-3 py-2">
+            <th scope="col" className="px-3 py-3">
               <span className="sr-only">Actions</span>
             </th>
           </tr>
@@ -702,6 +736,7 @@ function TicketsTable({
               repoName={repoName(ticket)}
               onEdit={() => onEdit(ticket)}
               onStart={() => onStart(ticket)}
+              onDelete={() => onDelete(ticket)}
             />
           ))}
         </tbody>
@@ -739,11 +774,27 @@ export function TicketsView() {
     repositories.find((repository) => repository.id === ticket.repo_id)?.name ??
     ticket.repo_id
 
+  const queryClient = useQueryClient()
   const [modal, setModal] = useState<{
     open: boolean
     ticket: TicketRead | null
   }>({ open: false, ticket: null })
   const [startTicket, setStartTicket] = useState<TicketRead | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<TicketRead | null>(null)
+  const [deleteError, setDeleteError] = useState<unknown>(null)
+
+  const deleteMutation = useMutation({
+    mutationFn: (ticketId: string) => deleteTicket(ticketId),
+    onSuccess: () => {
+      setDeleteTarget(null)
+      setDeleteError(null)
+      setModal({ open: false, ticket: null })
+      void queryClient.invalidateQueries({ queryKey: ['tickets'] })
+    },
+    onError: (error) => {
+      setDeleteError(error)
+    },
+  })
 
   function updateParam(key: 'view' | 'repo' | 'q', value: string | null) {
     const params = new URLSearchParams(searchParams)
@@ -761,67 +812,49 @@ export function TicketsView() {
     updateParam('view', next === 'board' ? null : 'table')
   }
 
+  function requestDelete(ticket: TicketRead) {
+    setDeleteError(null)
+    setDeleteTarget(ticket)
+  }
+
   const filterActive = repoId !== null || q.trim() !== ''
 
   return (
     <section>
       <PageHeader
         title="Tickets"
+        description="Plan and track work across repositories."
         actions={
           <>
-            <div
-              role="group"
-              aria-label="Ticket view"
-              className="flex rounded border border-gray-300 p-0.5 dark:border-gray-700"
-            >
-              <button
-                type="button"
-                aria-pressed={view === 'board'}
-                onClick={() => selectView('board')}
-                className={`rounded px-3 py-1.5 text-sm ${
-                  view === 'board'
-                    ? 'bg-blue-600 text-white'
-                    : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800'
-                }`}
-              >
-                Board
-              </button>
-              <button
-                type="button"
-                aria-pressed={view === 'table'}
-                onClick={() => selectView('table')}
-                className={`rounded px-3 py-1.5 text-sm ${
-                  view === 'table'
-                    ? 'bg-blue-600 text-white'
-                    : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800'
-                }`}
-              >
-                Table
-              </button>
-            </div>
-            <button
+            <SegmentedControl
+              label="Ticket view"
+              value={view}
+              options={[
+                { value: 'board', label: 'Board' },
+                { value: 'table', label: 'Table' },
+              ]}
+              onChange={selectView}
+            />
+            <Button
               type="button"
+              variant="primary"
               onClick={() => setModal({ open: true, ticket: null })}
-              className="rounded bg-blue-600 px-3 py-1.5 text-sm text-white"
             >
+              <Plus className="size-4" aria-hidden />
               New ticket
-            </button>
+            </Button>
           </>
         }
       />
 
-      <div className="mb-4 flex flex-wrap items-end gap-3">
-        <div>
-          <label htmlFor="ticket-repository-filter" className="block text-sm">
-            Repository
-          </label>
-          <select
+      <div className="mb-6 grid grid-cols-1 items-start gap-3 sm:grid-cols-[minmax(14rem,1fr)_minmax(18rem,2fr)]">
+        <Field label="Repository" htmlFor="ticket-repository-filter">
+          <Select
             id="ticket-repository-filter"
             value={repoId ?? ''}
             onChange={(event) =>
               updateParam('repo', event.target.value || null)
             }
-            className="mt-1 rounded border border-gray-300 px-2 py-1.5 dark:border-gray-700 dark:bg-gray-950"
           >
             <option value="">All repositories</option>
             {repositories.map((repository) => (
@@ -829,21 +862,17 @@ export function TicketsView() {
                 {repository.name}
               </option>
             ))}
-          </select>
-        </div>
-        <div>
-          <label htmlFor="ticket-search" className="block text-sm">
-            Search tickets
-          </label>
-          <input
+          </Select>
+        </Field>
+        <Field label="Search tickets" htmlFor="ticket-search">
+          <Input
             id="ticket-search"
             data-search-input
             value={q}
             onChange={(event) => updateParam('q', event.target.value)}
             placeholder="Filter by title"
-            className="mt-1 w-72 rounded border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-950"
           />
-        </div>
+        </Field>
       </div>
 
       {repositoriesQuery.isError ? (
@@ -886,6 +915,7 @@ export function TicketsView() {
               repoName={repoName}
               onEdit={(ticket) => setModal({ open: true, ticket })}
               onStart={setStartTicket}
+              onDelete={requestDelete}
             />
           ) : (
             <TicketsTable
@@ -893,20 +923,21 @@ export function TicketsView() {
               repoName={repoName}
               onEdit={(ticket) => setModal({ open: true, ticket })}
               onStart={setStartTicket}
+              onDelete={requestDelete}
             />
           )}
           {ticketsQuery.hasNextPage ? (
             <div className="mt-4">
-              <button
+              <Button
                 type="button"
+                variant="secondary"
                 onClick={() => void ticketsQuery.fetchNextPage()}
                 disabled={ticketsQuery.isFetchingNextPage}
-                className="rounded border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-700"
               >
                 {ticketsQuery.isFetchingNextPage
                   ? 'Loading more…'
                   : 'Load more'}
-              </button>
+              </Button>
             </div>
           ) : null}
         </>
@@ -917,6 +948,7 @@ export function TicketsView() {
           ticket={modal.ticket}
           repositories={repositories}
           onClose={() => setModal({ open: false, ticket: null })}
+          onDelete={requestDelete}
         />
       ) : null}
       {startTicket ? (
@@ -925,6 +957,38 @@ export function TicketsView() {
           onClose={() => setStartTicket(null)}
         />
       ) : null}
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="Delete ticket?"
+        confirmLabel="Delete ticket"
+        destructive
+        busy={deleteMutation.isPending}
+        onCancel={() => {
+          setDeleteTarget(null)
+          setDeleteError(null)
+        }}
+        onConfirm={() => {
+          if (deleteTarget) {
+            deleteMutation.mutate(deleteTarget.id)
+          }
+        }}
+      >
+        <p>
+          This permanently removes{' '}
+          <span className="font-medium text-[var(--color-ink)]">
+            {deleteTarget?.title}
+          </span>{' '}
+          and every run, approval, and usage record tied to it.
+        </p>
+        {deleteError instanceof ApiError && deleteError.status === 409 ? (
+          <p className="mt-3 text-[var(--color-danger)]" role="alert">
+            This ticket still has an active run. Cancel or finish the run before
+            deleting.
+          </p>
+        ) : deleteError ? (
+          <InlineApiError error={deleteError} />
+        ) : null}
+      </ConfirmDialog>
     </section>
   )
 }

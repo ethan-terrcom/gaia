@@ -26,10 +26,11 @@ cd backend && uv run gaia ui   # prints the one-time login URL; open it in your 
 | Route | View (`src/views/…`) | What it is for |
 |---|---|---|
 | `/` | `dashboard/` | active runs, what needs you, open PRs, today's spend, the last 14 days |
-| `/tickets` | `tickets/` | board and table, create and edit, **Start run** (with the default agent mode or one chosen for the run) |
-| `/runs/:id` | `run-detail/` | one run: header (with its agent mode and models), steps, approvals, live timeline, diff (`?tab=diff`), cancel |
-| `/approvals` | `approvals/` | the decision inbox: `j`/`k`, `a`/`r`, a typed `merge <n>`; plan steps show their worker, and a crowd plan shows **How the panel was used** |
-| `/prs` | `pull-requests/` | Gaia's PRs with CI and review state |
+| `/tickets` | `tickets/` | board and table, create/edit/**delete**, **Start run** (with the default agent mode or one chosen for the run) |
+| `/runs/:id` | `run-detail/` | one run: header (with its agent mode and models), steps, approvals, live chat-style timeline, auto-refreshing diff (`?tab=diff`), cancel |
+| `/approvals` | `approvals/` | the decision inbox: `j`/`k`, `a`/`r`, a typed `merge <n>`; plan steps show their worker, and a crowd plan shows **How the panel was used**; merge/open gates link to the in-app diff |
+| `/prs` | `pull-requests/` | list of Gaia's PRs; row links to the in-app desk |
+| `/prs/:id` | `pull-requests/PullRequestDetailView` | PR desk: CI/review rollups, embedded run diff, pending `pr_open`/`merge` gates, GitHub as escape hatch |
 | `/worktrees` | `worktrees/` | repositories (register, commands) and worktrees (flags, remove) |
 
 Each view owns its queries and passes the current global `fetch` per request, so tests can stub it.
@@ -112,9 +113,11 @@ badges and spend live; a run page can open its own with `{ runId }`.
 
 ### Styling and theme
 Tailwind v4, with no config file: `@import "tailwindcss"` in `src/index.css` and the
-`@tailwindcss/vite` plugin. Dark mode is class-based (`@custom-variant dark`). The toggle stores
-`light`, `dark` or `system` in `localStorage['gaia.theme']`. That is a preference, not a secret,
-which is why it may go there.
+`@tailwindcss/vite` plugin. Design tokens (surfaces, accent, radii, soft shadows) and **IBM Plex
+Sans / Mono** live in `@theme` / CSS variables there. Icons come from `lucide-react`. Shared
+controls sit under `src/components/ui/` (`Button`, `Input`, `SegmentedControl`, `Panel`, …). Dark
+mode is class-based (`@custom-variant dark`). The toggle stores `light`, `dark` or `system` in
+`localStorage['gaia.theme']`. That is a preference, not a secret, which is why it may go there.
 
 ### Why the type generator lives in `tools/openapi/`
 `openapi-typescript` builds its output with TypeScript's compiler API. TypeScript 7, which the
@@ -129,8 +132,9 @@ Every view uses these, so all views behave alike. Doc 17's shared rules require 
 |---|---|
 | `LoadingState`, `ErrorState`, `EmptyState` | the three states every view must handle. `ErrorState` shows an `ApiError`'s message and code, and a generic sentence for anything else, so raw exception text never reaches the screen |
 | `PageHeader` | the title row with optional actions |
-| `ConfirmDialog` | **every** destructive action. `requireText="merge 7"` makes the user type a phrase first: merge approvals, force-removing a dirty worktree. Escape cancels |
+| `ConfirmDialog` | **every** destructive action. `requireText="merge 7"` makes the user type a phrase first: merge approvals, force-removing a dirty worktree, ticket delete. Escape cancels |
 | `StatusBadge` (+ `status.ts`) | any status string (run, PR, CI, review, worktree). Unknown values render neutrally |
+| `ui/*` | `Button`, `IconButton`, `Input`/`Textarea`/`Select`, `SegmentedControl`, `Panel` — the polished product chrome |
 | `format.ts` | `formatUsd` (money arrives as decimal strings), `formatRelative`, `shortSha` |
 
 ## Checks

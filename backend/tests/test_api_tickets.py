@@ -311,3 +311,84 @@ async def test_mutating_ticket_routes_write_audit_rows(
 
     assert {row.action for row in rows} == {"repository.register", "ticket.create", "ticket.update"}
     assert sum(row.action == "ticket.update" for row in rows) == 1
+
+
+async def test_delete_ticket_removes_the_row_and_audits(
+    api: Api,
+    database: Database,
+) -> None:
+    workspace_id = api.app.state.services.principal.workspace_id
+    async with database.sessions() as session:
+        repository = await ScopedRepo(session, Repository, workspace_id).create(
+            name="delete-me-repo",
+            local_path="/tmp/delete-me-repo",
+        )
+        ticket = await ScopedRepo(session, Ticket, workspace_id).create(
+            repo_id=repository.id,
+            title="Disposable",
+        )
+        await session.commit()
+        ticket_id = ticket.id
+
+    deleted = await api.client.delete(f"/api/v1/tickets/{ticket_id}", headers=api.auth)
+    assert deleted.status_code == 204
+
+    missing = await api.client.get(f"/api/v1/tickets/{ticket_id}", headers=api.auth)
+    assert missing.status_code == 404
+
+    async with database.sessions() as session:
+        rows = list((await session.scalars(select(AuditLog))).all())
+    assert "ticket.delete" in {row.action for row in rows}
+
+
+async def test_delete_ticket_is_404_for_foreign_workspace(
+    api: Api,
+    database: Database,
+) -> None:
+    async with database.sessions() as session:
+        workspace = await make_workspace(session, slug="foreign-ticket-delete")
+        foreign_repo = await ScopedRepo(session, Repository, workspace.id).create(
+            name="foreign-repo",
+            local_path="/tmp/foreign-ticket-delete",
+        )
+        foreign_ticket = await ScopedRepo(session, Ticket, workspace.id).create(
+            repo_id=foreign_repo.id,
+            title="Stay put",
+        )
+        await session.commit()
+
+    response = await api.client.delete(
+        f"/api/v1/tickets/{foreign_ticket.id}",
+        headers=api.auth,
+    )
+    assert response.status_code == 404
+
+
+async def test_delete_ticket_refuses_active_run(
+    api: Api,
+    database: Database,
+) -> None:
+    from gaia.db.models import Run
+    from gaia.domain.enums import RunStatus
+
+    workspace_id = api.app.state.services.principal.workspace_id
+    async with database.sessions() as session:
+        repository = await ScopedRepo(session, Repository, workspace_id).create(
+            name="busy-repo",
+            local_path="/tmp/busy-repo",
+        )
+        ticket = await ScopedRepo(session, Ticket, workspace_id).create(
+            repo_id=repository.id,
+            title="Busy",
+        )
+        await ScopedRepo(session, Run, workspace_id).create(
+            ticket_id=ticket.id,
+            repo_id=repository.id,
+            status=RunStatus.IMPLEMENTING.value,
+        )
+        await session.commit()
+        ticket_id = ticket.id
+
+    response = await api.client.delete(f"/api/v1/tickets/{ticket_id}", headers=api.auth)
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "conflict"

@@ -424,6 +424,21 @@ class PullRequestPage(Schema):
     items: list[PullRequestRead]
 
 
+class PullRequestPendingApproval(Schema):
+    """A pending gate on the PR's run that the PR desk can deep-link to."""
+
+    id: str
+    kind: ApprovalKind
+
+
+class PullRequestDetail(PullRequestRead):
+    """One PR for the in-app desk: list fields plus worktree and pending gates."""
+
+    worktree_path: str | None = None
+    worktree_branch: str | None = None
+    pending_approvals: list[PullRequestPendingApproval] = Field(default_factory=list)
+
+
 class RunPullRequestRead(ReadSchema):
     """The PR fields a run detail shows, without the list route's repo context."""
 

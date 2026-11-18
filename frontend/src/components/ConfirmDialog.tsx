@@ -1,4 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { Button } from './ui/Button'
+import { Field } from './ui/Field'
+import { Input } from './ui/Input'
 
 /**
  * The confirmation every destructive action needs (doc 17, "Shared rules").
@@ -20,8 +23,6 @@ type ConfirmDialogProps = {
 }
 
 export function ConfirmDialog(props: ConfirmDialogProps) {
-  // The body mounts only while open, so the typed phrase resets on close
-  // without a state update in an effect.
   return props.open ? <DialogBody {...props} /> : null
 }
 
@@ -54,50 +55,48 @@ function DialogBody({
   const canConfirm =
     !busy && (requireText === undefined || typed === requireText)
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-[3px]">
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="w-full max-w-md rounded-lg bg-white p-5 shadow-xl dark:bg-gray-900"
+        className="w-full max-w-lg rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface-overlay)] p-5 shadow-[var(--shadow-panel)]"
       >
-        <h2 id={titleId} className="text-lg font-semibold">
+        <h2
+          id={titleId}
+          className="text-[16px] font-semibold tracking-[-0.02em] text-[var(--color-ink)]"
+        >
           {title}
         </h2>
-        {children ? <div className="mt-3 text-sm">{children}</div> : null}
+        {children ? (
+          <div className="mt-3 text-[13px] leading-relaxed text-[var(--color-ink-muted)]">
+            {children}
+          </div>
+        ) : null}
         {requireText !== undefined ? (
           <div className="mt-4">
-            <label htmlFor={inputId} className="block text-sm">
-              Type <code className="font-mono">{requireText}</code> to confirm
-            </label>
-            <input
-              id={inputId}
-              value={typed}
-              onChange={(event) => setTyped(event.target.value)}
-              autoComplete="off"
-              className="mt-1 w-full rounded border border-gray-300 px-2 py-1 font-mono dark:border-gray-700 dark:bg-gray-950"
-            />
+            <Field label={`Type ${requireText} to confirm`} htmlFor={inputId}>
+              <Input
+                id={inputId}
+                value={typed}
+                onChange={(event) => setTyped(event.target.value)}
+                autoComplete="off"
+                className="font-mono"
+              />
+            </Field>
           </div>
         ) : null}
         <div className="mt-5 flex justify-end gap-2">
-          <button
-            ref={cancelRef}
-            type="button"
-            onClick={onCancel}
-            className="rounded border border-gray-300 px-3 py-1.5 dark:border-gray-700"
-          >
+          <Button ref={cancelRef} variant="secondary" onClick={onCancel}>
             Cancel
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant={destructive ? 'danger' : 'primary'}
             onClick={onConfirm}
             disabled={!canConfirm}
-            className={`rounded px-3 py-1.5 text-white disabled:opacity-50 ${
-              destructive ? 'bg-red-600' : 'bg-blue-600'
-            }`}
           >
             {busy ? 'Working…' : confirmLabel}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

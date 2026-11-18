@@ -5,6 +5,9 @@ import { ApiError } from '../api/errors'
 import type { components } from '../api/schema'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { formatRelative } from '../components/format'
+import { Button } from '../components/ui/Button'
+import { Field } from '../components/ui/Field'
+import { Textarea } from '../components/ui/Input'
 
 type PauseAllResult = components['schemas']['PauseAllResult']
 
@@ -44,7 +47,7 @@ function InlineApiError({ error }: { error: unknown }) {
   return (
     <p
       role="alert"
-      className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-900 dark:border-red-800 dark:bg-red-950 dark:text-red-100"
+      className="rounded-[var(--radius-md)] border border-[var(--color-danger)]/30 bg-[var(--color-danger-soft)] p-3 text-[13px] text-[var(--color-danger)]"
     >
       {message}
     </p>
@@ -95,16 +98,17 @@ export function PauseControl({ variant }: { variant: 'button' | 'banner' }) {
     const trimmedReason = reason.trim()
     return (
       <>
-        <button
+        <Button
           type="button"
+          variant="danger"
+          size="sm"
           onClick={() => {
             pauseMutation.reset()
             setDialogOpen(true)
           }}
-          className="rounded border border-red-600 px-3 py-1.5 text-sm text-red-700 hover:bg-red-50 dark:border-red-500 dark:text-red-300 dark:hover:bg-red-950"
         >
           Pause all
-        </button>
+        </Button>
         <ConfirmDialog
           open={dialogOpen}
           title="Pause every run?"
@@ -121,22 +125,15 @@ export function PauseControl({ variant }: { variant: 'button' | 'banner' }) {
               Stops every running agent now and holds every run until you
               resume. Work in progress restarts from its last completed step.
             </p>
-            <div>
-              <label
-                htmlFor="pause-all-reason"
-                className="block text-sm font-medium"
-              >
-                Reason (optional)
-              </label>
-              <textarea
+            <Field label="Reason (optional)" htmlFor="pause-all-reason">
+              <Textarea
                 id="pause-all-reason"
                 value={reason}
                 onChange={(event) => setReason(event.target.value)}
                 maxLength={500}
                 rows={3}
-                className="mt-1 w-full rounded border border-gray-300 px-2 py-1 dark:border-gray-700 dark:bg-gray-950"
               />
-            </div>
+            </Field>
             {pauseMutation.isError ? (
               <InlineApiError error={pauseMutation.error} />
             ) : null}
@@ -148,7 +145,7 @@ export function PauseControl({ variant }: { variant: 'button' | 'banner' }) {
 
   if (pause?.paused && variant === 'banner') {
     return (
-      <div className="flex items-center gap-4 border-b border-amber-300 bg-amber-50 px-6 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
+      <div className="flex items-center gap-4 border-b border-[var(--color-warning)]/30 bg-[color-mix(in_srgb,var(--color-warning)_12%,transparent)] px-4 py-2 text-[13px] text-[var(--color-warning)]">
         <p className="min-w-0 flex-1">
           All runs are paused since {formatRelative(pause.since)}
           {pause.reason ? ` (${pause.reason})` : ''}
@@ -156,14 +153,15 @@ export function PauseControl({ variant }: { variant: 'button' | 'banner' }) {
         {resumeMutation.isError ? (
           <InlineApiError error={resumeMutation.error} />
         ) : null}
-        <button
+        <Button
           type="button"
+          variant="secondary"
+          size="sm"
           onClick={() => resumeMutation.mutate()}
           disabled={resumeMutation.isPending}
-          className="rounded border border-amber-600 px-3 py-1.5 text-sm disabled:opacity-50"
         >
           {resumeMutation.isPending ? 'Resuming…' : 'Resume all'}
-        </button>
+        </Button>
       </div>
     )
   }

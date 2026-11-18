@@ -820,7 +820,13 @@ function PrOpenKindDetail({ approval }: { approval: ApprovalRead }) {
   )
 }
 
-function MergeKindDetail({ payload }: { payload: Record<string, unknown> }) {
+function MergeKindDetail({
+  approval,
+  payload,
+}: {
+  approval: ApprovalRead
+  payload: Record<string, unknown>
+}) {
   const prNumber = prNumberFromPayload(payload)
   const prUrl = githubPrUrlFromPayload(payload)
   return (
@@ -829,25 +835,33 @@ function MergeKindDetail({ payload }: { payload: Record<string, unknown> }) {
         <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400">
           Pull request
         </h3>
-        <p className="mt-1">
+        <p className="mt-1 flex flex-wrap items-center gap-3">
           {prNumber === null ? (
             'Unknown PR number.'
-          ) : prUrl ? (
+          ) : (
+            <span className="font-medium">#{prNumber}</span>
+          )}
+          <Link
+            to={`/runs/${approval.run_id}?tab=diff`}
+            className="text-blue-600 hover:underline dark:text-blue-400"
+          >
+            View diff in Gaia
+          </Link>
+          {prUrl ? (
             <a
               href={prUrl}
               target="_blank"
               rel="noreferrer noopener"
-              className="text-blue-600 hover:underline dark:text-blue-400"
+              className="text-gray-500 hover:underline dark:text-gray-400"
             >
-              #{prNumber}
+              GitHub
             </a>
-          ) : (
-            <span>#{prNumber}</span>
-          )}
+          ) : null}
         </p>
       </div>
       <p className="text-sm text-gray-500 dark:text-gray-400">
-        Merging always requires typing the confirmation phrase.
+        Merging always requires typing the confirmation phrase. CI status is on
+        the run and PR desk in Gaia.
       </p>
     </div>
   )
@@ -1041,7 +1055,9 @@ function ApprovalDetail({
       content = <PrOpenKindDetail approval={approval} />
       break
     case 'merge':
-      content = <MergeKindDetail payload={approval.payload_json} />
+      content = (
+        <MergeKindDetail approval={approval} payload={approval.payload_json} />
+      )
       break
     case 'budget':
       content = (

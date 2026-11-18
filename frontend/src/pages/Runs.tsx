@@ -1,5 +1,10 @@
+import { PageShell } from '../components/ui/PageShell'
 import { RunsView } from '../views/runs/RunsView'
 
 export default function Runs() {
-  return <RunsView />
+  return (
+    <PageShell>
+      <RunsView />
+    </PageShell>
+  )
 }

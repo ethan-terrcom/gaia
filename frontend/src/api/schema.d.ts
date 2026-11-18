@@ -324,6 +324,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/pull-requests/{pull_request_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a pull request
+         * @description Return one PR for the in-app desk, with worktree path and pending gates.
+         */
+        get: operations["get_pull_request_api_v1_pull_requests__pull_request_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/repositories": {
         parameters: {
             query?: never;
@@ -599,7 +619,11 @@ export interface paths {
         get: operations["get_ticket_api_v1_tickets__ticket_id__get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete a ticket
+         * @description Delete a ticket and its cascade history, or 409 while a run is active.
+         */
+        delete: operations["delete_ticket_api_v1_tickets__ticket_id__delete"];
         options?: never;
         head?: never;
         /**
@@ -1118,12 +1142,64 @@ export interface components {
             secret_name: string;
         };
         /**
+         * PullRequestDetail
+         * @description One PR for the in-app desk: list fields plus worktree and pending gates.
+         */
+        PullRequestDetail: {
+            ci_status: components["schemas"]["CiStatus"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Head Sha */
+            head_sha: string | null;
+            /** Id */
+            id: string;
+            /** Number */
+            number: number;
+            /** Pending Approvals */
+            pending_approvals?: components["schemas"]["PullRequestPendingApproval"][];
+            /** Repo Name */
+            repo_name: string;
+            /** Review State */
+            review_state: string | null;
+            /** Run Id */
+            run_id: string;
+            run_status: components["schemas"]["RunStatus"];
+            state: components["schemas"]["PullRequestState"];
+            /** Ticket Id */
+            ticket_id: string;
+            /** Ticket Title */
+            ticket_title: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Url */
+            url: string;
+            /** Worktree Branch */
+            worktree_branch?: string | null;
+            /** Worktree Path */
+            worktree_path?: string | null;
+        };
+        /**
          * PullRequestPage
          * @description One page of pull requests (doc 15b).
          */
         PullRequestPage: {
             /** Items */
             items: components["schemas"]["PullRequestRead"][];
+        };
+        /**
+         * PullRequestPendingApproval
+         * @description A pending gate on the PR's run that the PR desk can deep-link to.
+         */
+        PullRequestPendingApproval: {
+            /** Id */
+            id: string;
+            kind: components["schemas"]["ApprovalKind"];
         };
         /**
          * PullRequestRead
@@ -2194,6 +2270,37 @@ export interface operations {
             };
         };
     };
+    get_pull_request_api_v1_pull_requests__pull_request_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pull_request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PullRequestDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_repositories_api_v1_repositories_get: {
         parameters: {
             query?: never;
@@ -2710,6 +2817,35 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["TicketRead"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_ticket_api_v1_tickets__ticket_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

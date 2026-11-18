@@ -90,7 +90,7 @@ describe('TodaySpend', () => {
     const { container } = renderWithClient(<TodaySpend />)
 
     await screen.findByText('$16.00 / $20.00')
-    expect(container.querySelector('.bg-amber-500')).not.toBeNull()
+    expect(container.innerHTML).toContain('--color-warning')
   })
 
   it('turns red at 100%', async () => {
@@ -104,6 +104,6 @@ describe('TodaySpend', () => {
     const { container } = renderWithClient(<TodaySpend />)
 
     await screen.findByText('$20.00 / $20.00')
-    expect(container.querySelector('.bg-red-500')).not.toBeNull()
+    expect(container.innerHTML).toContain('--color-danger')
   })
 })

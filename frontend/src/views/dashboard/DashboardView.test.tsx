@@ -256,7 +256,7 @@ describe('DashboardView', () => {
 
     // Open PRs card.
     const prLink = screen.getByRole('link', { name: '#42' })
-    expect(prLink.getAttribute('href')).toBe('/prs')
+    expect(prLink.getAttribute('href')).toBe('/prs/pr-1')
     expect(screen.getByText('Fix login bug')).toBeTruthy()
     expect(screen.getByText('passed')).toBeTruthy()
 

@@ -18,7 +18,7 @@ Starting runs (12/14) and importing GitHub Issues (15).
 | GET | `/repositories` | |
 | GET | `/repositories/{id}` | includes worktree count and active runs |
 | DELETE | `/repositories/{id}` | unregister only; **never** delete files on disk |
-| POST/GET/PATCH | `/tickets`, `/tickets/{id}` | PATCH status goes through `transition()` |
+| POST/GET/PATCH/DELETE | `/tickets`, `/tickets/{id}` | PATCH status goes through `transition()`; DELETE is hard-delete with **409** while a run is active |
 | GET | `/tickets?status=&repo_id=&q=` | paginated (`limit` ≤ 100, cursor) |
 | GET | `/agents` | the agent roster with live status (static rows for now) |
 | GET | `/worktrees?repo_id=` | from `WorktreeService.list`, including orphan flags; add `dirty` here with one `GitService.is_dirty` per row (doc 05 deviation 7 - it is deliberately not in `list()`) |
@@ -67,6 +67,9 @@ API tests with `httpx.AsyncClient` against an in-memory SQLite DB:
    `repo_id` through `ScopedRepo.get` before writing the child, and `PATCH` routes status
    through `transition()`. The route layer only maps `TicketParentNotFound` /
    `TicketNotFound` to 404 and appends the audit row.
+5b. **`DELETE /tickets/{id}` (2026-11-17).** Hard-delete via `TicketService.delete`: **409**
+   while any run for the ticket is non-terminal; otherwise cascades runs/history and audits
+   `ticket.delete`. Soft-delete was declined.
 6. **The curl acceptance criterion is proven by an httpx end-to-end test** because the
    sandbox has no running server: register a real fixture repo, create a ticket, create a
    worktree through `WorktreeService`, list worktrees with the dirty flag, and remove one.

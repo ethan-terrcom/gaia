@@ -91,7 +91,7 @@ describe('PullRequestsView', () => {
     expect(screen.getByTitle('2026-11-14T09:00:00Z')).toBeTruthy()
   })
 
-  it('links a GitHub PR out in a new tab', async () => {
+  it('links the PR number to the in-app desk and GitHub as an escape hatch', async () => {
     vi.stubGlobal(
       'fetch',
       fetchMock(() => jsonResponse(200, { items: [pr] })),
@@ -99,15 +99,19 @@ describe('PullRequestsView', () => {
 
     renderView()
 
-    const link = await screen.findByRole('link', { name: '#42' })
-    expect(link.getAttribute('href')).toBe(
+    const desk = await screen.findByRole('link', { name: '#42' })
+    expect(desk.getAttribute('href')).toBe('/prs/pr-1')
+    const github = screen.getByRole('link', {
+      name: 'Open PR #42 on GitHub',
+    })
+    expect(github.getAttribute('href')).toBe(
       'https://github.com/acme/repo/pull/42',
     )
-    expect(link.getAttribute('target')).toBe('_blank')
-    expect(link.getAttribute('rel')).toBe('noreferrer noopener')
+    expect(github.getAttribute('target')).toBe('_blank')
+    expect(github.getAttribute('rel')).toBe('noreferrer noopener')
   })
 
-  it('renders a non-GitHub PR URL as text instead of a link', async () => {
+  it('still links a non-GitHub PR to the in-app desk', async () => {
     vi.stubGlobal(
       'fetch',
       fetchMock(() =>
@@ -119,9 +123,11 @@ describe('PullRequestsView', () => {
 
     renderView()
 
-    const number = await screen.findByText('#42')
-    expect(number.closest('a')).toBeNull()
-    expect(screen.queryByRole('link', { name: '#42' })).toBeNull()
+    const desk = await screen.findByRole('link', { name: '#42' })
+    expect(desk.getAttribute('href')).toBe('/prs/pr-1')
+    expect(
+      screen.queryByRole('link', { name: 'Open PR #42 on GitHub' }),
+    ).toBeNull()
   })
 
   it('changes the API state query and the URL with the filter', async () => {

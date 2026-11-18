@@ -1,5 +1,10 @@
+import { PageShell } from '../components/ui/PageShell'
 import WorktreesView from '../views/worktrees/WorktreesView'
 
 export default function Worktrees() {
-  return <WorktreesView />
+  return (
+    <PageShell>
+      <WorktreesView />
+    </PageShell>
+  )
 }

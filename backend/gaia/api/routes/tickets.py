@@ -9,7 +9,12 @@ from fastapi import APIRouter, HTTPException, Query, status
 from gaia.api.deps import PrincipalDep, ScopedDep, append_audit_log
 from gaia.domain.enums import TicketStatus
 from gaia.domain.schemas import TicketCreate, TicketPage, TicketPatch, TicketRead
-from gaia.services.tickets import TicketNotFound, TicketParentNotFound, TicketService
+from gaia.services.tickets import (
+    TicketHasActiveRun,
+    TicketNotFound,
+    TicketParentNotFound,
+    TicketService,
+)
 
 router = APIRouter(tags=["tickets"])
 
@@ -115,3 +120,34 @@ async def update_ticket(
         details=details,
     )
     return TicketRead.model_validate(ticket)
+
+
+@router.delete(
+    "/tickets/{ticket_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a ticket",
+)
+async def delete_ticket(
+    ticket_id: str,
+    scoped: ScopedDep,
+    principal: PrincipalDep,
+) -> None:
+    """Delete a ticket and its cascade history, or 409 while a run is active."""
+    service = TicketService(scoped.session, scoped.workspace_id)
+    try:
+        ticket = await service.delete(ticket_id)
+    except TicketNotFound:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "ticket not found") from None
+    except TicketHasActiveRun:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "ticket has an active run",
+        ) from None
+    await append_audit_log(
+        scoped.session,
+        scoped.workspace_id,
+        actor_user_id=principal.user_id,
+        action="ticket.delete",
+        target=ticket.id,
+        details={"repo_id": ticket.repo_id},
+    )

@@ -19,9 +19,18 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from gaia.db.models import Repository, Ticket
+from gaia.db.models import Repository, Run, Ticket
 from gaia.db.repo import ScopedRepo, TicketRepo
+from gaia.domain.enums import RunStatus
 from gaia.domain.state import transition
+
+_TERMINAL_RUN_STATUSES = frozenset(
+    {
+        RunStatus.FAILED.value,
+        RunStatus.COMPLETED.value,
+        RunStatus.CANCELLED.value,
+    }
+)
 
 
 class TicketParentNotFound(LookupError):
@@ -40,6 +49,14 @@ class TicketNotFound(LookupError):
         super().__init__(f"no ticket with id {ticket_id!r} in this workspace")
 
 
+class TicketHasActiveRun(RuntimeError):
+    """Delete refused because the ticket still has a non-terminal run."""
+
+    def __init__(self, ticket_id: str) -> None:
+        self.ticket_id = ticket_id
+        super().__init__(f"ticket {ticket_id!r} still has an active run")
+
+
 @dataclass(frozen=True)
 class TicketPage:
     """One page of tickets and the cursor for the next page."""
@@ -54,6 +71,7 @@ class TicketService:
     def __init__(self, session: AsyncSession, workspace_id: str) -> None:
         self.tickets: TicketRepo = TicketRepo(session, Ticket, workspace_id)
         self.repositories: ScopedRepo[Repository] = ScopedRepo(session, Repository, workspace_id)
+        self.runs: ScopedRepo[Run] = ScopedRepo(session, Run, workspace_id)
 
     async def create(
         self,
@@ -99,6 +117,19 @@ class TicketService:
         if values:
             ticket = await self.tickets.update(ticket_id, **values)
         return ticket
+
+    async def delete(self, ticket_id: str) -> Ticket:
+        """Delete ``ticket_id`` after proving it has no non-terminal runs.
+
+        Cascades remove the ticket's runs and run-scoped history. Callers must
+        surface :class:`TicketHasActiveRun` as HTTP 409 so an in-flight run is
+        never erased under the operator.
+        """
+        await self.get(ticket_id)
+        runs = await self.runs.list(ticket_id=ticket_id)
+        if any(run.status not in _TERMINAL_RUN_STATUSES for run in runs):
+            raise TicketHasActiveRun(ticket_id)
+        return await self.tickets.delete(ticket_id)
 
     async def list_page(
         self,
