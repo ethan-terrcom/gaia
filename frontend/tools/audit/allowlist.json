@@ -1,0 +1,9 @@
+[
+  {
+    "id": "GHSA-fc5q-39xc-vjpf",
+    "package": "picomatch",
+    "added": "2026-11-17",
+    "expires": "2026-12-17",
+    "reason": "ReDoS in picomatch <=4.0.7, reached through vite and vitest (dev and test only; globs are Gaia's own). No patched picomatch exists yet. Accepted risk A10 in docs/SECURITY.md."
+  }
+]

@@ -82,7 +82,7 @@ secrets: ## Scan the full git history for secrets with gitleaks
 audit: ## Scan locked backend and frontend dependencies for known vulnerabilities (doc 18c)
 	cd $(BACKEND) && uv export --frozen --no-emit-project --format requirements-txt \
 		| uvx --from pip-audit==2.10.1 pip-audit --strict --disable-pip -r /dev/stdin
-	cd $(FRONTEND) && npm audit --audit-level=high
-	cd $(FRONTEND)/tools/openapi && npm audit --audit-level=high
+	cd $(FRONTEND) && node tools/audit/audit-check.mjs
+	cd $(FRONTEND)/tools/openapi && node ../audit/audit-check.mjs
 
 check: lint typecheck test secrets ## Everything CI runs: lint, typecheck, test, secrets
