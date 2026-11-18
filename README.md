@@ -36,7 +36,7 @@ make run           # or: one process serving the built UI and the API on :8765
 make demo          # a full run with fake models: no keys, no cost
 ```
 
-Run `make` with no arguments to list every target.
+To list all available Make targets, run `make` without arguments.
 
 ## The API
 
