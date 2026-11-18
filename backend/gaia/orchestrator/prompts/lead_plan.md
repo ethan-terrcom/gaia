@@ -24,6 +24,9 @@ Return a `Plan` that matches the provided schema:
 - **`files_likely_touched`** lists repository-relative paths, including the test files.
 - **`acceptance`** lists checkable statements, such as "`foo --verbose` prints the resolved config"
   or "a test covers an empty input", never "code is clean".
+- **`worker`**: when the message lists workers, the id of the worker who should implement the
+  step. Give each step to the cheapest worker that can do it well, and hard or subtle steps to the
+  strongest. When no workers are listed, set it to `null`.
 - **`test_command`** is the argv list that proves the step, such as `["pytest", "-q",
   "tests/test_cli.py"]`, or `null` when the repository has no runnable tests for it. Use the
   repository's own test runner as shown in the context. Only ordinary test, lint and type-check

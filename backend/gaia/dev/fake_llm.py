@@ -17,7 +17,7 @@ from typing import Any
 
 import httpx
 
-from gaia.domain.plans import Plan, PlanStep, Review
+from gaia.domain.plans import CrowdPlan, Plan, PlanStep, Review
 
 #: Fixed token counts. Small enough to be cheap, non-zero so the dashboard shows
 #: a real metered cost through the real price table.
@@ -52,7 +52,15 @@ DEMO_REVIEW = Review(
     issues=[],
 )
 
+#: The lead's merge of the panel in wisdom-of-crowds mode (doc 19b): the demo
+#: plan, plus the provenance a ``CrowdPlan`` must carry.
+DEMO_CROWD_PLAN = CrowdPlan(
+    **DEMO_PLAN.model_dump(),
+    provenance=["Demo: the one step comes from Plan A."],
+)
+
 DEMO_PLAN_JSON = DEMO_PLAN.model_dump_json()
+DEMO_CROWD_PLAN_JSON = DEMO_CROWD_PLAN.model_dump_json()
 DEMO_REVIEW_JSON = DEMO_REVIEW.model_dump_json()
 
 ANTHROPIC_REQUEST_ID = "req_fake_anthropic"
@@ -157,6 +165,8 @@ class FakeProviderTransport(httpx.AsyncBaseTransport):
         """The text content this request should carry."""
         if _schema_contains(payload, "verdict"):
             return DEMO_REVIEW_JSON
+        if _schema_contains(payload, "provenance"):
+            return DEMO_CROWD_PLAN_JSON
         if _schema_contains(payload, "steps") and _schema_contains(payload, "summary"):
             return DEMO_PLAN_JSON
         if "output_format" in payload:
@@ -253,6 +263,8 @@ class FakeProviderTransport(httpx.AsyncBaseTransport):
             system = _system_prompt(payload)
             if '"verdict"' in system:
                 return DEMO_REVIEW_JSON
+            if '"provenance"' in system:
+                return DEMO_CROWD_PLAN_JSON
             if '"steps"' in system and '"summary"' in system:
                 return DEMO_PLAN_JSON
             return '{"message":"demo structured response"}'

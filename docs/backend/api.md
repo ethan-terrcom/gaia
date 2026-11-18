@@ -175,7 +175,7 @@ dashboard (17a).
 ## Runs and approvals (package 14)
 | Route | What it does |
 |---|---|
-| `POST /api/v1/runs` `{ticket_id, junior_runtime?, budget_usd?}` | Starts a run (201). 404 for an unknown ticket, 409 if the ticket already has an active run, 503 if the orchestrator is off |
+| `POST /api/v1/runs` `{ticket_id, agent_config?, junior_runtime?, budget_usd?}` | Starts a run (201). `agent_config` (doc 19b) picks the mode and models for this run; without it the saved default applies. The run stores the config it started with (`RunRead.agent_config`). 422 `unknown_model` for a model not in the catalog, 422 `provider_not_configured` (naming the `gaia secrets set …` commands) when a provider's key is missing, 422 for `agent_config` and `junior_runtime` together; 404 for an unknown ticket, 409 if the ticket already has an active run, 503 if the orchestrator is off |
 | `GET /api/v1/runs?status=&limit=&cursor=` | Runs, newest first, with the ticket title, current step, PR and CI, in one query |
 | `GET /api/v1/runs/{id}` | The run with its steps, worktree, approvals and PR |
 | `POST /api/v1/runs/{id}/cancel` | Cancels the run (the worktree is kept); 409 if it has already finished |
@@ -184,8 +184,11 @@ dashboard (17a).
 | `GET /api/v1/admin/pause` | `{paused, since, reason}` (18a) |
 | `POST /api/v1/admin/pause-all` `{reason?}` | The kill switch: stops every running agent and holds every run → `{paused_run_ids}` |
 | `POST /api/v1/admin/resume-all` | Clears the switch and resumes the paused runs → `{resumed_run_ids}` |
-| `GET /api/v1/admin/auto-mode` | `{claude, deepseek}`: which model families run commands without asking |
-| `PATCH /api/v1/admin/auto-mode` `{claude?, deepseek?}` | Switches one or both families; an omitted family is unchanged. Audited as `admin.auto_mode` with before and after. Both routes answer 503 when the orchestrator is off |
+| `GET /api/v1/admin/auto-mode` | `{claude, deepseek, openai, xai}`: which model families run commands without asking |
+| `PATCH /api/v1/admin/auto-mode` `{claude?, deepseek?, openai?, xai?}` | Switches one or more families; an omitted family is unchanged. Audited as `admin.auto_mode` with before and after. Both routes answer 503 when the orchestrator is off |
+| `GET /api/v1/admin/agent-mode` | `{config, saved}`: the agent mode and models a new run uses (doc 19b). `saved: false` means the settings-derived default (two tiered, `planner_model` leads, `junior_model` works) |
+| `PUT /api/v1/admin/agent-mode` `AgentModeConfig` | Saves the default for new runs; runs already started keep their own. 422 `unknown_model` for a model not in the catalog (keys are checked when a run starts, so a default may name a provider before its key is added). Audited as `admin.agent_mode`. 503 when the orchestrator is off |
+| `GET /api/v1/models` | Providers (`configured`, keychain entry name) and catalog models (label, tier, prices, `available`) (19a) |
 
 `POST /runs` also answers **409** `daily_budget_exhausted` at the daily cap, and, like graph-gate
 decisions, **409** `orchestrator_paused` while the kill switch is on.

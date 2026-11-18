@@ -120,8 +120,13 @@ class RunManager:
         created_by: str,
         junior_runtime: RuntimeKind | None = None,
         budget_usd: Decimal | None = None,
+        agent_config: dict[str, Any] | None = None,
     ) -> str:
-        """Create the run row and launch the graph in the background."""
+        """Create the run row and launch the graph in the background.
+
+        ``agent_config`` is the resolved :class:`~gaia.domain.agent_modes.AgentModeConfig`
+        as JSON. The run keeps it, so a resume uses the same models (doc 19b, M3).
+        """
         self._raise_if_paused()
         run_id = uuid7()
         async with session_scope(self.deps.sessions) as session:
@@ -142,6 +147,7 @@ class RunManager:
                 ),
                 graph_thread_id=run_id,
                 created_by=created_by,
+                agent_config=agent_config,
             )
 
         self._launch(run_id, _initial_state(run_id, ticket_id, ticket.repo_id, workspace_id))

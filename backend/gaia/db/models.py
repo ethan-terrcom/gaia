@@ -222,6 +222,9 @@ class Run(UUIDPrimaryKey, WorkspaceScoped, CreatedBy, Timestamps, Base):
     )
     #: Chosen at implementation time, so it can still be unset while planning.
     junior_runtime: Mapped[str | None] = mapped_column(String(32), default=None)
+    #: The :class:`~gaia.domain.agent_modes.AgentModeConfig` this run started
+    #: with (doc 19b). ``None`` for runs started before 19b.
+    agent_config: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=None)
     status: Mapped[str] = mapped_column(String(32), default=RunStatus.PENDING.value)
     #: LangGraph's ``thread_id``. The graph owns the workflow position; the run
     #: row is a projection that nodes upsert (the 2026-11-12 review, section 3.2).

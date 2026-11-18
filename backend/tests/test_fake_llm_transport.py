@@ -424,3 +424,16 @@ def test_title_with_empty_title_line_falls_back() -> None:
 
 def test_latest_command_passed_ignores_non_tool_messages() -> None:
     assert fake_llm_module._latest_command_passed([{"role": "user", "content": "hi"}]) is False
+
+
+def test_json_mode_crowd_merge_gets_the_demo_crowd_plan() -> None:
+    from gaia.dev.fake_llm import DEMO_CROWD_PLAN_JSON
+
+    merged = FakeProviderTransport()._deepseek_text(
+        {
+            "response_format": {"type": "json_object"},
+            "messages": [{"role": "system", "content": 'schema with "provenance" and "steps"'}],
+        }
+    )
+
+    assert merged == DEMO_CROWD_PLAN_JSON

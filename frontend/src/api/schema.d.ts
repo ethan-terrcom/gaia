@@ -28,6 +28,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/agent-mode": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the default agent mode
+         * @description Return the mode and models a new run uses unless it names its own (doc 19b).
+         */
+        get: operations["get_agent_mode_api_v1_admin_agent_mode_get"];
+        /**
+         * Save the default agent mode
+         * @description Save the default for new runs. Runs already started keep their own config.
+         *
+         *     Every model must be in the catalog. Provider keys are checked when a run
+         *     starts, not here, so a default can name a provider before its key is added.
+         */
+        put: operations["put_agent_mode_api_v1_admin_agent_mode_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/auto-mode": {
         parameters: {
             query?: never;
@@ -630,6 +657,43 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /**
+         * AgentMode
+         * @description How a run's work is divided between models (owner decisions M1-M4).
+         * @enum {string}
+         */
+        AgentMode: "single" | "tiered" | "crowd";
+        /**
+         * AgentModeConfig
+         * @description Which models play which roles in one run.
+         *
+         *     - ``single``: ``lead_model`` is the one model. No workers, no panel.
+         *     - ``tiered``: ``lead_model`` plans, reviews and takes over failing steps;
+         *       ``worker_models`` (1 to 4) implement steps.
+         *     - ``crowd``: as ``tiered``, plus ``panel_models`` (2 to 5) whose plans the
+         *       lead merges.
+         */
+        AgentModeConfig: {
+            /** Lead Model */
+            lead_model: string;
+            mode: components["schemas"]["AgentMode"];
+            /** Panel Models */
+            panel_models?: string[];
+            /** Worker Models */
+            worker_models?: string[];
+        };
+        /**
+         * AgentModeDefault
+         * @description The agent mode a new run uses unless it names its own (doc 19b).
+         *
+         *     ``saved`` is false when the owner has not saved a default yet, so the
+         *     config shown is the one derived from settings (two tiered, today's models).
+         */
+        AgentModeDefault: {
+            config: components["schemas"]["AgentModeConfig"];
+            /** Saved */
+            saved: boolean;
+        };
+        /**
          * AgentRead
          * @description A configured agent.
          */
@@ -1226,8 +1290,13 @@ export interface components {
         /**
          * RunCreate
          * @description Start a run. The status starts at ``pending`` and cannot be set here.
+         *
+         *     ``agent_config`` overrides the saved default for this run (doc 19b, M3).
+         *     ``junior_runtime`` is the older per-run override, kept for API clients; it
+         *     cannot be combined with ``agent_config``.
          */
         RunCreate: {
+            agent_config?: components["schemas"]["AgentModeConfig"] | null;
             /** Budget Usd */
             budget_usd?: number | string | null;
             junior_runtime?: components["schemas"]["RuntimeKind"] | null;
@@ -1301,6 +1370,7 @@ export interface components {
          * @description A run, including the money that has been spent on it so far.
          */
         RunRead: {
+            agent_config?: components["schemas"]["AgentModeConfig"] | null;
             /** Budget Usd */
             budget_usd: string;
             /** Cost Usd */
@@ -1395,6 +1465,7 @@ export interface components {
          * @description One row of the dashboard runs list (doc 14).
          */
         RunSummary: {
+            agent_config?: components["schemas"]["AgentModeConfig"] | null;
             /** Budget Usd */
             budget_usd: string;
             ci_status: components["schemas"]["CiStatus"] | null;
@@ -1717,6 +1788,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Health"];
+                };
+            };
+        };
+    };
+    get_agent_mode_api_v1_admin_agent_mode_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentModeDefault"];
+                };
+            };
+        };
+    };
+    put_agent_mode_api_v1_admin_agent_mode_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentModeConfig"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentModeDefault"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

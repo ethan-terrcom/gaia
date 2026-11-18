@@ -861,3 +861,41 @@ async def test_default_token_and_budget_helpers_use_real_db(
     await runtime._revoke_token_default(task, minted.token_id)
     assert await runtime._budget_exhausted_default(task) is True
     assert await runtime._budget_exhausted_default(_task(worktree, git_repo)) is False
+
+
+async def test_a_task_model_overrides_the_runtime_default_and_is_priced_as_such(
+    worktree: Any,
+    git_repo: Path,
+    git_service: GitService,
+    tmp_path: Path,
+) -> None:
+    captured: list[Any] = []
+    script: list[Any] = [
+        SdkToolCall(
+            "finish",
+            {"summary": "done", "tests_run": [], "tests_passed": True, "concerns": []},
+        ),
+        success_result(usage={"input_tokens": 1_000_000, "output_tokens": 0}),
+    ]
+    holder: list[ClaudeAgentSdkRuntime] = []
+
+    def capturing_factory(options: Any) -> FakeSdkClient:
+        captured.append(options)
+        return FakeSdkClient(options, script, runtime=holder[0])
+
+    prices = PriceTable(
+        {
+            "test-model": ModelPrice(rates=PriceRates(input=Decimal(1), output=Decimal(1))),
+            "other-model": ModelPrice(rates=PriceRates(input=Decimal(3), output=Decimal(1))),
+        }
+    )
+    runtime = _make_runtime(
+        tmp_path, git_service, script=script, client_factory=capturing_factory, price_table=prices
+    )
+    holder.append(runtime)
+    task = _task(worktree, git_repo).model_copy(update={"model": "other-model"})
+
+    result = await runtime.run_task(task, RecordingSink())
+
+    assert captured[0].model == "other-model"
+    assert result.usage.cost_usd == Decimal(3)

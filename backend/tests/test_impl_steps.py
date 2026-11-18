@@ -16,6 +16,7 @@ from gaia.domain.enums import AgentRole, RuntimeKind
 from gaia.domain.plans import PlanStep
 from gaia.orchestrator.impl.steps import (
     RuntimeStepRunner,
+    StepChoice,
     _argv_tuple,
     _extra_allow,
     render_step_instructions,
@@ -23,6 +24,7 @@ from gaia.orchestrator.impl.steps import (
 from gaia.runtimes.approvals import InMemoryApprovalBroker
 from gaia.runtimes.base import AgentResult, AgentRuntime, AgentTask, RuntimeRegistry, RuntimeUsage
 from gaia.runtimes.fake import FakeRuntime, Finish
+from gaia.services.costs import load_price_table
 from gaia.services.events import EventBus
 from gaia.services.git import GitService
 from gaia.services.worktrees import WorktreeService
@@ -372,6 +374,7 @@ def _runner_for(
         git=step_world.git,
         runtimes=registry,
         bus=EventBus(step_world.sessions),
+        price_table=load_price_table(),
     )
 
 
@@ -421,14 +424,44 @@ def test_argv_tuple_handles_empty_and_malformed_commands() -> None:
     assert _argv_tuple(["pytest", "-q"]) == ("pytest", "-q")
 
 
-async def test_choose_runtime_falls_back_to_settings_for_junior(step_world: StepWorld) -> None:
+async def test_choose_uses_the_legacy_config_for_a_run_without_one(
+    step_world: StepWorld,
+) -> None:
     junior = RecordingRuntime("native_deepseek", FileWritingRuntime())
     lead = RecordingRuntime("claude_agent_sdk", FileWritingRuntime())
     runner = _runner_for(step_world, junior=junior, lead=lead)
     run = Run(id="run", ticket_id="ticket", repo_id="repo", junior_runtime=None)
+    step = PlanStep(title="t", instructions="i", files_likely_touched=[], acceptance=[])
 
-    runtime_kind, role, max_turns = runner._choose_runtime(run, 1)
+    first = runner._choose(run, step, 1)
+    third = runner._choose(run, step, 3)
 
-    assert runtime_kind is RuntimeKind.NATIVE_DEEPSEEK
-    assert role is AgentRole.JUNIOR
-    assert max_turns == 60
+    assert first == StepChoice(
+        runtime=RuntimeKind.NATIVE_DEEPSEEK,
+        model="deepseek-v4-pro",
+        role=AgentRole.JUNIOR,
+        max_turns=60,
+    )
+    assert third.runtime is RuntimeKind.CLAUDE_AGENT_SDK
+    assert third.model == "claude-opus-5-5"
+    assert third.role is AgentRole.LEAD
+
+
+async def test_choose_honours_the_old_claude_junior_override(step_world: StepWorld) -> None:
+    runner = _runner_for(
+        step_world,
+        junior=RecordingRuntime("native_deepseek", FileWritingRuntime()),
+        lead=RecordingRuntime("claude_agent_sdk", FileWritingRuntime()),
+    )
+    run = Run(
+        id="run",
+        ticket_id="ticket",
+        repo_id="repo",
+        junior_runtime=RuntimeKind.CLAUDE_AGENT_SDK.value,
+    )
+    step = PlanStep(title="t", instructions="i", files_likely_touched=[], acceptance=[])
+
+    choice = runner._choose(run, step, 1)
+
+    assert choice.runtime is RuntimeKind.CLAUDE_AGENT_SDK
+    assert choice.role is AgentRole.JUNIOR

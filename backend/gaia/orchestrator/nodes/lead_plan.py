@@ -16,7 +16,8 @@ from gaia.orchestrator.state import RunState
 
 async def lead_plan(state: RunState, deps: GraphDeps) -> dict[str, Any]:
     """Produce the plan and persist its steps exactly once."""
-    plan = await deps.planner.plan(state["run_id"])
+    outcome = await deps.planner.plan(state["run_id"])
+    plan = outcome.plan
     async with session_scope(deps.sessions) as session:
         run = await load_run(session, state)
         transition(run, RunStatus.PLANNING)
@@ -30,4 +31,4 @@ async def lead_plan(state: RunState, deps: GraphDeps) -> dict[str, Any]:
                     title=step.title,
                     spec_json=step.model_dump(),
                 )
-    return {"plan": plan.model_dump()}
+    return {"plan": plan.model_dump(), "plan_meta": outcome.meta()}

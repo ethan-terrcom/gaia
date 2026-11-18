@@ -260,3 +260,129 @@ async def test_demo_mode_e2e_from_post_runs_to_pr_open(
 
     for shared_client in shared_clients:
         await shared_client.close_for_real()
+
+
+# --- agent modes end to end (doc 19b) --------------------------------------
+
+STRAIGHT_SHOT = {"mode": "single", "lead_model": "gpt-6.2-sol"}
+CROWD = {
+    "mode": "crowd",
+    "lead_model": "claude-opus-5-5",
+    "worker_models": ["deepseek-v4-pro"],
+    "panel_models": ["gpt-6.2-sol", "grok-4.7", "deepseek-flash"],
+}
+
+
+async def _demo_run(
+    database: Any,
+    git_repo: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    agent_config: dict[str, Any],
+) -> Any:
+    """Build a demo-mode app whose LLM transport is the in-process fake.
+
+    Returns ``(app, store, shared_clients)``; ``agent_config`` is the caller's.
+    """
+    del agent_config
+    store = InMemorySecretStore()
+    store.set(SecretName.GAIA_API_TOKEN, "admin-token")
+    monkeypatch.setattr(app_module, "get_secret_store", lambda: store)
+    settings = Settings(
+        data_dir=tmp_path / "gaia-data",
+        db_url=database.url,
+        fake_llm=True,
+        orchestrator_enabled=True,
+        pr_sync_enabled=False,
+        cleanup_enabled=False,
+        run_budget_usd=5.0,
+        step_timeout_s=120,
+        check_timeout_s=120,
+        command_approval_timeout_s=60,
+    )
+    shared: list[_ReusableAsyncClient] = []
+    app_ref: Any = None
+
+    def build_wiring_for_test(**kwargs: Any) -> Any:
+        client = _ReusableAsyncClient(transport=httpx2.ASGITransport(app=app_ref))
+        shared.append(client)
+        return original_build_wiring(
+            **kwargs,
+            llm_http_client=client,
+            command_runner=FakeCommandRunner(),
+            pull_requests=FakePullRequests(pr_number=1, default_ci="passed"),
+        )
+
+    monkeypatch.setattr(app_module, "build_wiring", build_wiring_for_test)
+    app = create_app(settings)
+    app_ref = app
+    return app, store, shared
+
+
+@pytest.mark.parametrize(
+    ("agent_config", "plan_gate"),
+    [(STRAIGHT_SHOT, False), (CROWD, True)],
+    ids=["straight-shot", "crowd"],
+)
+async def test_demo_mode_runs_each_agent_mode(
+    database: Any,
+    git_repo: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    agent_config: dict[str, Any],
+    plan_gate: bool,
+) -> None:
+    app, store, shared = await _demo_run(database, git_repo, tmp_path, monkeypatch, agent_config)
+
+    async with app.router.lifespan_context(app):
+        services = app.state.services
+        workspace_id = services.principal.workspace_id
+        async with session_scope(services.sessions) as session:
+            repository = await ScopedRepo(session, Repository, workspace_id).create(
+                name="modes-e2e",
+                local_path=str(git_repo),
+                test_command=["python3", "-m", "unittest", "-q"],
+            )
+            ticket = await ScopedRepo(session, Ticket, workspace_id).create(
+                repo_id=repository.id,
+                title="Add a demo note",
+                body="Write GAIA_DEMO.md with a short note.",
+            )
+        auth = {
+            "Authorization": (
+                f"Bearer {store.require(SecretName.GAIA_API_TOKEN).get_secret_value()}"
+            )
+        }
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url=API_BASE_URL
+        ) as client:
+            started = await client.post(
+                "/api/v1/runs",
+                json={"ticket_id": ticket.id, "agent_config": agent_config},
+                headers=auth,
+            )
+        assert started.status_code == 201
+        run_id = started.json()["id"]
+        await _wait_for_task(services.runs, run_id)
+
+        async with session_scope(services.sessions) as session:
+            approvals = await ScopedRepo(session, Approval, workspace_id).list(run_id=run_id)
+            usage = await ScopedRepo(session, LlmUsageRow, workspace_id).list(run_id=run_id)
+        kinds = [approval.kind for approval in approvals]
+        providers = {row.provider for row in usage}
+
+        if plan_gate:
+            assert kinds == [ApprovalKind.PLAN.value]
+            payload = approvals[0].payload_json
+            assert [entry["label"] for entry in payload["candidates"]] == ["A", "B", "C"]
+            assert payload["provenance"] == ["Demo: the one step comes from Plan A."]
+            assert payload["plan"]["steps"][0]["worker"] == "deepseek-v4-pro"
+            assert providers == {"anthropic", "openai", "xai", "deepseek"}
+        else:
+            # No plan gate: the run went straight to work and stopped at the PR.
+            assert kinds == [ApprovalKind.PR_OPEN.value]
+            assert providers == {"openai"}
+            assert {row.model for row in usage} == {"gpt-6.2-sol"}
+
+    for client_ in shared:
+        await client_.close_for_real()

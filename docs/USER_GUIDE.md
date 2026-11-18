@@ -201,6 +201,14 @@ shows what changed. **Cancel run** stops it at any time; the worktree is kept, s
 - **The emergency stop:** **Pause all** in the top bar stops every running agent at once and holds
   every run, until you press **Resume all**. Nothing is lost: runs continue from their last
   completed step.
+- **Agent modes**: how a run's work is split between models. **Straight shot**: one model does
+  the whole ticket in one session, with no plan to approve. **Two tiered** (the default): a lead
+  model plans, gives each step to one of your worker models, reviews every step, and takes over a
+  step that fails twice. **Wisdom of crowds**: several models each write a plan, the lead merges
+  the best parts (you see every plan at the approval), then the run is two tiered. Any model from
+  any provider whose key you have set can fill any role. Until the Settings panel lands (19c),
+  set the default with `PUT /api/v1/admin/agent-mode`, or pass `agent_config` when starting a run;
+  each run keeps the models it started with.
 - **Auto mode** (**Settings**, `g s`): stop approving commands one by one. Switch it on
   separately per provider: **Claude**, **DeepSeek**, **OpenAI** and **xAI**, which covers every
   agent running a model from that provider. An agent in auto mode runs

@@ -1,6 +1,67 @@
 {
   "components": {
     "schemas": {
+      "AgentMode": {
+        "description": "How a run's work is divided between models (owner decisions M1-M4).",
+        "enum": [
+          "single",
+          "tiered",
+          "crowd"
+        ],
+        "title": "AgentMode",
+        "type": "string"
+      },
+      "AgentModeConfig": {
+        "additionalProperties": false,
+        "description": "Which models play which roles in one run.\n\n- ``single``: ``lead_model`` is the one model. No workers, no panel.\n- ``tiered``: ``lead_model`` plans, reviews and takes over failing steps;\n  ``worker_models`` (1 to 4) implement steps.\n- ``crowd``: as ``tiered``, plus ``panel_models`` (2 to 5) whose plans the\n  lead merges.",
+        "properties": {
+          "lead_model": {
+            "title": "Lead Model",
+            "type": "string"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/AgentMode"
+          },
+          "panel_models": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Panel Models",
+            "type": "array"
+          },
+          "worker_models": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Worker Models",
+            "type": "array"
+          }
+        },
+        "required": [
+          "mode",
+          "lead_model"
+        ],
+        "title": "AgentModeConfig",
+        "type": "object"
+      },
+      "AgentModeDefault": {
+        "description": "The agent mode a new run uses unless it names its own (doc 19b).\n\n``saved`` is false when the owner has not saved a default yet, so the\nconfig shown is the one derived from settings (two tiered, today's models).",
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/AgentModeConfig"
+          },
+          "saved": {
+            "title": "Saved",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "config",
+          "saved"
+        ],
+        "title": "AgentModeDefault",
+        "type": "object"
+      },
       "AgentRead": {
         "description": "A configured agent.",
         "properties": {
@@ -1442,8 +1503,18 @@
       },
       "RunCreate": {
         "additionalProperties": false,
-        "description": "Start a run. The status starts at ``pending`` and cannot be set here.",
+        "description": "Start a run. The status starts at ``pending`` and cannot be set here.\n\n``agent_config`` overrides the saved default for this run (doc 19b, M3).\n``junior_runtime`` is the older per-run override, kept for API clients; it\ncannot be combined with ``agent_config``.",
         "properties": {
+          "agent_config": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentModeConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "budget_usd": {
             "anyOf": [
               {
@@ -1654,6 +1725,16 @@
       "RunRead": {
         "description": "A run, including the money that has been spent on it so far.",
         "properties": {
+          "agent_config": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentModeConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "budget_usd": {
             "title": "Budget Usd",
             "type": "string"
@@ -1897,6 +1978,16 @@
       "RunSummary": {
         "description": "One row of the dashboard runs list (doc 14).",
         "properties": {
+          "agent_config": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentModeConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "budget_usd": {
             "title": "Budget Usd",
             "type": "string"
@@ -2687,6 +2778,78 @@
         "summary": "Liveness probe",
         "tags": [
           "health"
+        ]
+      }
+    },
+    "/api/v1/admin/agent-mode": {
+      "get": {
+        "description": "Return the mode and models a new run uses unless it names its own (doc 19b).",
+        "operationId": "get_agent_mode_api_v1_admin_agent_mode_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentModeDefault"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Read the default agent mode",
+        "tags": [
+          "admin"
+        ]
+      },
+      "put": {
+        "description": "Save the default for new runs. Runs already started keep their own config.\n\nEvery model must be in the catalog. Provider keys are checked when a run\nstarts, not here, so a default can name a provider before its key is added.",
+        "operationId": "put_agent_mode_api_v1_admin_agent_mode_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentModeConfig"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentModeDefault"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Save the default agent mode",
+        "tags": [
+          "admin"
         ]
       }
     },

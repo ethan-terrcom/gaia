@@ -70,6 +70,10 @@ class ErrorCode(StrEnum):
     MERGE_CONFIRMATION_REQUIRED = "merge_confirmation_required"
     DAILY_BUDGET_EXHAUSTED = "daily_budget_exhausted"
     ORCHESTRATOR_PAUSED = "orchestrator_paused"
+    #: An agent config names a model the catalog does not list (doc 19b).
+    UNKNOWN_MODEL = "unknown_model"
+    #: An agent config needs a provider whose key is not in the keychain (doc 19b).
+    PROVIDER_NOT_CONFIGURED = "provider_not_configured"
 
 
 _CODES_BY_STATUS: Final[dict[int, ErrorCode]] = {

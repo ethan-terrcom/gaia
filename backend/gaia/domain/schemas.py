@@ -21,6 +21,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from gaia.domain.agent_modes import AgentModeConfig
 from gaia.domain.enums import (
     AgentRole,
     AgentStatus,
@@ -290,14 +291,23 @@ class RunRead(WorkspaceScopedRead):
     started_at: datetime | None
     finished_at: datetime | None
     created_by: str | None
+    #: The agent mode and models the run started with; ``None`` for runs started
+    #: before doc 19b, which use the settings-derived config.
+    agent_config: AgentModeConfig | None = None
 
 
 class RunCreate(RequestSchema):
-    """Start a run. The status starts at ``pending`` and cannot be set here."""
+    """Start a run. The status starts at ``pending`` and cannot be set here.
+
+    ``agent_config`` overrides the saved default for this run (doc 19b, M3).
+    ``junior_runtime`` is the older per-run override, kept for API clients; it
+    cannot be combined with ``agent_config``.
+    """
 
     ticket_id: str
     junior_runtime: RuntimeKind | None = None
     budget_usd: Decimal | None = Field(default=None, gt=0)
+    agent_config: AgentModeConfig | None = None
 
 
 class RunCurrentStep(Schema):
@@ -518,6 +528,17 @@ class AutoModeUpdate(RequestSchema):
     deepseek: bool | None = None
     openai: bool | None = None
     xai: bool | None = None
+
+
+class AgentModeDefault(Schema):
+    """The agent mode a new run uses unless it names its own (doc 19b).
+
+    ``saved`` is false when the owner has not saved a default yet, so the
+    config shown is the one derived from settings (two tiered, today's models).
+    """
+
+    config: AgentModeConfig
+    saved: bool
 
 
 class ProviderStatus(Schema):

@@ -36,8 +36,24 @@ async def _replace_pending_steps(session: AsyncSession, state: RunState, plan: P
         )
 
 
+def _gate_payload(state: RunState) -> dict[str, Any]:
+    """The plan approval's payload: the plan, plus the crowd's extras when present."""
+    payload: dict[str, Any] = {"kind": ApprovalKind.PLAN.value, "plan": state.get("plan")}
+    meta = state.get("plan_meta") or {}
+    for key in ("candidates", "provenance", "notes"):
+        if meta.get(key):
+            payload[key] = meta[key]
+    return payload
+
+
 async def approve_plan(state: RunState, deps: GraphDeps) -> dict[str, Any]:
-    """Ask the owner to approve the plan, then apply the decision."""
+    """Ask the owner to approve the plan, then apply the decision.
+
+    Straight shot (doc 19b, M1) has no plan to approve: starting the run was the
+    go-ahead, so the gate routes straight on and writes no approval row.
+    """
+    if (state.get("plan_meta") or {}).get("skip_gate"):
+        return {"route": "implement_step"}
     step_index = state.get("step_index", 0)
     attempt = state.get("attempt", 1)
     key = f"approve_plan:{step_index}:{attempt}"
@@ -50,7 +66,7 @@ async def approve_plan(state: RunState, deps: GraphDeps) -> dict[str, Any]:
             run_id=state["run_id"],
             idempotency_key=key,
             kind=ApprovalKind.PLAN,
-            payload={"kind": ApprovalKind.PLAN.value, "plan": state.get("plan")},
+            payload=_gate_payload(state),
         )
         approval_id = approval.id
 
@@ -62,13 +78,7 @@ async def approve_plan(state: RunState, deps: GraphDeps) -> dict[str, Any]:
             run_id=state["run_id"],
         )
 
-    raw_decision = interrupt(
-        {
-            "kind": ApprovalKind.PLAN.value,
-            "approval_id": approval_id,
-            "plan": state.get("plan"),
-        }
-    )
+    raw_decision = interrupt({**_gate_payload(state), "approval_id": approval_id})
     decision = Decision.model_validate(raw_decision)
 
     async with session_scope(deps.sessions) as session:

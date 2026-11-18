@@ -38,6 +38,13 @@ PLAN = Plan(
 )
 
 
+def _assigned(plan: Plan, worker: str = "deepseek-v4-pro") -> Plan:
+    """``plan`` with every step pinned to ``worker``, as the planner returns it (19b)."""
+    return plan.model_copy(
+        update={"steps": [step.model_copy(update={"worker": worker}) for step in plan.steps]}
+    )
+
+
 def _parsed_plan() -> ParsedResponse[Plan]:
     return ParsedResponse(
         output=PLAN,
@@ -100,9 +107,10 @@ async def test_plan_loads_run_and_returns_a_plan(
     )
     planner, calls = await _make_planner(database, tmp_path, monkeypatch, settings=settings)
 
-    plan = await planner.plan(chain.run.id)
+    outcome = await planner.plan(chain.run.id)
 
-    assert plan == PLAN
+    assert outcome.plan == _assigned(PLAN)
+    assert outcome.skip_gate is False
     assert len(calls) == 1
     assert calls[0]["run_id"] == chain.run.id
     assert calls[0]["workspace_id"] == chain.workspace.id

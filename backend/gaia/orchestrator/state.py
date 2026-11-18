@@ -24,6 +24,9 @@ class RunState(TypedDict, total=False):
     workspace_id: str
     worktree_id: str | None
     plan: dict[str, Any] | None
+    #: :meth:`~gaia.orchestrator.deps.PlanOutcome.meta`: whether the plan gate is
+    #: skipped (straight shot) and the crowd's candidates and provenance (19b).
+    plan_meta: dict[str, Any] | None
     step_index: int
     attempt: int
     feedback: str | None

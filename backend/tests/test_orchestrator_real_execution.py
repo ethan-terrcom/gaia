@@ -27,6 +27,7 @@ from gaia.orchestrator.impl.worktrees import WorktreeSetup
 from gaia.orchestrator.runner import RunManager, open_checkpointer
 from gaia.runtimes.base import AgentResult, AgentTask, RuntimeRegistry, RuntimeUsage
 from gaia.security.commands import CommandPolicy
+from gaia.services.costs import load_price_table
 from gaia.services.events import EventBus
 from gaia.services.git import GitService
 from tests.db_builders import make_workspace
@@ -120,6 +121,7 @@ async def test_real_execution_services_drive_the_graph_to_completion(
             git=git_service,
             runtimes=registry,
             bus=bus,
+            price_table=load_price_table(),
         ),
         checks=SandboxCheckRunner(
             settings=settings,

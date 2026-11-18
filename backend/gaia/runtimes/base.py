@@ -54,6 +54,9 @@ class AgentTask(BaseModel):
     #: policy so a runtime can allow exactly that one command without asking.
     extra_allow: tuple[tuple[str, ...], ...] = ()
     output_schema: dict[str, Any] | None = None
+    #: The model this task runs on (doc 19b). ``None`` uses the runtime's own
+    #: default model, which is what every task got before agent modes.
+    model: str | None = None
 
 
 class RuntimeUsage(BaseModel):

@@ -165,6 +165,13 @@ async def session(database: Database) -> AsyncIterator[AsyncSession]:
 API_BASE_URL = "http://127.0.0.1:8765"
 
 
+#: Placeholder provider keys for the ``api`` fixture. Never real keys.
+TEST_PROVIDER_KEYS: dict[SecretName, str] = {
+    SecretName.ANTHROPIC_API_KEY: "sk-ant-test-placeholder-0000000000",
+    SecretName.DEEPSEEK_API_KEY: "sk-deepseek-test-placeholder-0000000000",
+}
+
+
 @dataclass(frozen=True)
 class Api:
     """A running app on a throwaway database, plus the client that talks to it."""
@@ -197,6 +204,11 @@ async def api(
     workspace and generates the token, so testing it is the point (doc 04 task 1).
     """
     store = InMemorySecretStore()
+    # A configured install: the default lead and worker providers have keys, so
+    # starting a run passes the provider-key check (doc 19b). OpenAI and xAI are
+    # left unset, which is what the "key missing" tests rely on.
+    for name, value in TEST_PROVIDER_KEYS.items():
+        store.set(name, value)
     monkeypatch.setattr(app_module, "get_secret_store", lambda: store)
     settings = Settings(
         data_dir=tmp_path / "gaia-data",

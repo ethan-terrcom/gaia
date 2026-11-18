@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 
 from gaia.domain.plans import Plan, PlanStep, Review
-from gaia.orchestrator.deps import CheckOutcome, StepOutcome
+from gaia.orchestrator.deps import CheckOutcome, PlanOutcome, StepOutcome
 
 
 def make_plan(step_count: int = 2) -> Plan:
@@ -52,15 +52,16 @@ class FakeWorktreePreparer:
 
 
 class FakePlanner:
-    """Returns a fixed plan."""
+    """Returns a fixed plan, wrapped in a :class:`PlanOutcome`."""
 
-    def __init__(self, plan: Plan | None = None) -> None:
+    def __init__(self, plan: Plan | None = None, *, outcome: PlanOutcome | None = None) -> None:
         self.plan_value = plan or make_plan()
+        self.outcome = outcome
         self.calls: list[str] = []
 
-    async def plan(self, run_id: str) -> Plan:
+    async def plan(self, run_id: str) -> PlanOutcome:
         self.calls.append(run_id)
-        return self.plan_value
+        return self.outcome if self.outcome is not None else PlanOutcome(plan=self.plan_value)
 
 
 class FakeStepRunner:
