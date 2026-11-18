@@ -13,6 +13,12 @@ import {
   type UseEventStreamOptions,
   useEventStream,
 } from '../../hooks/useEventStream'
+import {
+  MODELS_QUERY_KEY,
+  describeConfig,
+  fetchModels,
+  type AgentModeConfig,
+} from '../agent-modes/agentModes'
 import { summarizeEvent, type TimelineEvent } from './events'
 
 type RunDetail = components['schemas']['RunDetail']
@@ -620,10 +626,25 @@ function RunDetailHeader({
             <PullRequestLink pr={detail.pull_request} />
           </dd>
         </div>
+        <div className="sm:col-span-2">
+          <dt className="text-gray-500 dark:text-gray-400">Agent mode</dt>
+          <dd className="mt-1">
+            <RunAgentMode config={detail.run.agent_config ?? null} />
+          </dd>
+        </div>
       </dl>
       {cancelError ? <InlineApiError error={cancelError} /> : null}
     </header>
   )
+}
+
+/** The mode and models this run started with (doc 19). */
+function RunAgentMode({ config }: { config: AgentModeConfig | null }) {
+  const models = useQuery({ queryKey: MODELS_QUERY_KEY, queryFn: fetchModels })
+  if (config === null) {
+    return <span>Two tiered (started before agent modes)</span>
+  }
+  return <span>{describeConfig(config, models.data?.models)}</span>
 }
 
 export default function RunDetailView({

@@ -17,6 +17,17 @@ import {
   PageHeader,
 } from '../../components/States'
 import { formatRelative } from '../../components/format'
+import { AgentModeEditor } from '../agent-modes/AgentModeEditor'
+import {
+  AGENT_MODE_QUERY_KEY,
+  MODELS_QUERY_KEY,
+  configProblem,
+  describeConfig,
+  fetchAgentMode,
+  fetchModels,
+  normalizeConfig,
+  type AgentModeConfig,
+} from '../agent-modes/agentModes'
 
 type TicketStatus = components['schemas']['TicketStatus']
 type TicketRead = components['schemas']['TicketRead']
@@ -24,7 +35,6 @@ type TicketPage = components['schemas']['TicketPage']
 type TicketCreate = components['schemas']['TicketCreate']
 type TicketPatch = components['schemas']['TicketPatch']
 type RepositoryRead = components['schemas']['RepositoryRead']
-type RuntimeKind = components['schemas']['RuntimeKind']
 type RunRead = components['schemas']['RunRead']
 
 const TICKET_STATUSES: readonly TicketStatus[] = [
@@ -44,12 +54,6 @@ const STATUS_LABELS: Record<TicketStatus, string> = {
   done: 'Done',
   cancelled: 'Cancelled',
 }
-
-const RUNTIME_OPTIONS: readonly { value: '' | RuntimeKind; label: string }[] = [
-  { value: '', label: 'Default (from settings)' },
-  { value: 'native_deepseek', label: 'native_deepseek' },
-  { value: 'claude_agent_sdk', label: 'claude_agent_sdk' },
-]
 
 function parseView(value: string | null): 'board' | 'table' {
   return value === 'table' ? 'table' : 'board'
@@ -145,14 +149,14 @@ async function updateTicket(input: {
 
 async function startRun(input: {
   ticket_id: string
-  junior_runtime?: RuntimeKind
+  agent_config?: AgentModeConfig
   budget_usd?: number
 }): Promise<RunRead> {
   const body: components['schemas']['RunCreate'] = {
     ticket_id: input.ticket_id,
   }
-  if (input.junior_runtime) {
-    body.junior_runtime = input.junior_runtime
+  if (input.agent_config) {
+    body.agent_config = input.agent_config
   }
   if (input.budget_usd !== undefined) {
     body.budget_usd = input.budget_usd
@@ -366,15 +370,26 @@ function StartRunDialog({
 }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [runtime, setRuntime] = useState<'' | RuntimeKind>('')
   const [budget, setBudget] = useState('')
+  // ``null`` runs with the owner's default; a config overrides it for this run.
+  const [custom, setCustom] = useState<AgentModeConfig | null>(null)
+  const modelsQuery = useQuery({
+    queryKey: MODELS_QUERY_KEY,
+    queryFn: fetchModels,
+  })
+  const modeQuery = useQuery({
+    queryKey: AGENT_MODE_QUERY_KEY,
+    queryFn: fetchAgentMode,
+  })
+  const catalog = modelsQuery.data
+  const defaultConfig = modeQuery.data?.config
 
   const mutation = useMutation({
     mutationFn: () => {
       const parsedBudget = budget.trim() === '' ? Number.NaN : Number(budget)
       return startRun({
         ticket_id: ticket.id,
-        junior_runtime: runtime === '' ? undefined : runtime,
+        agent_config: custom ? normalizeConfig(custom) : undefined,
         budget_usd:
           Number.isFinite(parsedBudget) && parsedBudget > 0
             ? parsedBudget
@@ -397,6 +412,7 @@ function StartRunDialog({
   const budgetInvalid =
     budget.trim() !== '' &&
     (!Number.isFinite(Number(budget)) || Number(budget) <= 0)
+  const customInvalid = custom !== null && configProblem(custom) !== null
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
@@ -404,31 +420,53 @@ function StartRunDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="start-run-modal-title"
-        className="w-full max-w-md rounded-lg bg-white p-5 shadow-xl dark:bg-gray-900"
+        className={`max-h-[90vh] w-full overflow-y-auto rounded-lg bg-white p-5 shadow-xl dark:bg-gray-900 ${
+          custom ? 'max-w-3xl' : 'max-w-md'
+        }`}
       >
         <h2 id="start-run-modal-title" className="text-lg font-semibold">
           Start a run
         </h2>
         <form onSubmit={onSubmit} className="mt-4 grid gap-3">
-          <div>
-            <label htmlFor="junior-runtime" className="block text-sm">
-              Junior runtime
-            </label>
-            <select
-              id="junior-runtime"
-              value={runtime}
-              onChange={(event) =>
-                setRuntime(event.target.value as '' | RuntimeKind)
-              }
-              className="mt-1 w-full rounded border border-gray-300 px-2 py-1 dark:border-gray-700 dark:bg-gray-950"
-            >
-              {RUNTIME_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
+          <fieldset>
+            <legend className="block text-sm">Agent mode</legend>
+            <div className="mt-1 grid gap-1 text-sm">
+              <label className="flex items-start gap-2">
+                <input
+                  type="radio"
+                  name="run-agent-mode"
+                  checked={custom === null}
+                  onChange={() => setCustom(null)}
+                />
+                <span>
+                  Use my default
+                  {defaultConfig ? (
+                    <span className="block text-gray-600 dark:text-gray-400">
+                      {describeConfig(defaultConfig, catalog?.models)}
+                    </span>
+                  ) : null}
+                </span>
+              </label>
+              <label className="flex items-start gap-2">
+                <input
+                  type="radio"
+                  name="run-agent-mode"
+                  checked={custom !== null}
+                  disabled={!catalog || !defaultConfig}
+                  onChange={() => setCustom(defaultConfig ?? null)}
+                />
+                <span>Choose for this run</span>
+              </label>
+            </div>
+          </fieldset>
+          {custom && catalog ? (
+            <AgentModeEditor
+              idPrefix="run-agent-mode"
+              value={custom}
+              catalog={catalog}
+              onChange={setCustom}
+            />
+          ) : null}
           <div>
             <label htmlFor="run-budget" className="block text-sm">
               Budget (USD)
@@ -459,7 +497,7 @@ function StartRunDialog({
             </button>
             <button
               type="submit"
-              disabled={mutation.isPending || budgetInvalid}
+              disabled={mutation.isPending || budgetInvalid || customInvalid}
               className="rounded bg-blue-600 px-3 py-1.5 text-white disabled:opacity-50"
             >
               {mutation.isPending ? 'Starting…' : 'Start run'}

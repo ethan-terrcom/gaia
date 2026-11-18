@@ -160,8 +160,38 @@ JSON mode on the GPT-6 family. Each is one line to change if wrong.
   gate with three candidates, provenance, and usage on all four providers.
 - The swap drill still passes: a run whose roles are all DeepSeek never touches Claude.
 
-## 19c — UI (design)
+## 19c — UI (as built)
 
-Settings: a mode picker (three cards) and model pickers per role, grouped by provider, with
-unavailable providers marked and the `gaia secrets set` command shown. Run page: the mode and
-models of the run. Plan approval: crowd candidates side by side with the merged plan.
+### What it adds
+- **Settings → Agent mode** (`views/settings/AgentModeSettings.tsx`): the saved or settings
+  default in one line, the editor, **Save default** (enabled only for a changed, valid config)
+  and **Discard changes**.
+- **The editor** (`views/agent-modes/AgentModeEditor.tsx`), shared with the start-run dialog:
+  three mode cards with what each does; a **Lead** select (**Model** in straight shot); **Panel**
+  and **Workers** checklists. Models are grouped by provider and show tier and list prices; a model
+  whose provider has no key says "key not set", and the editor lists the `gaia secrets set …`
+  commands the config needs. The pool limits (1 to 4 workers, 2 to 5 panelists) disable further
+  boxes, and an invalid config says why ("Pick 2 to 5 panel models.").
+- **Start run** (Tickets): **Use my default** (with its one-line summary) or **Choose for this
+  run**, which opens the editor and sends `agent_config`. The old **Junior runtime** select is gone.
+- **Run page:** an **Agent mode** line, for example "Wisdom of crowds: panel GPT-6.2 Sol, Grok
+  4.7; Claude Opus 5.5 → DeepSeek V4 Pro"; a run from before 19b says so.
+- **Plan approval:** each step's **Worker**, kept through **Edit steps**; for a crowd plan,
+  **How the panel was used** with the provenance, any notes (a failed panelist), and every
+  candidate plan, collapsed.
+
+### Decisions and deviations (as built)
+| # | Decision | Why |
+|---|---|---|
+| C1 | One controlled editor for Settings and the start-run dialog | Same rules and wording in both places; the dialog starts from the default |
+| C2 | Models without a key can be picked; they are marked and the commands are shown | The backend allows a default to name a provider before its key is added (B3); the run start refuses it with the same command |
+| C3 | Plan edits keep each step's `worker`; the approval does not offer changing it | The approval payload does not carry the run's worker pool, and an out-of-pool worker would fall back silently. Changing the pool is a new run |
+| C4 | Removed the **Junior runtime** select | With modes, the runtime follows the model; the field stays in the API for scripts (B10) |
+
+### Verified
+- `make check`: 156 frontend tests (settings panel, editor limits and errors, start-run default
+  and override, crowd section and worker preservation, the run page's mode line, the helpers).
+- A real browser (Playwright, Chromium, the production build served by `gaia serve` in demo mode
+  on its own data dir and port): saved a crowd default in Settings, started a run with it from
+  Tickets, saw the mode on the run page, and opened the plan approval with the panel's plans and
+  the step's worker. No console errors.

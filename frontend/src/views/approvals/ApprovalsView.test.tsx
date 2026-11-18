@@ -453,6 +453,84 @@ describe('ApprovalsView', () => {
     })
   })
 
+  it('shows the crowd and keeps each step worker through an edit', async () => {
+    const posts: Record<string, unknown>[] = []
+    const crowd = planApproval({
+      payload_json: {
+        kind: 'plan',
+        plan: {
+          summary: 'Merged',
+          risks: [],
+          steps: [{ ...planStep(), worker: 'deepseek-flash' }],
+        },
+        candidates: [
+          {
+            label: 'A',
+            model: 'gpt-6.2-sol',
+            plan: { summary: 'From A', risks: [], steps: [planStep()] },
+          },
+          {
+            label: 'B',
+            model: 'grok-4.7',
+            plan: {
+              summary: 'From B',
+              risks: [],
+              steps: [planStep(), { ...planStep(), title: 'Second' }],
+            },
+          },
+          { label: 'C', model: 'broken', plan: { steps: 'not a list' } },
+        ],
+        provenance: ['Step 1 comes from Plan B'],
+        notes: ['Plan C (deepseek-v4-pro) failed: RuntimeError.'],
+      },
+    })
+    mockFetch(async (request) => {
+      if (request.method === 'POST') {
+        posts.push(await request.json())
+        return jsonResponse(202, {
+          approval_id: 'approval-1',
+          status: 'accepted',
+        })
+      }
+      return jsonResponse(200, { items: [crowd], total_pending: 1 })
+    })
+
+    renderView()
+    await screen.findByText('Merged')
+
+    expect(screen.getByText('How the panel was used')).toBeTruthy()
+    expect(screen.getByText('Step 1 comes from Plan B')).toBeTruthy()
+    expect(
+      screen.getByText('Plan C (deepseek-v4-pro) failed: RuntimeError.'),
+    ).toBeTruthy()
+    expect(screen.getByText('gpt-6.2-sol')).toBeTruthy()
+    expect(screen.getByText(/\(2\s+steps\)/)).toBeTruthy()
+    expect(screen.getByText(/\(1\s+step\)/)).toBeTruthy()
+    expect(screen.queryByText('broken')).toBeNull()
+    expect(screen.getByText('deepseek-flash')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit steps' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Approve with edits' }))
+
+    await waitFor(() => {
+      expect(posts).toHaveLength(1)
+    })
+    expect(posts[0]).toMatchObject({
+      edited_payload: { steps: [{ worker: 'deepseek-flash' }] },
+    })
+  })
+
+  it('shows no crowd section for an ordinary plan', async () => {
+    mockFetch(() =>
+      jsonResponse(200, { items: [planApproval()], total_pending: 1 }),
+    )
+
+    renderView()
+    await screen.findByText('Ship it')
+
+    expect(screen.queryByText('How the panel was used')).toBeNull()
+  })
+
   it('blocks a plan with 11 steps', async () => {
     const posts: Record<string, unknown>[] = []
     mockFetch(async (request) => {
