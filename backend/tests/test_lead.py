@@ -11,7 +11,14 @@ from gaia.domain.plans import Plan, PlanStep, Review, TicketInput
 from gaia.llm.base import LLMStop, LLMUsage, ParsedResponse
 from gaia.llm.fake import FakeLLM
 from gaia.orchestrator import lead
-from gaia.orchestrator.lead import LeadEngineer, LeadEscalation, PlanRejected, truncate_diff
+from gaia.orchestrator.deps import CheckOutcome
+from gaia.orchestrator.lead import (
+    EARLIER_CHECK_OUTPUT_CAP,
+    LeadEngineer,
+    LeadEscalation,
+    PlanRejected,
+    truncate_diff,
+)
 from gaia.orchestrator.repo_context import RepoContext
 from gaia.security.commands import CommandPolicy
 
@@ -147,6 +154,38 @@ async def test_final_review_round_trips() -> None:
     review = await engineer.final_review(_plan(test_command=None), "diff --git a/a.py b/a.py\n+x")
 
     assert review.verdict == "accept"
+
+
+async def test_final_review_includes_each_steps_checks() -> None:
+    fake = FakeLLM([], parsed_responses=[_parsed_review("accept")])
+    engineer = LeadEngineer(fake, CommandPolicy.from_default())
+    long_output = "x" * (EARLIER_CHECK_OUTPUT_CAP + 10)
+
+    await engineer.final_review(
+        _plan(test_command=None),
+        "diff --git a/a.py b/a.py\n+x",
+        {
+            1: CheckOutcome(passed=False, output="1 failed"),
+            0: CheckOutcome(passed=True, output=long_output),
+        },
+    )
+
+    content = fake.parse_calls[0].messages[0].content
+    assert "Step 0 checks passed, run when the step was accepted:" in content
+    assert "Step 1 checks failed, run on the final code:" in content
+    assert content.index("Step 0 checks") < content.index("Step 1 checks")
+    assert '<untrusted_content source="test-output:step:1">' in content
+    assert "[test output truncated: 10 characters omitted]" in content
+
+
+async def test_final_review_says_when_no_checks_were_recorded() -> None:
+    fake = FakeLLM([], parsed_responses=[_parsed_review("accept")])
+    engineer = LeadEngineer(fake, CommandPolicy.from_default())
+
+    await engineer.final_review(_plan(test_command=None), "diff --git a/a.py b/a.py\n+x")
+
+    content = fake.parse_calls[0].messages[0].content
+    assert "Step checks: none were recorded for this run." in content
 
 
 async def test_refusal_escalates_without_retrying() -> None:

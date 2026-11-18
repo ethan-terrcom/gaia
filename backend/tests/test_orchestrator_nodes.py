@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -19,7 +19,7 @@ from gaia.db.repo import ScopedRepo
 from gaia.domain.enums import RunStatus, RunStepStatus, TicketStatus
 from gaia.domain.plans import Plan
 from gaia.domain.state import transition
-from gaia.orchestrator.deps import GraphDeps
+from gaia.orchestrator.deps import CheckOutcome, GraphDeps
 from gaia.orchestrator.nodes._common import current_step_result, load_run, load_ticket
 from gaia.orchestrator.nodes.approve_merge import approve_merge
 from gaia.orchestrator.nodes.approve_plan import _replace_pending_steps, approve_plan
@@ -296,6 +296,36 @@ async def test_lead_final_review_records_review(database: Any, tmp_path: Path) -
         result = await lead_final_review(base_state(env), env.deps)
         assert result["review"]["verdict"] == "accept"
         assert env.fakes.reviewer.final_review_calls == [env.run_id]
+        assert env.fakes.reviewer.final_review_checks == [{}]
+
+
+async def test_lead_final_review_passes_each_steps_latest_checks(
+    database: Any, tmp_path: Path
+) -> None:
+    def result(step_index: int, attempt: int, checks: CheckOutcome | None) -> dict[str, Any]:
+        return {
+            "step_index": step_index,
+            "attempt": attempt,
+            "outcome": None,
+            "checks": None if checks is None else asdict(checks),
+        }
+
+    first_try = CheckOutcome(passed=False, output="1 failed")
+    second_try = CheckOutcome(passed=True, output="3 passed")
+    last_step = CheckOutcome(passed=True, output="5 passed")
+    async with node_env(database, tmp_path) as env:
+        await set_run_status(env, RunStatus.PLANNING, RunStatus.IMPLEMENTING)
+        state = base_state(
+            env,
+            step_results=[
+                result(0, 1, first_try),
+                result(0, 2, second_try),
+                result(1, 1, last_step),
+                result(2, 1, None),
+            ],
+        )
+        await lead_final_review(state, env.deps)
+        assert env.fakes.reviewer.final_review_checks == [{0: second_try, 1: last_step}]
 
 
 async def test_open_pr_moves_ticket_to_review(database: Any, tmp_path: Path) -> None:

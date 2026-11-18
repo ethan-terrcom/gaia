@@ -72,8 +72,9 @@ async def _fake_lead_llm(
     calls: list[dict[str, Any]],
     **kwargs: Any,
 ) -> AsyncIterator[FakeLLM]:
-    calls.append(kwargs)
-    yield FakeLLM([], parsed_responses=[_parsed_review()])
+    llm = FakeLLM([], parsed_responses=[_parsed_review()])
+    calls.append({**kwargs, "llm": llm})
+    yield llm
 
 
 def _make_reviewer(
@@ -221,6 +222,29 @@ async def test_final_review_uses_worktree_base_sha_and_diff(
     assert isinstance(location, WorktreeLocation)
     assert base == chain.worktree.base_sha
     assert head == "HEAD"
+
+
+async def test_final_review_shows_the_lead_each_steps_checks(
+    database: Any,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without the checks the lead asked for test output nobody could send."""
+    async with session_scope(database.sessions) as session:
+        chain = await make_chain(session, slug="final-review-checks")
+        steps = ScopedRepo(session, RunStep, chain.workspace.id)
+        await steps.update(chain.step.id, spec_json=_plan_step_dict())
+        worktrees = ScopedRepo(session, Worktree, chain.workspace.id)
+        await worktrees.update(chain.worktree.id, git_dir=str(tmp_path / "gitdir"))
+
+    reviewer, calls, _ = _make_reviewer(database, tmp_path, monkeypatch)
+
+    await reviewer.final_review(chain.run.id, {0: CheckOutcome(passed=True, output="12 passed")})
+
+    content = calls[0]["llm"].parse_calls[0].messages[0].content
+    assert "Step 0 checks passed, run on the final code:" in content
+    assert '<untrusted_content source="test-output:step:0">' in content
+    assert "12 passed" in content
 
 
 async def test_final_review_missing_worktree_raises(

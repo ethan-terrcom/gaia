@@ -40,10 +40,17 @@ plan = await engineer.plan_ticket(ticket, context, extra_allow=[repo.test_comman
    orchestrator turns it into an `escalation` approval.
 
 ### Review
-`review_step(plan, step_index, diff, test_output)` and `final_review(plan, full_diff)` send the
-plan, the step's acceptance criteria, and the (truncated) diff and test output. `truncate_diff`
+`review_step(plan, step_index, diff, test_output)` and `final_review(plan, full_diff, checks)` send
+the plan, the step's acceptance criteria, and the (truncated) diff and test output. `truncate_diff`
 caps each file at 20 KB and the total at 150 KB, and **tells the model what it cut**, so it never
 assumes hidden code is fine.
+
+The final review gets each step's checks from its latest attempt (`lead_final_review` collects them
+from `step_results`). Steps run in order in one worktree, so the last step's checks ran on the
+final code and keep the full 20 KB tail; earlier steps keep 4 KB. Gaia writes the pass/fail line
+from the exit code, and the output itself is wrapped as untrusted. Before this, the final review saw
+no test output at all, and on every run with a "tests pass" criterion it answered `revise` with
+"no test output was provided".
 
 ### Why "always stream"?
 An Opus call with `effort: high` can think for a while before emitting anything. Over a

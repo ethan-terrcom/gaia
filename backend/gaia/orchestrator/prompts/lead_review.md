@@ -23,7 +23,9 @@ Return a `Review` that matches the provided schema:
    fixtures. Any real-looking credential is `escalate`.
 2. **Tests:** did the step's test command run, and did it pass? Read the test output, not the
    junior's claim. Missing output or a failure is `revise`, unless the plan's `test_command` is
-   `null`.
+   `null`. In a final review, the test output is each step's recorded checks: the last step's ran on
+   the final code, and earlier steps' ran when that step was accepted. Judge the tests from them;
+   do not ask for another run when the last step's checks passed.
 3. **Acceptance criteria:** check each one against the diff.
 4. **Scope:** changes outside `files_likely_touched` need a reason in the diff itself. Unrelated
    edits, reformatting of untouched code, and deleted tests are `revise`.
