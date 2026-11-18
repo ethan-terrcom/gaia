@@ -116,8 +116,12 @@ class GatewayReviewer:
             engineer = LeadEngineer(llm, CommandPolicy.from_default())
             return await engineer.review_step(plan, step_index, outcome.diff, checks.output)
 
-    async def final_review(self, run_id: str) -> Review:
-        """Review the full branch diff with the lead's structured LLM."""
+    async def final_review(
+        self,
+        run_id: str,
+        checks: Mapping[int, CheckOutcome] | None = None,
+    ) -> Review:
+        """Review the full branch diff, with each step's latest checks, as the lead."""
         context = await self._load_final_review_context(run_id)
         if context.config.mode is AgentMode.SINGLE and len(context.plan.steps) == 1:
             return STRAIGHT_SHOT_FINAL_REVIEW
@@ -136,7 +140,7 @@ class GatewayReviewer:
             http_client=self._http_client,
         ) as llm:
             engineer = LeadEngineer(llm, CommandPolicy.from_default())
-            return await engineer.final_review(context.plan, diff)
+            return await engineer.final_review(context.plan, diff, checks)
 
     def _config(self, run: Run) -> AgentModeConfig:
         """The agent config ``run`` executes with."""

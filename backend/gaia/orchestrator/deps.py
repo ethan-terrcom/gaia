@@ -9,7 +9,7 @@ the methods a node actually calls, so a fake can be a small scriptable object.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Protocol
@@ -130,8 +130,12 @@ class Reviewer(Protocol):
         """Review one implementation attempt."""
         ...
 
-    async def final_review(self, run_id: str) -> Review:
-        """Review the complete diff before opening a PR."""
+    async def final_review(
+        self,
+        run_id: str,
+        checks: Mapping[int, CheckOutcome] | None = None,
+    ) -> Review:
+        """Review the complete diff, with each step's latest checks, before opening a PR."""
         ...
 
 

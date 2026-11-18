@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TypeVar
 
@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from gaia.domain.plans import CrowdPlan, Plan, Review, TicketInput
 from gaia.llm.base import LLMMessage, LLMStop, StructuredLLM
 from gaia.llm.untrusted import wrap_untrusted
+from gaia.orchestrator.deps import CheckOutcome
 from gaia.orchestrator.repo_context import RepoContext
 from gaia.security.commands import CommandPolicy
 
@@ -34,6 +35,9 @@ REVIEW_SYSTEM_PROMPT = (_PROMPTS_DIR / "lead_review.md").read_text(encoding="utf
 DIFF_PER_FILE_CAP = 20_000
 DIFF_TOTAL_CAP = 150_000
 TEST_OUTPUT_CAP = 20_000
+#: An earlier step's check output in the final review: its tail is enough to
+#: show it passed, and the last step's checks are the ones on the final code.
+EARLIER_CHECK_OUTPUT_CAP = 4_000
 
 _StructuredT = TypeVar("_StructuredT", bound=BaseModel)
 _PlanT = TypeVar("_PlanT", bound=Plan)
@@ -245,11 +249,22 @@ class LeadEngineer:
             Review,
         )
 
-    async def final_review(self, plan: Plan, full_diff: str) -> Review:
-        """Review the whole final diff."""
+    async def final_review(
+        self,
+        plan: Plan,
+        full_diff: str,
+        checks: Mapping[int, CheckOutcome] | None = None,
+    ) -> Review:
+        """Review the whole final diff with each step's recorded checks.
+
+        ``checks`` maps a step index to the checks of that step's latest
+        attempt. Without them the reviewer cannot confirm a "tests pass"
+        acceptance criterion and asks for test output nobody can send.
+        """
         parts = [
             f"Plan:\n{plan.model_dump_json(indent=2)}",
             wrap_untrusted(_truncate_diff(full_diff), "diff:final"),
+            *_final_check_sections(checks or {}),
         ]
         return await self._parse_structured(
             REVIEW_SYSTEM_PROMPT,
@@ -354,11 +369,32 @@ def _truncate_diff(diff: str) -> str:
     return text
 
 
-def _truncate_test_output(test_output: str) -> str:
-    """Keep the last :data:`TEST_OUTPUT_CAP` characters of test output."""
-    if len(test_output) <= TEST_OUTPUT_CAP:
+def _truncate_test_output(test_output: str, cap: int = TEST_OUTPUT_CAP) -> str:
+    """Keep the last ``cap`` characters of test output."""
+    if len(test_output) <= cap:
         return test_output
-    dropped = len(test_output) - TEST_OUTPUT_CAP
-    return (
-        test_output[-TEST_OUTPUT_CAP:] + f"\n[test output truncated: {dropped} characters omitted]"
-    )
+    dropped = len(test_output) - cap
+    return test_output[-cap:] + f"\n[test output truncated: {dropped} characters omitted]"
+
+
+def _final_check_sections(checks: Mapping[int, CheckOutcome]) -> list[str]:
+    """Render each step's recorded checks for the final review.
+
+    Steps run in order in one worktree, so the highest step's checks ran on
+    the final code and keep the full cap; earlier steps keep a shorter tail.
+    The pass/fail line is Gaia's (from the exit code); the output is untrusted.
+    """
+    if not checks:
+        return ["Step checks: none were recorded for this run."]
+    last = max(checks)
+    sections: list[str] = []
+    for index in sorted(checks):
+        outcome = checks[index]
+        status = "passed" if outcome.passed else "failed"
+        when = "on the final code" if index == last else "when the step was accepted"
+        cap = TEST_OUTPUT_CAP if index == last else EARLIER_CHECK_OUTPUT_CAP
+        sections.append(f"Step {index} checks {status}, run {when}:")
+        sections.append(
+            wrap_untrusted(_truncate_test_output(outcome.output, cap), f"test-output:step:{index}")
+        )
+    return sections

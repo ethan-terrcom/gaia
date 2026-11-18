@@ -9,6 +9,7 @@ by step.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 
 from gaia.domain.plans import Plan, PlanStep, Review
 from gaia.orchestrator.deps import CheckOutcome, PlanOutcome, StepOutcome
@@ -138,6 +139,7 @@ class FakeReviewer:
         self.default_step_review = default_step_review or make_review()
         self.review_step_calls: list[tuple[str, int, StepOutcome, CheckOutcome]] = []
         self.final_review_calls: list[str] = []
+        self.final_review_checks: list[dict[int, CheckOutcome]] = []
 
     async def review_step(
         self,
@@ -152,8 +154,13 @@ class FakeReviewer:
             return self.step_review_sequence[call_index]
         return self.step_reviews.get(step_index, self.default_step_review)
 
-    async def final_review(self, run_id: str) -> Review:
+    async def final_review(
+        self,
+        run_id: str,
+        checks: Mapping[int, CheckOutcome] | None = None,
+    ) -> Review:
         self.final_review_calls.append(run_id)
+        self.final_review_checks.append(dict(checks or {}))
         return self.final_review_value
 
 
