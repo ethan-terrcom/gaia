@@ -254,6 +254,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the models Gaia can use
+         * @description Return every provider with whether its key is set, and every priced model.
+         *
+         *     A model is ``available`` when its provider's key is in the keychain (or in
+         *     demo mode). Key values are never read into the response.
+         */
+        get: operations["list_models_api_v1_models_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/pull-requests": {
         parameters: {
             query?: never;
@@ -736,6 +759,10 @@ export interface components {
             claude: boolean;
             /** Deepseek */
             deepseek: boolean;
+            /** Openai */
+            openai: boolean;
+            /** Xai */
+            xai: boolean;
         };
         /**
          * AutoModeUpdate
@@ -746,6 +773,30 @@ export interface components {
             claude?: boolean | null;
             /** Deepseek */
             deepseek?: boolean | null;
+            /** Openai */
+            openai?: boolean | null;
+            /** Xai */
+            xai?: boolean | null;
+        };
+        /**
+         * CatalogModelRead
+         * @description One model Gaia can put in a role, with its list prices (USD per 1M tokens).
+         */
+        CatalogModelRead: {
+            /** Available */
+            available: boolean;
+            /** Cache Read Usd Per Mtok */
+            cache_read_usd_per_mtok: string;
+            /** Id */
+            id: string;
+            /** Input Usd Per Mtok */
+            input_usd_per_mtok: string;
+            /** Label */
+            label: string;
+            /** Output Usd Per Mtok */
+            output_usd_per_mtok: string;
+            provider: components["schemas"]["LLMProvider"];
+            tier: components["schemas"]["ModelTier"] | null;
         };
         /**
          * CiStatus
@@ -906,6 +957,16 @@ export interface components {
             status: "ok";
         };
         /**
+         * LLMProvider
+         * @description A model provider Gaia can reach through its LLM gateway (doc 07b, 19a).
+         *
+         *     The value is the gateway route segment (``/llm/<provider>/...``), the
+         *     ``provider`` stored on a run token and on ``llm_usage`` rows, and the
+         *     ``provider`` key of a model in ``prices.toml``.
+         * @enum {string}
+         */
+        LLMProvider: "anthropic" | "deepseek" | "openai" | "xai";
+        /**
          * MetricsSummary
          * @description The observability dashboard's workspace summary (doc 18b).
          */
@@ -924,6 +985,25 @@ export interface components {
             /** Success Rate */
             success_rate: number | null;
         };
+        /**
+         * ModelCatalog
+         * @description Every provider and every priced model (``GET /models``).
+         */
+        ModelCatalog: {
+            /** Models */
+            models: components["schemas"]["CatalogModelRead"][];
+            /** Providers */
+            providers: components["schemas"]["ProviderStatus"][];
+        };
+        /**
+         * ModelTier
+         * @description A model's rough capability class, used to suggest models for a role (19a).
+         *
+         *     It is guidance shown in the UI, never a rule: the owner may put any model
+         *     in any role.
+         * @enum {string}
+         */
+        ModelTier: "frontier" | "mid" | "fast";
         /**
          * PauseAllRequest
          * @description Reason for pausing every run. Global, not per workspace: Gaia is single-user.
@@ -961,6 +1041,17 @@ export interface components {
             cost_usd: string;
             /** Provider */
             provider: string;
+        };
+        /**
+         * ProviderStatus
+         * @description One LLM provider and whether its API key is in the keychain (19a).
+         */
+        ProviderStatus: {
+            /** Configured */
+            configured: boolean;
+            name: components["schemas"]["LLMProvider"];
+            /** Secret Name */
+            secret_name: string;
         };
         /**
          * PullRequestPage
@@ -1923,6 +2014,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_models_api_v1_models_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelCatalog"];
                 };
             };
         };

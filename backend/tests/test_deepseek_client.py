@@ -21,7 +21,7 @@ from gaia.llm.base import (
     ToolCall,
     ToolChatLLM,
 )
-from gaia.llm.deepseek_client import DeepSeekClient, _budget_exceeded_body
+from gaia.llm.openai_compat_client import DeepSeekClient, _budget_exceeded_body
 from gaia.services.costs import ModelPrice, PriceRates, PriceTable
 
 
@@ -280,7 +280,7 @@ async def test_invalid_message_role_is_rejected() -> None:
     client = _client(stub, RecordingRecorder())
     invalid = LLMMessage(role="invalid", content="x")  # type: ignore[arg-type]  # runtime guard
 
-    with pytest.raises(ValueError, match="unsupported DeepSeek message role"):
+    with pytest.raises(ValueError, match="unsupported chat message role"):
         await client.complete(messages=[invalid])
 
 

@@ -6,10 +6,10 @@ same bytes without calling a provider SDK. Two wire shapes are supported:
 - **Anthropic Messages API**, both JSON and SSE. ``message_start`` carries the
   model and the base usage; ``message_delta`` carries ``usage.output_tokens``,
   which is cumulative, so the last value wins.
-- **OpenAI-compatible chat completions** (DeepSeek), both JSON and SSE. The
-  final chunk carries ``usage`` and ``model``; DeepSeek's cache-miss/cache-hit
-  fields become Gaia's ``input_tokens``/``cache_read_tokens`` buckets via the
-  same helper ``DeepSeekClient`` uses.
+- **OpenAI-compatible chat completions** (DeepSeek, OpenAI, xAI), both JSON
+  and SSE. The final chunk carries ``usage`` and ``model``. Each provider marks
+  cached prompt tokens differently; :func:`openai_compat_buckets` turns all of
+  them into Gaia's buckets, and ``OpenAICompatClient`` uses the same helper.
 
 This module is pure and does no I/O.
 """
@@ -51,6 +51,47 @@ def deepseek_token_buckets(
     return miss, hit
 
 
+def _nested_int(container: Any, name: str) -> int:
+    """Read ``container[name]`` from a dict, or ``0`` when it is not a dict."""
+    if not isinstance(container, Mapping):
+        return 0
+    return _as_int(container.get(name))
+
+
+def openai_compat_buckets(usage: Mapping[str, Any]) -> tuple[int, int, int]:
+    """Return ``(input_tokens, cache_read_tokens, output_tokens)`` for one usage dict.
+
+    Three conventions meet here (19a):
+
+    - DeepSeek reports ``prompt_cache_hit_tokens``/``prompt_cache_miss_tokens``.
+    - OpenAI and xAI report ``prompt_tokens_details.cached_tokens``, which is
+      included in ``prompt_tokens``.
+    - OpenAI and DeepSeek count reasoning inside ``completion_tokens``; xAI
+      reports it outside, so its ``total_tokens`` is larger than prompt plus
+      completion. Output is therefore the larger of ``completion_tokens`` and
+      ``total_tokens - prompt_tokens``: right for every convention, and never
+      an under-count.
+    """
+    prompt_tokens = _as_int(usage.get("prompt_tokens"))
+    completion_tokens = _as_int(usage.get("completion_tokens"))
+    total_tokens = _as_int(usage.get("total_tokens"))
+    cache_hit_tokens = _as_int(usage.get("prompt_cache_hit_tokens"))
+    cache_miss_tokens = _as_int(usage.get("prompt_cache_miss_tokens"))
+    cached_tokens = _nested_int(usage.get("prompt_tokens_details"), "cached_tokens")
+
+    if cache_hit_tokens or cache_miss_tokens or not cached_tokens:
+        input_tokens, cache_read_tokens = deepseek_token_buckets(
+            prompt_tokens=prompt_tokens,
+            cache_hit_tokens=cache_hit_tokens,
+            cache_miss_tokens=cache_miss_tokens,
+        )
+    else:
+        cache_read_tokens = cached_tokens
+        input_tokens = max(0, prompt_tokens - cached_tokens)
+    output_tokens = max(completion_tokens, total_tokens - prompt_tokens)
+    return input_tokens, cache_read_tokens, output_tokens
+
+
 def _model(payload: Mapping[str, Any]) -> str:
     """Return the payload's model as a string, or ``""`` when it is absent."""
     model = payload.get("model")
@@ -82,20 +123,12 @@ def openai_usage_from_payload(
     usage = payload.get("usage")
     if not isinstance(usage, dict):
         return None
-    prompt_tokens = _as_int(usage.get("prompt_tokens"))
-    completion_tokens = _as_int(usage.get("completion_tokens"))
-    cache_hit_tokens = _as_int(usage.get("prompt_cache_hit_tokens"))
-    cache_miss_tokens = _as_int(usage.get("prompt_cache_miss_tokens"))
-    input_tokens, cache_read_tokens = deepseek_token_buckets(
-        prompt_tokens=prompt_tokens,
-        cache_hit_tokens=cache_hit_tokens,
-        cache_miss_tokens=cache_miss_tokens,
-    )
+    input_tokens, cache_read_tokens, output_tokens = openai_compat_buckets(usage)
     return LLMUsage(
         provider=provider,
         model=_model(payload),
         input_tokens=input_tokens,
-        output_tokens=completion_tokens,
+        output_tokens=output_tokens,
         cache_read_tokens=cache_read_tokens,
         cache_creation_tokens=0,
         request_id=request_id,

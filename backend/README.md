@@ -31,7 +31,7 @@ come next, in the order given in [`docs/implementation/00-README.md`](../docs/im
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ orchestrator/  LangGraph workflow: plan → approve → implement → review → PR   │  built (11, 12a, 12b)
 │ runtimes/      the agents themselves (Claude lead, DeepSeek juniors)          │  10a, 10b, 10c built
-│ llm/           provider clients, cost accounting, LLM gateway (all built)     │  07a / 07b
+│ llm/           provider clients, cost accounting, LLM gateway (all built)     │  07a/07b/19a
 │ tools/         sandboxed file/shell/git tools, registry, audit                │  built (09a, 09b)
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ services/   git, worktrees, tickets, costs, events, GitHub push/PR/merge      │
@@ -44,7 +44,8 @@ come next, in the order given in [`docs/implementation/00-README.md`](../docs/im
                   security/ (redaction, path guard, command policy, srt sandbox profile)
 
   on disk:  ~/.gaia/ (mode 0700)  gaia.sqlite · checkpoints.sqlite · gitconfig · worktrees/
-  in the OS keychain:  ANTHROPIC_API_KEY · DEEPSEEK_API_KEY · GITHUB_TOKEN · GAIA_API_TOKEN
+  in the OS keychain:  ANTHROPIC_API_KEY · DEEPSEEK_API_KEY · OPENAI_API_KEY · XAI_API_KEY
+                       GITHUB_TOKEN · GAIA_API_TOKEN
 ```
 
 Each layer depends only on the layers below it. `api/` calls `services/` and `db/`. `services/`
@@ -70,7 +71,8 @@ never imports FastAPI. `db/` knows nothing about HTTP or git.
 | 15b | `services/{ci,pr_sync}.py`, `api/routes/pull_requests.py`, migration `0005` | CI watching pinned to the approved commit, a background PR sync for changes made on GitHub, and the PR list API | [GitHub](../docs/backend/github.md) |
 | 18b | `config/logging.py`, `api/routes/metrics.py` | Every log line (structlog and stdlib) redacted; rotating 0600 JSON log file under `data_dir/logs`; uvicorn access lines without query strings; metrics summary API | [config & secrets](../docs/backend/config-and-secrets.md) |
 | 18a | `orchestrator/{guard,runner,pause}.py`, `api/routes/admin.py` | The daily cap pauses runs and blocks new ones; the kill switch (`pause-all` / `resume-all`) with a durable flag and a `paused` run state that startup never resumes | [orchestrator](../docs/backend/orchestrator.md) |
-| auto mode | `orchestrator/auto_mode.py`, `api/routes/admin.py`, `ToolContext.auto_approve` | Per-model-family (Claude, DeepSeek) auto-approval of `run_command` asks; a 0600 switch file in the data dir, read live; denies, the sandbox and protected-file asks unchanged | [tools](../docs/backend/tools.md) |
+| 19a | `llm/openai_compat_client.py`, `llm/catalog.py`, `api/routes/models.py`, `prices.toml` | OpenAI and xAI as providers (keys, gateway routes, one OpenAI-compatible client with per-provider dialects); `prices.toml` as the model catalog (provider, label, tier, long-context tiers); `GET /models`; the gateway refuses a model on another provider's route | [LLM clients](../docs/backend/llm.md), [gateway](../docs/backend/gateway.md) |
+| auto mode | `orchestrator/auto_mode.py`, `api/routes/admin.py`, `ToolContext.auto_approve` | Per-model-family (Claude, DeepSeek, and since 19a OpenAI and xAI) auto-approval of `run_command` asks; a 0600 switch file in the data dir, read live; denies, the sandbox and protected-file asks unchanged | [tools](../docs/backend/tools.md) |
 | allowed commands | `services/allowed_commands.py`, `security/commands.py` (`allowed_entry_problem`, `suggest_allowed_prefix`), migration `0006` | Per-repository allowed command prefixes in `extra_allow`, read live per command; suggestions from past approvals; **Approve + Log** (`remember: true`); every step's instructions list the repository's commands | [security core](../docs/backend/security.md) |
 | 18b-2 | `dev/{fake_llm,demo}.py` | `GAIA_FAKE_LLM=1` demo mode (only the model is faked; no key, no network) and `gaia demo init` (a demo repository and ticket) | [gateway](../docs/backend/gateway.md#demo-mode-18b-2) |
 | 12b | `orchestrator/impl/`, `orchestrator/wiring.py` | The real workflow: worktree and setup, steps on the configured runtimes, sandboxed checks, commits, lead planning and review through the gateway, one composition root in the app lifespan, and the swap drill (a full run with no Claude) | [orchestrator](../docs/backend/orchestrator.md) |

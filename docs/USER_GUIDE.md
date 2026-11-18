@@ -107,8 +107,10 @@ for the value without echoing it:
 
 ```sh
 cd backend
-uv run gaia secrets set ANTHROPIC_API_KEY    # the lead: planning and review
-uv run gaia secrets set DEEPSEEK_API_KEY     # the juniors: implementation
+uv run gaia secrets set ANTHROPIC_API_KEY    # Claude models (the default lead)
+uv run gaia secrets set DEEPSEEK_API_KEY     # DeepSeek models (the default workers)
+uv run gaia secrets set OPENAI_API_KEY       # optional: OpenAI (GPT) models
+uv run gaia secrets set XAI_API_KEY          # optional: xAI (Grok) models
 uv run gaia secrets set GITHUB_TOKEN         # optional: PRs, CI status, merges
 uv run gaia secrets list                     # shows set / not set, never a value
 ```
@@ -200,7 +202,8 @@ shows what changed. **Cancel run** stops it at any time; the worktree is kept, s
   every run, until you press **Resume all**. Nothing is lost: runs continue from their last
   completed step.
 - **Auto mode** (**Settings**, `g s`): stop approving commands one by one. Switch it on
-  separately for **Claude** (the lead) and **DeepSeek** (the juniors). An agent in auto mode runs
+  separately per provider: **Claude**, **DeepSeek**, **OpenAI** and **xAI**, which covers every
+  agent running a model from that provider. An agent in auto mode runs
   any command that would otherwise ask you, still inside the sandbox. Blocked commands (`sudo`,
   `curl`, `rm`, `git push`…) stay blocked, edits to CI, git hook and `.envrc` files still ask, and
   plan and PR approvals are unchanged. The change applies to each agent's next command, with no

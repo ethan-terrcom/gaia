@@ -47,14 +47,25 @@ afterEach(() => {
 
 describe('AutoModeSettings', () => {
   it('shows one switch per model family with its current state', async () => {
-    mockFetch(() => jsonResponse(200, { claude: false, deepseek: true }))
+    mockFetch(() =>
+      jsonResponse(200, {
+        claude: false,
+        deepseek: true,
+        openai: true,
+        xai: false,
+      }),
+    )
 
     renderSettings()
 
     const claude = await screen.findByRole('switch', { name: 'Claude' })
     const deepseek = screen.getByRole('switch', { name: 'DeepSeek' })
+    const openai = screen.getByRole('switch', { name: 'OpenAI' })
+    const xai = screen.getByRole('switch', { name: 'xAI' })
     expect(claude.getAttribute('aria-checked')).toBe('false')
     expect(deepseek.getAttribute('aria-checked')).toBe('true')
+    expect(openai.getAttribute('aria-checked')).toBe('true')
+    expect(xai.getAttribute('aria-checked')).toBe('false')
   })
 
   it('switches one family with a PATCH of only that family', async () => {

@@ -19,6 +19,7 @@ import keyring
 from keyring.errors import PasswordDeleteError
 from pydantic import SecretStr
 
+from gaia.domain.enums import LLMProvider
 from gaia.security.redaction import register_secret
 
 #: Keychain service name used for Gaia's own secrets.
@@ -34,10 +35,27 @@ class SecretName(StrEnum):
 
     ANTHROPIC_API_KEY = "ANTHROPIC_API_KEY"
     DEEPSEEK_API_KEY = "DEEPSEEK_API_KEY"
+    OPENAI_API_KEY = "OPENAI_API_KEY"
+    XAI_API_KEY = "XAI_API_KEY"
     # ruff's S105 ("hardcoded password") fires on these *names*. Both are keychain
     # entry names, never values, so the suppression cannot hide a credential.
     GITHUB_TOKEN = "GITHUB_TOKEN"  # noqa: S105 - an entry name, not a secret value
     GAIA_API_TOKEN = "GAIA_API_TOKEN"  # noqa: S105 - an entry name, not a secret value
+
+
+#: The keychain entry holding each provider's API key (doc 07b, 19a). Only the
+#: gateway reads these; no agent process ever sees one.
+PROVIDER_SECRETS: dict[LLMProvider, SecretName] = {
+    LLMProvider.ANTHROPIC: SecretName.ANTHROPIC_API_KEY,
+    LLMProvider.DEEPSEEK: SecretName.DEEPSEEK_API_KEY,
+    LLMProvider.OPENAI: SecretName.OPENAI_API_KEY,
+    LLMProvider.XAI: SecretName.XAI_API_KEY,
+}
+
+
+def provider_secret(provider: str) -> SecretName:
+    """Return the keychain entry for ``provider``; ``ValueError`` if it is unknown."""
+    return PROVIDER_SECRETS[LLMProvider(provider)]
 
 
 class MissingSecretError(LookupError):

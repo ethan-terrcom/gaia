@@ -23,6 +23,7 @@ from gaia.config.settings import Settings
 from gaia.db.models import LlmUsage as LlmUsageRow
 from gaia.db.models import Run
 from gaia.db.repo import ScopedRepo, add_run_cost, daily_llm_usage_cost_usd
+from gaia.domain.enums import LLMProvider, ModelTier
 from gaia.llm.base import LLMUsage
 
 #: Shipped price table. Tests build their own tables and never read this file.
@@ -48,8 +49,26 @@ class PriceRates:
 
 
 @dataclass(frozen=True)
+class LongContextRates:
+    """Rates that replace the base rates for a whole request with a long prompt.
+
+    OpenAI, xAI and Claude Haiku 5.5 bill **every** token of a request at a
+    higher rate once its prompt (uncached input, cache reads and cache writes
+    together) reaches ``from_prompt_tokens``.
+    """
+
+    from_prompt_tokens: int
+    rates: PriceRates
+
+
+@dataclass(frozen=True)
 class ModelPrice:
-    """Rates for one model, plus an optional off-peak tier."""
+    """Rates for one model, plus optional off-peak and long-context tiers.
+
+    ``provider``, ``label`` and ``tier`` make the price table the model
+    catalog as well (19a): a model can be picked for a role only when it is
+    priced, and the gateway refuses a model on another provider's route.
+    """
 
     rates: PriceRates
     off_peak: PriceRates | None = None
@@ -61,6 +80,13 @@ class ModelPrice:
     peak_windows_utc: tuple[tuple[int, int], ...] = ()
     #: With ``peak_windows_utc``: peak hours apply Monday to Friday only.
     peak_weekdays_only: bool = False
+    long_context: LongContextRates | None = None
+    #: The :class:`~gaia.domain.enums.LLMProvider` value that serves this model.
+    provider: str | None = None
+    #: A human-readable name for the UI, such as ``"GPT-6.2 Sol"``.
+    label: str | None = None
+    #: A :class:`~gaia.domain.enums.ModelTier` value: guidance for the UI only.
+    tier: str | None = None
 
 
 @dataclass(frozen=True)
@@ -82,31 +108,68 @@ def _decimal(value: Any, *, field: str, model: str) -> Decimal:
     return result
 
 
+def _parse_rates(raw: Mapping[str, Any], *, model: str, prefix: str = "") -> PriceRates:
+    """Parse the four rate fields of one TOML table."""
+    return PriceRates(
+        input=_decimal(raw["input"], field=f"{prefix}input", model=model),
+        output=_decimal(raw["output"], field=f"{prefix}output", model=model),
+        cache_read=_decimal(raw.get("cache_read", 0), field=f"{prefix}cache_read", model=model),
+        cache_write=_decimal(raw.get("cache_write", 0), field=f"{prefix}cache_write", model=model),
+    )
+
+
+def _parse_choice(raw: Any, *, field: str, model: str, allowed: frozenset[str]) -> str | None:
+    """Read an optional string that must be one of ``allowed``."""
+    if raw is None:
+        return None
+    if not isinstance(raw, str) or raw not in allowed:
+        raise ValueError(f"{model}.{field} must be one of {sorted(allowed)}, got {raw!r}")
+    return raw
+
+
+def _parse_long_context(raw: Any, *, model: str) -> LongContextRates | None:
+    """Parse an optional ``[models.<name>.long_context]`` table."""
+    if raw is None:
+        return None
+    threshold = raw.get("from_prompt_tokens")
+    if not isinstance(threshold, int) or isinstance(threshold, bool) or threshold <= 0:
+        raise ValueError(f"{model}.long_context.from_prompt_tokens must be a positive integer")
+    return LongContextRates(
+        from_prompt_tokens=threshold,
+        rates=_parse_rates(raw, model=model, prefix="long_context."),
+    )
+
+
 def _parse_model(name: str, raw: Mapping[str, Any]) -> ModelPrice:
     """Parse one ``[models.<name>]`` section from ``prices.toml``."""
-    rates = PriceRates(
-        input=_decimal(raw["input"], field="input", model=name),
-        output=_decimal(raw["output"], field="output", model=name),
-        cache_read=_decimal(raw.get("cache_read", 0), field="cache_read", model=name),
-        cache_write=_decimal(raw.get("cache_write", 0), field="cache_write", model=name),
-    )
+    label = raw.get("label")
+    if label is not None and (not isinstance(label, str) or not label.strip()):
+        raise ValueError(f"{name}.label must be a non-empty string")
+    common: dict[str, Any] = {
+        "rates": _parse_rates(raw, model=name),
+        "long_context": _parse_long_context(raw.get("long_context"), model=name),
+        "provider": _parse_choice(
+            raw.get("provider"),
+            field="provider",
+            model=name,
+            allowed=frozenset(provider.value for provider in LLMProvider),
+        ),
+        "label": label,
+        "tier": _parse_choice(
+            raw.get("tier"),
+            field="tier",
+            model=name,
+            allowed=frozenset(tier.value for tier in ModelTier),
+        ),
+    }
 
     raw_off_peak = raw.get("off_peak")
     if raw_off_peak is None:
-        return ModelPrice(rates=rates)
+        return ModelPrice(**common)
 
     return ModelPrice(
-        rates=rates,
-        off_peak=PriceRates(
-            input=_decimal(raw_off_peak["input"], field="off_peak.input", model=name),
-            output=_decimal(raw_off_peak["output"], field="off_peak.output", model=name),
-            cache_read=_decimal(
-                raw_off_peak.get("cache_read", 0), field="off_peak.cache_read", model=name
-            ),
-            cache_write=_decimal(
-                raw_off_peak.get("cache_write", 0), field="off_peak.cache_write", model=name
-            ),
-        ),
+        **common,
+        off_peak=_parse_rates(raw_off_peak, model=name, prefix="off_peak."),
         off_peak_start_utc=int(raw.get("off_peak_start_utc", 0)),
         off_peak_end_utc=int(raw.get("off_peak_end_utc", 0)),
         peak_windows_utc=_parse_windows(name, raw.get("peak_windows_utc", [])),
@@ -180,7 +243,14 @@ class PriceTable:
 
         tier: str | None = None
         rates = price.rates
-        if price.off_peak is not None and price.peak_windows_utc:
+        prompt_tokens = usage.input_tokens + usage.cache_read_tokens + usage.cache_creation_tokens
+        if (
+            price.long_context is not None
+            and prompt_tokens >= price.long_context.from_prompt_tokens
+        ):
+            rates = price.long_context.rates
+            tier = "long-context"
+        elif price.off_peak is not None and price.peak_windows_utc:
             if _is_peak(at, price.peak_windows_utc, price.peak_weekdays_only):
                 tier = "peak"
             else:
@@ -233,6 +303,15 @@ class PriceTable:
     def model_names(self) -> tuple[str, ...]:
         """All configured models, sorted for deterministic error messages."""
         return tuple(sorted(self._models))
+
+    def get(self, model: str) -> ModelPrice | None:
+        """Return the configured entry for ``model``, or ``None``."""
+        return self._models.get(model)
+
+    def provider_of(self, model: str) -> str | None:
+        """Return the provider that serves ``model``, when the table says."""
+        price = self._models.get(model)
+        return None if price is None else price.provider
 
 
 class DbUsageRecorder:

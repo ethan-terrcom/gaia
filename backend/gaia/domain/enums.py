@@ -51,6 +51,32 @@ class RuntimeKind(StrEnum):
     CLINE_CLI = "cline_cli"
 
 
+class LLMProvider(StrEnum):
+    """A model provider Gaia can reach through its LLM gateway (doc 07b, 19a).
+
+    The value is the gateway route segment (``/llm/<provider>/...``), the
+    ``provider`` stored on a run token and on ``llm_usage`` rows, and the
+    ``provider`` key of a model in ``prices.toml``.
+    """
+
+    ANTHROPIC = "anthropic"
+    DEEPSEEK = "deepseek"
+    OPENAI = "openai"
+    XAI = "xai"
+
+
+class ModelTier(StrEnum):
+    """A model's rough capability class, used to suggest models for a role (19a).
+
+    It is guidance shown in the UI, never a rule: the owner may put any model
+    in any role.
+    """
+
+    FRONTIER = "frontier"
+    MID = "mid"
+    FAST = "fast"
+
+
 class TicketStatus(StrEnum):
     """Where a ticket is in the queue (doc 03 task 3)."""
 

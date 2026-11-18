@@ -27,6 +27,8 @@ from gaia.domain.enums import (
     ApprovalKind,
     ApprovalStatus,
     CiStatus,
+    LLMProvider,
+    ModelTier,
     PullRequestState,
     RunStatus,
     RunStepStatus,
@@ -505,6 +507,8 @@ class AutoModeStatus(Schema):
 
     claude: bool
     deepseek: bool
+    openai: bool
+    xai: bool
 
 
 class AutoModeUpdate(RequestSchema):
@@ -512,6 +516,38 @@ class AutoModeUpdate(RequestSchema):
 
     claude: bool | None = None
     deepseek: bool | None = None
+    openai: bool | None = None
+    xai: bool | None = None
+
+
+class ProviderStatus(Schema):
+    """One LLM provider and whether its API key is in the keychain (19a)."""
+
+    name: LLMProvider
+    configured: bool
+    #: The keychain entry to set with ``gaia secrets set``; a name, never a value.
+    secret_name: str
+
+
+class CatalogModelRead(Schema):
+    """One model Gaia can put in a role, with its list prices (USD per 1M tokens)."""
+
+    id: str
+    provider: LLMProvider
+    label: str
+    tier: ModelTier | None
+    #: Whether the provider's key is set, so a run can use this model now.
+    available: bool
+    input_usd_per_mtok: Decimal
+    output_usd_per_mtok: Decimal
+    cache_read_usd_per_mtok: Decimal
+
+
+class ModelCatalog(Schema):
+    """Every provider and every priced model (``GET /models``)."""
+
+    providers: list[ProviderStatus]
+    models: list[CatalogModelRead]
 
 
 class EventRead(WorkspaceScopedRead):

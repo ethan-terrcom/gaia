@@ -24,8 +24,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from gaia.config.secrets import SecretStore
 from gaia.config.settings import Settings
-from gaia.domain.enums import RuntimeKind
-from gaia.orchestrator.auto_mode import AUTO_MODE_FILE, AutoModeSwitch, ModelFamily
+from gaia.domain.enums import LLMProvider, RuntimeKind
+from gaia.orchestrator.auto_mode import (
+    AUTO_MODE_FILE,
+    AutoModeSwitch,
+    ModelFamily,
+    family_for_provider,
+)
 from gaia.orchestrator.deps import GraphDeps, PullRequests
 from gaia.orchestrator.impl.checks import SandboxCheckRunner
 from gaia.orchestrator.impl.commits import WorktreeCommitter
@@ -158,6 +163,10 @@ def build_wiring(
     )
     check_runner = command_runner or LazySrtRunner(settings)
     tool_runner = command_runner or LazySrtRunner(settings)
+    # The native runtime serves whichever OpenAI-compatible provider prices.toml
+    # assigns to the junior model (19a); an unlisted provider means DeepSeek.
+    junior_provider = prices.provider_of(settings.junior_model) or LLMProvider.DEEPSEEK.value
+    junior_family = family_for_provider(junior_provider)
 
     async def native_context_factory(task: AgentTask, events: EventSink) -> ToolContext:
         return ToolContext(
@@ -172,9 +181,9 @@ def build_wiring(
             actor=f"agent:{task.role.value}",
             approval_timeout_s=settings.command_approval_timeout_s,
             rg_path=rg_path,
-            # The native runtime is registered as ``native_deepseek`` (in demo
-            # mode both roles use it), so its tasks follow the DeepSeek switch.
-            auto_approve=partial(auto_mode.enabled, ModelFamily.DEEPSEEK),
+            # The native runtime's tasks follow the switch of its model's
+            # provider (in demo mode both roles use it, on DeepSeek).
+            auto_approve=partial(auto_mode.enabled, junior_family),
             extra_allow_source=partial(load_extra_allow, sessions, task.workspace_id, task.run_id),
         )
 
@@ -204,6 +213,7 @@ def build_wiring(
             sessions=sessions,
             price_table=prices,
             model=settings.junior_model,
+            provider=junior_provider,
             http_client=llm_http_client,
         ),
         tools=default_registry.subset(JUNIOR_TOOLS),

@@ -1,10 +1,11 @@
 # The LLM gateway
 
-> Package **07b** (owner decision D2) · `gaia/llm/{gateway,run_tokens,metering}.py`,
-> `gaia/services/costs.py` (`ensure_budget`) · current as of 2026-11-14
+> Package **07b** (owner decision D2), providers extended in **19a** ·
+> `gaia/llm/{gateway,run_tokens,metering}.py`, `gaia/services/costs.py` (`ensure_budget`) ·
+> current as of 2026-11-17
 
 ## What it's for
-Agents need to call Claude and DeepSeek, but an agent process must never hold a provider API key.
+Agents need to call Claude, DeepSeek, OpenAI and xAI, but an agent process must never hold a provider API key.
 It runs code from the repository, and anything in its environment can leak. The gateway sits in
 the middle:
 
@@ -57,17 +58,24 @@ Tokens are masked in logs and events **by shape**: the `gaia_rt_…` pattern in
 - **Anthropic:** `v1/messages` and `v1/messages/count_tokens`.
 - **DeepSeek:** `chat/completions`, `v1/chat/completions` and `anthropic/v1/messages` (DeepSeek's
   Anthropic-compatible endpoint, used by the doc 08 spike).
+- **OpenAI** and **xAI** (19a): `chat/completions` only. Their base URLs (`openai_base_url`,
+  `xai_base_url`) already end in `/v1`. The Responses API is not forwarded.
 
 Anything else gets 404 **in the provider's own error shape**, so SDKs show a normal error. The
 request's `model` must be in `prices.toml`, because the gateway refuses to forward a call it can't
-price.
+price, **and** it must belong to the route's provider: an OpenAI model on `/llm/xai/…` is a 400, so
+every call is metered at its own provider's prices. The real key comes from the keychain entry in
+`PROVIDER_SECRETS` (`OPENAI_API_KEY`, `XAI_API_KEY`, …); a provider without one answers 503
+`provider_not_configured`.
 
 ### Streaming and metering
 The response is relayed **byte for byte** (`aiter_raw`); SSE included. While it passes through, the
 `UsageAccumulator` parses a copy of each chunk:
 - **Anthropic SSE:** input and cache tokens from `message_start`, output from the last
   `message_delta`.
-- **DeepSeek:** the final chunk's `usage`. The gateway adds `stream_options.include_usage=true` to
+- **DeepSeek, OpenAI and xAI:** the final chunk's `usage`, read by `openai_compat_buckets` (each
+  provider marks cached and reasoning tokens differently; see the [LLM guide](llm.md)). The
+  gateway adds `stream_options.include_usage=true` to
   streaming requests so that chunk exists.
 
 When the stream ends, the gateway records an `llm_usage` row and adds the cost to `run.cost_usd`
@@ -94,8 +102,10 @@ upstream.
 together overshoot by up to N calls. Reserving budget up front is doc 18a's job.
 
 ### Prices
-`prices.toml` holds USD per 1M tokens. DeepSeek's values were read from its pricing page on
-2026-11-14. Peak hours are `peak_windows_utc = [[1, 4], [6, 10]]` (weekdays only), and off-peak is
+`prices.toml` holds USD per 1M tokens and is also the model catalog (provider, label, tier).
+DeepSeek's values were read from its pricing page on 2026-11-14; OpenAI's and xAI's from their
+official pages on 2026-11-17. A `long_context` table bills a whole request at higher rates once
+its prompt reaches a threshold (`price_tier = "long-context"`). Peak hours are `peak_windows_utc = [[1, 4], [6, 10]]` (weekdays only), and off-peak is
 half price. Chinese public holidays, which DeepSeek treats as off-peak, are priced at peak: a slight
 over-count, which is the safe direction.
 

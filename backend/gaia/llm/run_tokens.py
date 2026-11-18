@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from gaia.db.models import Run, RunToken
 from gaia.db.repo import RunTokenRepo, ScopedRepo
 from gaia.db.types import utcnow
-from gaia.domain.enums import RunStatus
+from gaia.domain.enums import LLMProvider, RunStatus
 
 #: Plaintext prefix, so a token is recognisable without revealing anything.
 RUN_TOKEN_PREFIX = "gaia_rt_"  # noqa: S105 - a public prefix, not a secret value
@@ -27,7 +27,7 @@ RUN_TOKEN_PREFIX = "gaia_rt_"  # noqa: S105 - a public prefix, not a secret valu
 RUN_TOKEN_BYTES = 32
 
 #: Providers the gateway can route to.
-_PROVIDERS = frozenset({"anthropic", "deepseek"})
+_PROVIDERS = frozenset(provider.value for provider in LLMProvider)
 
 #: A run in one of these statuses can no longer make LLM calls.
 _TERMINAL_RUN_STATUSES = frozenset(

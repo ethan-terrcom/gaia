@@ -17,7 +17,7 @@ GAIA_DIR = Path(__file__).resolve().parents[1] / "gaia"
 
 ALLOWED: dict[str, frozenset[str]] = {
     "anthropic": frozenset({"llm/anthropic_client.py"}),
-    "openai": frozenset({"llm/deepseek_client.py"}),
+    "openai": frozenset({"llm/openai_compat_client.py"}),
     "claude_agent_sdk": frozenset({"runtimes/claude_agent_sdk.py"}),
 }
 

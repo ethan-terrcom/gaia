@@ -113,7 +113,7 @@ finally: close the handle (revokes the token)
 
 ### Portability (ADR-001)
 - **P1:** `tests/test_vendor_boundaries.py` walks every import under `gaia/`: `anthropic` only in
-  `llm/anthropic_client.py`, `openai` only in `llm/deepseek_client.py`, `claude_agent_sdk` only
+  `llm/anthropic_client.py`, `openai` only in `llm/openai_compat_client.py`, `claude_agent_sdk` only
   in `runtimes/claude_agent_sdk.py`.
 - **P6:** `DeepSeekClient.parse` implements `StructuredLLM`. DeepSeek has no JSON-schema mode, so
   it uses `response_format=json_object` with the schema in the system prompt, plus one repair

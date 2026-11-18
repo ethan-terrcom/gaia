@@ -44,6 +44,8 @@ def test_the_known_secret_names_are_exactly_this_set() -> None:
     assert [name.value for name in SecretName] == [
         "ANTHROPIC_API_KEY",
         "DEEPSEEK_API_KEY",
+        "OPENAI_API_KEY",
+        "XAI_API_KEY",
         "GITHUB_TOKEN",
         "GAIA_API_TOKEN",
     ]

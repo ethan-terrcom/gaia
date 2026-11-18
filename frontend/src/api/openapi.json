@@ -252,11 +252,21 @@
           "deepseek": {
             "title": "Deepseek",
             "type": "boolean"
+          },
+          "openai": {
+            "title": "Openai",
+            "type": "boolean"
+          },
+          "xai": {
+            "title": "Xai",
+            "type": "boolean"
           }
         },
         "required": [
           "claude",
-          "deepseek"
+          "deepseek",
+          "openai",
+          "xai"
         ],
         "title": "AutoModeStatus",
         "type": "object"
@@ -286,9 +296,85 @@
               }
             ],
             "title": "Deepseek"
+          },
+          "openai": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Openai"
+          },
+          "xai": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Xai"
           }
         },
         "title": "AutoModeUpdate",
+        "type": "object"
+      },
+      "CatalogModelRead": {
+        "description": "One model Gaia can put in a role, with its list prices (USD per 1M tokens).",
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "cache_read_usd_per_mtok": {
+            "title": "Cache Read Usd Per Mtok",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "input_usd_per_mtok": {
+            "title": "Input Usd Per Mtok",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "output_usd_per_mtok": {
+            "title": "Output Usd Per Mtok",
+            "type": "string"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/LLMProvider"
+          },
+          "tier": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelTier"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "provider",
+          "label",
+          "tier",
+          "available",
+          "input_usd_per_mtok",
+          "output_usd_per_mtok",
+          "cache_read_usd_per_mtok"
+        ],
+        "title": "CatalogModelRead",
         "type": "object"
       },
       "CiStatus": {
@@ -643,6 +729,17 @@
         "title": "Health",
         "type": "object"
       },
+      "LLMProvider": {
+        "description": "A model provider Gaia can reach through its LLM gateway (doc 07b, 19a).\n\nThe value is the gateway route segment (``/llm/<provider>/...``), the\n``provider`` stored on a run token and on ``llm_usage`` rows, and the\n``provider`` key of a model in ``prices.toml``.",
+        "enum": [
+          "anthropic",
+          "deepseek",
+          "openai",
+          "xai"
+        ],
+        "title": "LLMProvider",
+        "type": "string"
+      },
       "MetricsSummary": {
         "description": "The observability dashboard's workspace summary (doc 18b).",
         "properties": {
@@ -710,6 +807,41 @@
         ],
         "title": "MetricsSummary",
         "type": "object"
+      },
+      "ModelCatalog": {
+        "description": "Every provider and every priced model (``GET /models``).",
+        "properties": {
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogModelRead"
+            },
+            "title": "Models",
+            "type": "array"
+          },
+          "providers": {
+            "items": {
+              "$ref": "#/components/schemas/ProviderStatus"
+            },
+            "title": "Providers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "providers",
+          "models"
+        ],
+        "title": "ModelCatalog",
+        "type": "object"
+      },
+      "ModelTier": {
+        "description": "A model's rough capability class, used to suggest models for a role (19a).\n\nIt is guidance shown in the UI, never a rule: the owner may put any model\nin any role.",
+        "enum": [
+          "frontier",
+          "mid",
+          "fast"
+        ],
+        "title": "ModelTier",
+        "type": "string"
       },
       "PauseAllRequest": {
         "additionalProperties": false,
@@ -804,6 +936,29 @@
           "cost_usd"
         ],
         "title": "ProviderCost",
+        "type": "object"
+      },
+      "ProviderStatus": {
+        "description": "One LLM provider and whether its API key is in the keychain (19a).",
+        "properties": {
+          "configured": {
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "name": {
+            "$ref": "#/components/schemas/LLMProvider"
+          },
+          "secret_name": {
+            "title": "Secret Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "configured",
+          "secret_name"
+        ],
+        "title": "ProviderStatus",
         "type": "object"
       },
       "PullRequestPage": {
@@ -3019,6 +3174,33 @@
         "summary": "Workspace metrics summary",
         "tags": [
           "metrics"
+        ]
+      }
+    },
+    "/api/v1/models": {
+      "get": {
+        "description": "Return every provider with whether its key is set, and every priced model.\n\nA model is ``available`` when its provider's key is in the keychain (or in\ndemo mode). Key values are never read into the response.",
+        "operationId": "list_models_api_v1_models_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelCatalog"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List the models Gaia can use",
+        "tags": [
+          "models"
         ]
       }
     },

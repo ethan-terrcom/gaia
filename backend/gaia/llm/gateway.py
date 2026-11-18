@@ -28,12 +28,12 @@ from starlette.responses import JSONResponse, Response, StreamingResponse
 
 from gaia.api.auth import bearer_token
 from gaia.api.deps import AppServices
-from gaia.config.secrets import MissingSecretError, SecretName
+from gaia.config.secrets import MissingSecretError, SecretName, provider_secret
 from gaia.db.engine import session_scope
 from gaia.db.models import Run
 from gaia.db.repo import ScopedRepo
 from gaia.db.types import utcnow
-from gaia.domain.enums import EventType
+from gaia.domain.enums import EventType, LLMProvider
 from gaia.llm.metering import UsageAccumulator, estimate_usage
 from gaia.llm.run_tokens import RunTokenContext
 from gaia.llm.run_tokens import resolve as resolve_run_token
@@ -59,6 +59,16 @@ RECORD_TIMEOUT_S = 10.0
 #: Provider endpoints this package knows how to forward.
 ANTHROPIC_ALLOWLIST = frozenset({"v1/messages", "v1/messages/count_tokens"})
 DEEPSEEK_ALLOWLIST = frozenset({"chat/completions", "v1/chat/completions", "anthropic/v1/messages"})
+#: OpenAI and xAI base URLs already end in ``/v1``, so chat completions is the
+#: one path (19a). The Responses API is not forwarded.
+OPENAI_COMPAT_ALLOWLIST = frozenset({"chat/completions"})
+
+_ALLOWLISTS: dict[str, frozenset[str]] = {
+    LLMProvider.ANTHROPIC.value: ANTHROPIC_ALLOWLIST,
+    LLMProvider.DEEPSEEK.value: DEEPSEEK_ALLOWLIST,
+    LLMProvider.OPENAI.value: OPENAI_COMPAT_ALLOWLIST,
+    LLMProvider.XAI.value: OPENAI_COMPAT_ALLOWLIST,
+}
 
 #: Request headers that are forwarded upstream. Everything else is dropped,
 #: including the client's own credential headers.
@@ -91,7 +101,7 @@ def _presented_token(request: Request) -> str | None:
 
 def _secret_name(provider: str) -> SecretName:
     """The keychain entry for one provider."""
-    return SecretName.ANTHROPIC_API_KEY if provider == "anthropic" else SecretName.DEEPSEEK_API_KEY
+    return provider_secret(provider)
 
 
 def _provider_error(
@@ -184,7 +194,7 @@ def _log_call(
 
 def _allowlist_for(provider: str) -> frozenset[str]:
     """The normalised paths this gateway forwards for ``provider``."""
-    return ANTHROPIC_ALLOWLIST if provider == "anthropic" else DEEPSEEK_ALLOWLIST
+    return _ALLOWLISTS[provider]
 
 
 def _parser_for(provider: str, path: str) -> Literal["anthropic", "openai"]:
@@ -222,21 +232,25 @@ def _parse_request_json(raw: bytes) -> tuple[dict[str, Any] | None, JSONResponse
 
 
 def _validate_model(
-    payload: dict[str, Any], prices: PriceTable
-) -> tuple[str | None, JSONResponse | None]:
-    """Return the request model, or a 400 error when it is not priced."""
+    payload: dict[str, Any], prices: PriceTable, provider: str
+) -> tuple[str | None, str]:
+    """Return ``(model, "")``, or ``(None, reason)`` when the model may not be forwarded.
+
+    The model must be priced, and a model the price table assigns to another
+    provider is refused too (19a): a priced model is a promise about which bill
+    it lands on, so an OpenAI model must not be metered on the xAI route.
+    """
     model = payload.get("model")
     if not isinstance(model, str) or not model:
-        return None, _provider_error(
-            "anthropic", 400, "invalid_request_error", "the request model is not configured"
-        )
+        return None, "the request model is not configured"
     try:
         prices.require(model)
     except KeyError:
-        return None, _provider_error(
-            "anthropic", 400, "invalid_request_error", "the request model is not configured"
-        )
-    return model, None
+        return None, "the request model is not configured"
+    owner = prices.provider_of(model)
+    if owner is not None and owner != provider:
+        return None, "the request model is not configured for this provider"
+    return model, ""
 
 
 async def _publish_budget_event(
@@ -504,7 +518,7 @@ async def _handle(request: Request, provider: str, path: str) -> Response:
                 provider, 400, "invalid_request_error", "request body is not valid JSON"
             )
 
-        requested_model, _ = _validate_model(payload, services.prices)
+        requested_model, model_problem = _validate_model(payload, services.prices, provider)
         if requested_model is None:
             _log_call(
                 run_id=context.run_id,
@@ -516,13 +530,11 @@ async def _handle(request: Request, provider: str, path: str) -> Response:
                 upstream_request_id=None,
                 streamed=False,
             )
-            return _provider_error(
-                provider, 400, "invalid_request_error", "the request model is not configured"
-            )
+            return _provider_error(provider, 400, "invalid_request_error", model_problem)
 
         streamed = payload.get("stream") is True
         body_changed = False
-        if provider == "deepseek" and parser == "openai" and streamed:
+        if provider != "anthropic" and parser == "openai" and streamed:
             stream_options = payload.setdefault("stream_options", {})
             if isinstance(stream_options, dict):
                 stream_options.setdefault("include_usage", True)
@@ -597,11 +609,7 @@ async def _handle(request: Request, provider: str, path: str) -> Response:
                 code="provider_not_configured",
             )
 
-    base_url = (
-        services.settings.anthropic_base_url
-        if provider == "anthropic"
-        else services.settings.junior_base_url
-    )
+    base_url = services.settings.provider_base_url(provider)
     url = f"{base_url.rstrip('/')}/{normalised}"
     upstream_request = services.llm_http.build_request(
         "POST", url, content=content, headers=_upstream_headers(request, provider, secret)
@@ -675,3 +683,23 @@ async def anthropic_gateway(request: Request, path: str) -> Response:
 async def deepseek_gateway(request: Request, path: str) -> Response:
     """Forward a DeepSeek/OpenAI-shaped request."""
     return await _handle(request, "deepseek", path)
+
+
+@router.api_route(
+    "/openai/{path:path}",
+    methods=["POST", "GET", "PUT", "PATCH", "DELETE"],
+    include_in_schema=False,
+)
+async def openai_gateway(request: Request, path: str) -> Response:
+    """Forward an OpenAI chat-completions request (19a)."""
+    return await _handle(request, "openai", path)
+
+
+@router.api_route(
+    "/xai/{path:path}",
+    methods=["POST", "GET", "PUT", "PATCH", "DELETE"],
+    include_in_schema=False,
+)
+async def xai_gateway(request: Request, path: str) -> Response:
+    """Forward an xAI chat-completions request (19a), OpenAI-shaped."""
+    return await _handle(request, "xai", path)

@@ -20,7 +20,7 @@ import structlog
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from gaia.domain.enums import RuntimeKind
+from gaia.domain.enums import LLMProvider, RuntimeKind
 
 logger = structlog.get_logger(__name__)
 
@@ -124,7 +124,7 @@ class Settings(BaseSettings):
     lead_model: str = "claude-opus-5-5"
     junior_model: str = "deepseek-v4-pro"
     #: Provider and model for the lead's planning and review calls (ADR-001 P2).
-    planner_provider: Literal["anthropic", "deepseek"] = "anthropic"
+    planner_provider: Literal["anthropic", "deepseek", "openai", "xai"] = "anthropic"
     planner_model: str = "claude-opus-5-5"
     #: How long one lead planning/review LLM call may run before it is timed out.
     lead_call_timeout_s: float = 600
@@ -132,6 +132,10 @@ class Settings(BaseSettings):
     #: doc 08 spike can point this at a local fake without touching real DNS.
     anthropic_base_url: str = "https://api.anthropic.com"
     junior_base_url: str = "https://api.deepseek.com"
+    #: Base URLs the gateway forwards OpenAI and xAI chat completions to (19a).
+    #: Both include the API version, so the forwarded path is ``chat/completions``.
+    openai_base_url: str = "https://api.openai.com/v1"
+    xai_base_url: str = "https://api.x.ai/v1"
 
     #: Role → runtime/model settings (ADR-001 P2). The orchestrator reads these;
     #: it never names a vendor or a model directly.
@@ -234,6 +238,16 @@ class Settings(BaseSettings):
     #: When true, the LLM gateway answers with the local fake provider and no
     #: real model, provider key or network is used. Read from ``GAIA_FAKE_LLM``.
     fake_llm: bool = False
+
+    def provider_base_url(self, provider: str) -> str:
+        """Return the upstream base URL the gateway forwards ``provider`` calls to."""
+        urls = {
+            LLMProvider.ANTHROPIC: self.anthropic_base_url,
+            LLMProvider.DEEPSEEK: self.junior_base_url,
+            LLMProvider.OPENAI: self.openai_base_url,
+            LLMProvider.XAI: self.xai_base_url,
+        }
+        return urls[LLMProvider(provider)]
 
     @field_validator("data_dir", "checkpoint_path", "worktrees_root", "log_dir")
     @classmethod
