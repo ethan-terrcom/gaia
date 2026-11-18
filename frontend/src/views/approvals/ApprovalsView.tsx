@@ -36,6 +36,8 @@ type StepDraft = {
   testCommand: string
   files: string[]
   acceptance: string[]
+  // The worker the lead assigned (doc 19); kept as it is through an edit.
+  worker: string | null
 }
 
 const SEQUENCE_TIMEOUT_MS = 1_000
@@ -55,6 +57,7 @@ const planStepSchema = z.object({
   files_likely_touched: z.array(z.string()),
   acceptance: z.array(z.string()),
   test_command: z.array(z.string()).nullable(),
+  worker: z.string().nullable().optional(),
 })
 
 const planSchema = z.object({
@@ -320,6 +323,92 @@ function ApprovalList({
   )
 }
 
+type PlanCandidate = { label: string; model: string; plan: PlanPayload }
+
+function crowdFromPayload(payload: Record<string, unknown>): {
+  candidates: PlanCandidate[]
+  provenance: string[]
+  notes: string[]
+} {
+  const candidates: PlanCandidate[] = []
+  if (Array.isArray(payload.candidates)) {
+    for (const raw of payload.candidates) {
+      const record = asRecord(raw)
+      const label = asString(record?.label)
+      const model = asString(record?.model)
+      const plan = planDisplaySchema.safeParse(record?.plan)
+      if (label && model && plan.success) {
+        candidates.push({ label, model, plan: plan.data })
+      }
+    }
+  }
+  return {
+    candidates,
+    provenance: asStringArray(payload.provenance),
+    notes: asStringArray(payload.notes),
+  }
+}
+
+/** Wisdom of crowds (doc 19): the panel's plans and what the lead took from each. */
+function CrowdDetail({ payload }: { payload: Record<string, unknown> }) {
+  const { candidates, provenance, notes } = crowdFromPayload(payload)
+  if (
+    candidates.length === 0 &&
+    provenance.length === 0 &&
+    notes.length === 0
+  ) {
+    return null
+  }
+  return (
+    <section
+      aria-labelledby="crowd-heading"
+      className="mt-6 rounded border border-gray-200 p-3 dark:border-gray-800"
+    >
+      <h3 id="crowd-heading" className="text-sm font-semibold">
+        How the panel was used
+      </h3>
+      {provenance.length > 0 ? (
+        <ul className="mt-2 list-inside list-disc text-sm">
+          {provenance.map((line, index) => (
+            <li key={index}>{line}</li>
+          ))}
+        </ul>
+      ) : null}
+      {notes.map((note, index) => (
+        <p
+          key={index}
+          className="mt-2 text-sm text-amber-800 dark:text-amber-200"
+        >
+          {note}
+        </p>
+      ))}
+      <div className="mt-3 space-y-2">
+        {candidates.map((candidate) => (
+          <details
+            key={candidate.label}
+            className="rounded border border-gray-200 p-2 dark:border-gray-800"
+          >
+            <summary className="cursor-pointer text-sm">
+              Plan {candidate.label}{' '}
+              <code className="font-mono">{candidate.model}</code> (
+              {candidate.plan.steps.length}{' '}
+              {candidate.plan.steps.length === 1 ? 'step' : 'steps'})
+            </summary>
+            <p className="mt-2 whitespace-pre-wrap text-sm">
+              {candidate.plan.summary}
+            </p>
+            <ol className="mt-2 list-inside list-decimal text-sm">
+              {candidate.plan.steps.map((step, index) => (
+                <li key={index}>{step.title}</li>
+              ))}
+            </ol>
+          </details>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 function PlanKindDetail({
   plan,
   editing,
@@ -342,6 +431,7 @@ function PlanKindDetail({
       testCommand: step.test_command ? step.test_command.join(' ') : '',
       files: step.files_likely_touched,
       acceptance: step.acceptance,
+      worker: step.worker ?? null,
     })),
   )
   const [validationError, setValidationError] = useState<string | null>(null)
@@ -363,6 +453,7 @@ function PlanKindDetail({
         testCommand: '',
         files: [],
         acceptance: [],
+        worker: null,
       },
     ])
   }
@@ -382,6 +473,7 @@ function PlanKindDetail({
         testCommand: step.test_command ? step.test_command.join(' ') : '',
         files: step.files_likely_touched,
         acceptance: step.acceptance,
+        worker: step.worker ?? null,
       })),
     )
     onEditCancel()
@@ -398,6 +490,7 @@ function PlanKindDetail({
         files_likely_touched: draft.files,
         acceptance: draft.acceptance,
         test_command: parseArgv(draft.testCommand),
+        ...(draft.worker ? { worker: draft.worker } : {}),
       })),
     }
     const parsed = planSchema.safeParse(editedPlan)
@@ -467,6 +560,16 @@ function PlanKindDetail({
                       </code>
                     </dd>
                   </div>
+                  {step.worker ? (
+                    <div>
+                      <dt className="text-gray-500 dark:text-gray-400">
+                        Worker
+                      </dt>
+                      <dd>
+                        <code className="font-mono">{step.worker}</code>
+                      </dd>
+                    </div>
+                  ) : null}
                 </dl>
               </li>
             ))}
@@ -913,16 +1016,19 @@ function ApprovalDetail({
     case 'plan': {
       const plan = parsePlanPayload(approval.payload_json)
       content = plan ? (
-        <PlanKindDetail
-          plan={plan}
-          editing={planEditing}
-          busy={busy}
-          onEditStart={() => setPlanEditing(true)}
-          onEditCancel={() => setPlanEditing(false)}
-          onApproveWithEdits={(editedPlan) =>
-            onDecide({ decision: 'edit', editedPayload: editedPlan })
-          }
-        />
+        <>
+          <PlanKindDetail
+            plan={plan}
+            editing={planEditing}
+            busy={busy}
+            onEditStart={() => setPlanEditing(true)}
+            onEditCancel={() => setPlanEditing(false)}
+            onApproveWithEdits={(editedPlan) =>
+              onDecide({ decision: 'edit', editedPayload: editedPlan })
+            }
+          />
+          <CrowdDetail payload={approval.payload_json} />
+        </>
       ) : (
         <p className="text-sm">This plan approval has an invalid payload.</p>
       )

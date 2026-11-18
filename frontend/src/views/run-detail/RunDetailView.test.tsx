@@ -17,6 +17,7 @@ import {
   type UseEventStreamOptions,
 } from '../../hooks/useEventStream'
 import RunDetailView from './RunDetailView'
+import { TEST_CATALOG } from '../agent-modes/testData'
 import { summarizeEvent } from './events'
 
 type RunDetail = components['schemas']['RunDetail']
@@ -219,6 +220,9 @@ function mockApi({
     ) {
       return textResponse(200, diff)
     }
+    if (request.method === 'GET' && url.pathname === '/api/v1/models') {
+      return jsonResponse(200, TEST_CATALOG)
+    }
     if (
       request.method === 'POST' &&
       url.pathname === '/api/v1/runs/run-1/cancel'
@@ -288,6 +292,43 @@ describe('RunDetailView', () => {
 
     expect(screen.getByText('plan')).toBeTruthy()
     expect(screen.getByText('approved')).toBeTruthy()
+  })
+
+  it('shows the agent mode and models the run started with', async () => {
+    vi.stubGlobal(
+      'fetch',
+      mockApi({
+        detail: runDetail({
+          run: {
+            ...baseRun,
+            agent_config: {
+              mode: 'crowd',
+              lead_model: 'claude-opus-5-5',
+              worker_models: ['deepseek-v4-pro'],
+              panel_models: ['gpt-6.2-sol', 'grok-4.7'],
+            },
+          },
+        }),
+      }),
+    )
+
+    renderView()
+
+    expect(
+      await screen.findByText(
+        'Wisdom of crowds: panel GPT-6.2 Sol, Grok 4.7; Claude Opus 5.5 → DeepSeek V4 Pro',
+      ),
+    ).toBeTruthy()
+  })
+
+  it('says when a run started before agent modes', async () => {
+    vi.stubGlobal('fetch', mockApi())
+
+    renderView()
+
+    expect(
+      await screen.findByText('Two tiered (started before agent modes)'),
+    ).toBeTruthy()
   })
 
   it('cancels a run behind a confirm dialog', async () => {

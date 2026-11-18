@@ -206,9 +206,12 @@ shows what changed. **Cancel run** stops it at any time; the worktree is kept, s
   model plans, gives each step to one of your worker models, reviews every step, and takes over a
   step that fails twice. **Wisdom of crowds**: several models each write a plan, the lead merges
   the best parts (you see every plan at the approval), then the run is two tiered. Any model from
-  any provider whose key you have set can fill any role. Until the Settings panel lands (19c),
-  set the default with `PUT /api/v1/admin/agent-mode`, or pass `agent_config` when starting a run;
-  each run keeps the models it started with.
+  any provider whose key you have set can fill any role. Pick the default under **Settings →
+  Agent mode** (each model shows its tier and list price; one without a key says "key not set"
+  and the panel shows the `gaia secrets set …` command). When you press **Start run**, keep your
+  default or choose **Choose for this run**. Each run keeps the models it started with, and the
+  run page shows them. In wisdom-of-crowds mode the plan approval also shows **How the panel was
+  used**: what the lead took from each plan, and every panelist's plan.
 - **Auto mode** (**Settings**, `g s`): stop approving commands one by one. Switch it on
   separately per provider: **Claude**, **DeepSeek**, **OpenAI** and **xAI**, which covers every
   agent running a model from that provider. An agent in auto mode runs

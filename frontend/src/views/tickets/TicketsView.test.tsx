@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { makeQueryClient } from '../../api/queryClient'
 import type { components } from '../../api/schema'
 import { TicketsView } from './TicketsView'
+import { TEST_CATALOG, TEST_DEFAULT } from '../agent-modes/testData'
 
 type RepositoryRead = components['schemas']['RepositoryRead']
 type TicketRead = components['schemas']['TicketRead']
@@ -462,12 +463,17 @@ describe('TicketsView', () => {
     })
   })
 
-  it('starts a run with junior_runtime and budget_usd options', async () => {
-    let postedBody: unknown
-    mockFetch(async (request) => {
+  function startRunFetch(posted: unknown[]) {
+    return mockFetch(async (request) => {
       if (request.method === 'POST' && request.url.includes('/api/v1/runs')) {
-        postedBody = await request.json()
+        posted.push(await request.json())
         return jsonResponse(201, run)
+      }
+      if (request.url.includes('/api/v1/models')) {
+        return jsonResponse(200, TEST_CATALOG)
+      }
+      if (request.url.includes('/api/v1/admin/agent-mode')) {
+        return jsonResponse(200, TEST_DEFAULT)
       }
       if (
         request.method === 'GET' &&
@@ -482,26 +488,61 @@ describe('TicketsView', () => {
         error: { code: 'not_found', message: 'not found' },
       })
     })
+  }
+
+  it('starts a run with the default agent mode and a budget', async () => {
+    const posted: unknown[] = []
+    startRunFetch(posted)
 
     renderView()
     await screen.findByText('Fix login bug')
 
     fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
     const dialog = await screen.findByRole('dialog')
-    fireEvent.change(within(dialog).getByLabelText('Junior runtime'), {
-      target: { value: 'native_deepseek' },
-    })
+    await within(dialog).findByText(
+      'Two tiered: Claude Opus 5.5 → DeepSeek V4 Pro',
+    )
     fireEvent.change(within(dialog).getByLabelText('Budget (USD)'), {
       target: { value: '12.50' },
     })
     fireEvent.click(within(dialog).getByRole('button', { name: 'Start run' }))
 
     await waitFor(() => {
-      expect(postedBody).toEqual({
-        ticket_id: 'ticket-1',
-        junior_runtime: 'native_deepseek',
-        budget_usd: 12.5,
-      })
+      expect(posted).toEqual([{ ticket_id: 'ticket-1', budget_usd: 12.5 }])
+    })
+  })
+
+  it('starts a run with an agent mode chosen for this run', async () => {
+    const posted: unknown[] = []
+    startRunFetch(posted)
+
+    renderView()
+    await screen.findByText('Fix login bug')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start run' }))
+    const dialog = await screen.findByRole('dialog')
+    const choose = await within(dialog).findByRole('radio', {
+      name: 'Choose for this run',
+    })
+    await waitFor(() => {
+      expect((choose as HTMLInputElement).disabled).toBe(false)
+    })
+    fireEvent.click(choose)
+    fireEvent.click(
+      within(dialog).getByRole('radio', { name: /Straight shot/ }),
+    )
+    fireEvent.change(within(dialog).getByLabelText('Model'), {
+      target: { value: 'deepseek-flash' },
+    })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Start run' }))
+
+    await waitFor(() => {
+      expect(posted).toEqual([
+        {
+          ticket_id: 'ticket-1',
+          agent_config: { mode: 'single', lead_model: 'deepseek-flash' },
+        },
+      ])
     })
   })
 

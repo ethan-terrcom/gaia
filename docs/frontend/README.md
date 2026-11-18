@@ -26,9 +26,9 @@ cd backend && uv run gaia ui   # prints the one-time login URL; open it in your 
 | Route | View (`src/views/…`) | What it is for |
 |---|---|---|
 | `/` | `dashboard/` | active runs, what needs you, open PRs, today's spend, the last 14 days |
-| `/tickets` | `tickets/` | board and table, create and edit, **Start run** |
-| `/runs/:id` | `run-detail/` | one run: header, steps, approvals, live timeline, diff (`?tab=diff`), cancel |
-| `/approvals` | `approvals/` | the decision inbox: `j`/`k`, `a`/`r`, a typed `merge <n>` |
+| `/tickets` | `tickets/` | board and table, create and edit, **Start run** (with the default agent mode or one chosen for the run) |
+| `/runs/:id` | `run-detail/` | one run: header (with its agent mode and models), steps, approvals, live timeline, diff (`?tab=diff`), cancel |
+| `/approvals` | `approvals/` | the decision inbox: `j`/`k`, `a`/`r`, a typed `merge <n>`; plan steps show their worker, and a crowd plan shows **How the panel was used** |
 | `/prs` | `pull-requests/` | Gaia's PRs with CI and review state |
 | `/worktrees` | `worktrees/` | repositories (register, commands) and worktrees (flags, remove) |
 
@@ -53,6 +53,9 @@ Query keys start with the event stream's invalidation prefixes, so views refresh
 | `src/layout/AppLayout.tsx` | nav with the pending-approvals badge, the top bar with today's spend, the theme toggle |
 | `src/layout/PauseControl.tsx` | the kill switch: a **Pause all** button in the top bar and the paused banner under it |
 | `src/views/settings/AutoModeSettings.tsx` | the Settings page's auto-mode switches, one per model family (`GET`/`PATCH /admin/auto-mode`) |
+| `src/views/settings/AgentModeSettings.tsx` | the Settings page's default agent mode and models (`GET`/`PUT /admin/agent-mode`, `GET /models`) (19c) |
+| `src/views/agent-modes/AgentModeEditor.tsx` | the controlled mode-and-models editor shared by Settings and the start-run dialog: three mode cards, a lead/model select and worker/panel checklists grouped by provider, with each model's tier and list prices, "key not set" marks and the `gaia secrets set …` commands a config still needs |
+| `src/views/agent-modes/agentModes.ts` | agent-mode types, fetchers, query keys and pure helpers (`normalizeConfig`, `configProblem`, `describeConfig`, `missingKeys`), with the pool limits mirrored from the backend |
 | `src/views/worktrees/WorktreesView.tsx` (Edit commands) | also edits a repository's **allowed commands**, with suggestions from past approvals ticked by default; the approvals inbox's **Approve + Log** sends `remember: true` |
 | `src/layout/DemoBadge.tsx` | an amber **Demo mode** badge when `GET /me` reports `demo_mode: true` |
 | `csp.json` | the production Content Security Policy, shared with the backend |
