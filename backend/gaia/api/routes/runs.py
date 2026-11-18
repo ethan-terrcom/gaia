@@ -8,13 +8,15 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
+from starlette.concurrency import run_in_threadpool
 
-from gaia.api.deps import PrincipalDep, ScopedDep, ServicesDep, append_audit_log
+from gaia.api.deps import AppServices, PrincipalDep, ScopedDep, ServicesDep, append_audit_log
 from gaia.api.errors import ErrorCode, error_response
 from gaia.db.engine import session_scope
 from gaia.db.models import Repository, Run, Ticket, Worktree
 from gaia.db.repo import RunRepo, RunSummaryRow, ScopedRepo
 from gaia.db.types import utcnow
+from gaia.domain.agent_modes import AgentModeConfig
 from gaia.domain.enums import RunStatus, RuntimeKind
 from gaia.domain.schemas import (
     ApprovalRead,
@@ -31,6 +33,7 @@ from gaia.domain.schemas import (
 )
 from gaia.domain.state import IllegalTransition
 from gaia.orchestrator.pause import OrchestratorPaused
+from gaia.services.agent_modes import catalog_problems, legacy_agent_config, missing_provider_keys
 from gaia.services.costs import daily_spend
 from gaia.services.git import WorktreeLocation
 
@@ -111,6 +114,56 @@ def _truncate_diff(text: str, max_bytes: int, *, truncated: bool) -> str:
     return text.encode("utf-8")[:allowed].decode("utf-8", errors="ignore") + _MARKER
 
 
+async def _resolve_agent_config(
+    payload: RunCreate, request: Request, services: AppServices
+) -> AgentModeConfig | Response:
+    """The config a new run starts with, or the 422 that says why it cannot.
+
+    The run's own ``agent_config`` wins; then the legacy ``junior_runtime``
+    override (the pre-19b behaviour); then the owner's saved default; then the
+    settings-derived default. Every model must be in the catalog and every
+    provider's key must be set, so a run never fails at its first model call.
+    """
+    if payload.agent_config is not None and payload.junior_runtime is not None:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "pass agent_config or junior_runtime, not both",
+        )
+    settings = services.settings
+    if payload.agent_config is not None:
+        config = payload.agent_config
+    elif payload.junior_runtime is not None:
+        config = legacy_agent_config(settings, payload.junior_runtime.value)
+    else:
+        saved = services.agent_modes.read() if services.agent_modes is not None else None
+        config = saved or legacy_agent_config(settings, None)
+
+    problems = catalog_problems(config, services.prices)
+    if problems:
+        return error_response(
+            request,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            ErrorCode.UNKNOWN_MODEL,
+            "; ".join(problems),
+        )
+    missing = await run_in_threadpool(
+        missing_provider_keys,
+        config,
+        services.prices,
+        services.store,
+        fake_llm=settings.fake_llm,
+    )
+    if missing:
+        commands = ", ".join(f"gaia secrets set {name.value}" for name in missing)
+        return error_response(
+            request,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            ErrorCode.PROVIDER_NOT_CONFIGURED,
+            f"this agent config needs keys that are not set; run: {commands}",
+        )
+    return config
+
+
 @router.post(
     "/runs",
     response_model=RunRead,
@@ -137,6 +190,11 @@ async def start_run(
             "claude_agent_sdk would launch the real Claude CLI",
         )
 
+    config_or_error = await _resolve_agent_config(payload, request, services)
+    if isinstance(config_or_error, Response):
+        return config_or_error
+    agent_config = config_or_error
+
     ticket = await scoped.repo(Ticket).get(payload.ticket_id)
     if ticket is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "ticket not found")
@@ -162,6 +220,7 @@ async def start_run(
             created_by=principal.user_id,
             junior_runtime=payload.junior_runtime,
             budget_usd=payload.budget_usd,
+            agent_config=agent_config.model_dump(mode="json"),
         )
     except OrchestratorPaused:
         return _orchestrator_paused(request)
@@ -185,6 +244,7 @@ async def start_run(
             if payload.junior_runtime is not None
             else None,
             "budget_usd": str(run.budget_usd),
+            "agent_config": agent_config.model_dump(mode="json"),
         },
     )
     return RunRead.model_validate(run)

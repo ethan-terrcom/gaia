@@ -1,13 +1,16 @@
 """The real :class:`~gaia.orchestrator.deps.StepRunner` (doc 12b-1).
 
-It chooses the junior or lead runtime from settings (ADR-001 P2), renders the
-plan step into Gaia-owned Markdown, and runs it through the shared
-``run_with_limits`` wrapper so timeouts, cancellation and git-computed
+It chooses the model for an attempt from the run's agent config (doc 19b), and
+the runtime from that model's provider (ADR-001 P2): Anthropic models run on the
+Claude Agent SDK runtime, every other provider on the native loop. It renders
+the plan step into Gaia-owned Markdown and runs it through the shared
+``run_with_limits`` wrapper, so timeouts, cancellation and git-computed
 ``files_changed`` are identical for every runtime.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 import structlog
@@ -18,6 +21,7 @@ from gaia.db.engine import session_scope
 from gaia.db.ids import uuid7
 from gaia.db.models import Repository, Run, RunStep, Worktree
 from gaia.db.repo import RunRepo, ScopedRepo
+from gaia.domain.agent_modes import AgentMode
 from gaia.domain.enums import AgentRole, RuntimeKind
 from gaia.domain.plans import PlanStep
 from gaia.llm.untrusted import wrap_untrusted
@@ -25,7 +29,9 @@ from gaia.orchestrator.deps import StepOutcome
 from gaia.orchestrator.impl import worktree_location
 from gaia.runtimes.base import AgentTask, RuntimeRegistry
 from gaia.runtimes.support import run_with_limits
+from gaia.services.agent_modes import run_agent_config, runtime_for_model
 from gaia.services.allowed_commands import allowed_entries
+from gaia.services.costs import PriceTable
 from gaia.services.events import BusEventSink, EventBus
 from gaia.services.git import GitService, WorktreeLocation
 
@@ -135,6 +141,16 @@ def _repository_commands_section(repository: Repository) -> list[str]:
     return lines
 
 
+@dataclass(frozen=True)
+class StepChoice:
+    """The model, runtime, role and turn limit one attempt runs with."""
+
+    runtime: RuntimeKind
+    model: str
+    role: AgentRole
+    max_turns: int
+
+
 class RuntimeStepRunner:
     """Run one plan step on the role's configured runtime."""
 
@@ -146,12 +162,14 @@ class RuntimeStepRunner:
         git: GitService,
         runtimes: RuntimeRegistry,
         bus: EventBus,
+        price_table: PriceTable,
     ) -> None:
         self.settings = settings
         self.sessions = sessions
         self.git = git
         self.runtimes = runtimes
         self.bus = bus
+        self.price_table = price_table
 
     async def implement(
         self,
@@ -171,14 +189,16 @@ class RuntimeStepRunner:
         location = await self._location_for(context["repository"], context["worktree"])
         self.git.verify_location(location)
 
-        runtime_kind, role, max_turns = self._choose_runtime(context["run"], attempt)
-        runtime = self.runtimes.get(runtime_kind.value)
+        choice = self._choose(context["run"], step, attempt)
+        runtime = self.runtimes.get(choice.runtime.value)
         logger.info(
             "step.runtime_chosen",
             run_id=run_id,
             step_index=step_index,
             attempt=attempt,
-            runtime=runtime_kind.value,
+            runtime=choice.runtime.value,
+            model=choice.model,
+            role=choice.role.value,
         )
 
         base_sha = await self.git.current_sha(location)
@@ -188,14 +208,15 @@ class RuntimeStepRunner:
             run_step_id=context["step"].id,
             workspace_id=context["run"].workspace_id,
             agent_id=None,
-            role=role,
+            role=choice.role,
+            model=choice.model,
             instructions=render_step_instructions(
                 step, attempt=attempt, feedback=feedback, repository=context["repository"]
             ),
             worktree=location,
             base_sha=base_sha,
             timeout_s=self.settings.step_timeout_s,
-            max_turns=max_turns,
+            max_turns=choice.max_turns,
             extra_allow=_extra_allow(context["repository"]),
         )
         result = await run_with_limits(
@@ -257,16 +278,34 @@ class RuntimeStepRunner:
         repo_path = await self.git.validate_repo(repository.local_path)
         return await worktree_location(git=self.git, repo_path=repo_path, worktree=worktree)
 
-    def _choose_runtime(self, run: Run, attempt: int) -> tuple[RuntimeKind, AgentRole, int]:
-        """Return the runtime kind, role and max turns for ``attempt``."""
-        if self.settings.lead_attempt_from and attempt >= self.settings.lead_attempt_from:
-            return self.settings.lead_runtime, AgentRole.LEAD, self.settings.lead_max_turns
-        runtime_kind = (
-            RuntimeKind(run.junior_runtime)
-            if run.junior_runtime is not None
-            else self.settings.junior_runtime
+    def _choose(self, run: Run, step: PlanStep, attempt: int) -> StepChoice:
+        """Pick the model, role, runtime and turn limit for one attempt.
+
+        - Straight shot: the one model, every attempt, as the lead (it plays
+          every role), with the lead's turn limit.
+        - Two tiered and crowd: the step's assigned worker; from attempt
+          ``lead_attempt_from`` on, the lead model takes the step over.
+        """
+        config = run_agent_config(
+            run.agent_config, settings=self.settings, junior_runtime=run.junior_runtime
         )
-        return runtime_kind, AgentRole.JUNIOR, self.settings.junior_max_turns
+        lead_takes_over = bool(
+            self.settings.lead_attempt_from and attempt >= self.settings.lead_attempt_from
+        )
+        if config.mode is AgentMode.SINGLE or lead_takes_over:
+            model, role, max_turns = (
+                config.lead_model,
+                AgentRole.LEAD,
+                self.settings.lead_max_turns,
+            )
+        else:
+            model, role, max_turns = (
+                config.worker_for(step.worker),
+                AgentRole.JUNIOR,
+                self.settings.junior_max_turns,
+            )
+        runtime, runtime_model = runtime_for_model(model, self.price_table, self.settings)
+        return StepChoice(runtime=runtime, model=runtime_model, role=role, max_turns=max_turns)
 
 
 def _extra_allow(repository: Repository) -> tuple[tuple[str, ...], ...]:

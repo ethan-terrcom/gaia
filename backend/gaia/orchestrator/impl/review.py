@@ -1,4 +1,9 @@
-"""The real reviewer: lead review calls through the gateway (12b-2)."""
+"""The real reviewer: lead review calls through the gateway (12b-2), per agent mode (19b).
+
+The run's lead model reviews in every mode. In straight shot that is the one
+model reviewing its own work (owner decision M1), and the final review is
+skipped: the plan has one step, so its review already covered the whole diff.
+"""
 
 from __future__ import annotations
 
@@ -11,14 +16,16 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from gaia.config.settings import Settings
 from gaia.db.engine import session_scope
-from gaia.db.models import Approval, Repository, RunStep, Worktree
+from gaia.db.models import Approval, Repository, Run, RunStep, Worktree
 from gaia.db.repo import RunRepo, ScopedRepo
+from gaia.domain.agent_modes import AgentMode, AgentModeConfig
 from gaia.domain.enums import ApprovalKind
 from gaia.domain.plans import Plan, PlanStep, Review
 from gaia.orchestrator.deps import CheckOutcome, StepOutcome
 from gaia.orchestrator.impl.lead_llm import lead_llm
 from gaia.orchestrator.lead import LeadEngineer
 from gaia.security.commands import CommandPolicy
+from gaia.services.agent_modes import run_agent_config
 from gaia.services.costs import PriceTable
 from gaia.services.git import GitService, WorktreeLocation
 
@@ -53,12 +60,21 @@ def plan_from_rows(
     )
 
 
+#: The final review straight shot records instead of a second model call.
+STRAIGHT_SHOT_FINAL_REVIEW = Review(
+    verdict="accept",
+    feedback="Straight shot: the step review already covered the whole diff.",
+    issues=[],
+)
+
+
 @dataclass(frozen=True)
 class _FinalReviewContext:
     plan: Plan
     workspace_id: str
     worktree: Worktree
     repository: Repository
+    config: AgentModeConfig
 
 
 class GatewayReviewer:
@@ -87,13 +103,14 @@ class GatewayReviewer:
         checks: CheckOutcome,
     ) -> Review:
         """Review one implementation attempt with the lead's structured LLM."""
-        plan, workspace_id = await self._load_plan(run_id)
+        plan, workspace_id, config = await self._load_plan(run_id)
         async with lead_llm(
             settings=self._settings,
             sessions=self._sessions,
             price_table=self._price_table,
             run_id=run_id,
             workspace_id=workspace_id,
+            model=config.lead_model,
             http_client=self._http_client,
         ) as llm:
             engineer = LeadEngineer(llm, CommandPolicy.from_default())
@@ -102,6 +119,8 @@ class GatewayReviewer:
     async def final_review(self, run_id: str) -> Review:
         """Review the full branch diff with the lead's structured LLM."""
         context = await self._load_final_review_context(run_id)
+        if context.config.mode is AgentMode.SINGLE and len(context.plan.steps) == 1:
+            return STRAIGHT_SHOT_FINAL_REVIEW
         if context.worktree.base_sha is None:
             raise ValueError(f"worktree {context.worktree.id!r} has no base_sha")
         location = await self._worktree_location(context.worktree, context.repository)
@@ -113,18 +132,26 @@ class GatewayReviewer:
             price_table=self._price_table,
             run_id=run_id,
             workspace_id=context.workspace_id,
+            model=context.config.lead_model,
             http_client=self._http_client,
         ) as llm:
             engineer = LeadEngineer(llm, CommandPolicy.from_default())
             return await engineer.final_review(context.plan, diff)
 
-    async def _load_plan(self, run_id: str) -> tuple[Plan, str]:
-        """Load a run's approved/edited plan and workspace in one short session."""
+    def _config(self, run: Run) -> AgentModeConfig:
+        """The agent config ``run`` executes with."""
+        return run_agent_config(
+            run.agent_config, settings=self._settings, junior_runtime=run.junior_runtime
+        )
+
+    async def _load_plan(self, run_id: str) -> tuple[Plan, str, AgentModeConfig]:
+        """Load a run's approved/edited plan, workspace and config in one short session."""
         async with session_scope(self._sessions) as session:
             run = await RunRepo(session).get_by_id(run_id)
             if run is None:
                 raise ValueError(f"no run with id {run_id!r}")
-            return await self._plan_for_run(session, run.workspace_id, run_id), run.workspace_id
+            plan = await self._plan_for_run(session, run.workspace_id, run_id)
+            return plan, run.workspace_id, self._config(run)
 
     async def _load_final_review_context(self, run_id: str) -> _FinalReviewContext:
         """Load the plan and worktree needed for a final review."""
@@ -146,6 +173,7 @@ class GatewayReviewer:
                 workspace_id=run.workspace_id,
                 worktree=worktree,
                 repository=repository,
+                config=self._config(run),
             )
 
     @staticmethod

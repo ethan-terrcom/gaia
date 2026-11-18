@@ -64,10 +64,20 @@ The graph's `lead_plan`, `lead_review_step` and `lead_final_review` nodes call t
 So lead calls are budgeted and metered exactly like agents' calls, and no provider key exists
 outside the gateway.
 
-**Which model plans and reviews is a setting:** `GAIA_PLANNER_PROVIDER=anthropic|deepseek`,
-`GAIA_PLANNER_MODEL`. Both were run live on the same ticket. Claude is the default, at about $0.02
+**Which model plans and reviews is the run's `lead_model`** (doc 19b; `lead_llm(model=…)` takes
+its provider from the catalog). Runs without an agent config use `GAIA_PLANNER_MODEL` (and
+`GAIA_PLANNER_PROVIDER` for a model the catalog does not assign). Both were run live on the same ticket. Claude is the default, at about $0.02
 per call; DeepSeek costs about a tenth of that. `gaia/llm/providers.py` maps the provider name to
 its adapter, and nothing in `gaia/orchestrator/` names a vendor (ADR-001 P2).
+
+**Workers and the crowd (19b).** In two tiered and crowd mode the planning message ends with a
+Gaia-owned `## Workers` list (id, label, tier, prices), and `lead_plan.md` asks the lead to set
+each step's `worker`. `assign_workers` pins every step into the pool afterwards, so the plan the
+owner approves names the model each step will really run on. In crowd mode each panelist runs the
+ordinary `plan_ticket`, then `synthesize_plan` gives the lead the candidates as untrusted data
+labelled Plan A, B, C (no model names, to avoid brand bias), with `lead_plan.md` plus
+`lead_synthesize.md` as the system prompt, and returns a `CrowdPlan` (a `Plan` plus
+`provenance`). The merged plan passes the same command-policy check and one retry.
 
 The reviewer rebuilds the approved plan from the DB: the steps come from `run_step` rows, so
 edits are honoured, and the summary and risks come from the newest plan approval.

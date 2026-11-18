@@ -481,6 +481,9 @@ MUTATING_ROUTE_AUDIT_EVIDENCE: dict[tuple[str, str], str] = {
     ("PATCH", "/api/v1/admin/auto-mode"): (
         "tests/test_auto_mode.py::test_patch_auto_mode_switches_one_family_and_audits"
     ),
+    ("PUT", "/api/v1/admin/agent-mode"): (
+        "tests/test_agent_modes.py::test_put_agent_mode_saves_the_default_and_audits"
+    ),
 }
 
 

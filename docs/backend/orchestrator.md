@@ -130,6 +130,30 @@ before `make sandbox-install`.
 processes → `RunManager(...).recover()` → serve. Shutdown runs in reverse. Set
 `GAIA_ORCHESTRATOR_ENABLED=false` to run the API without the orchestrator; tests do this.
 
+### Agent modes (19b)
+Every run executes in one of three modes, saved on the run as `run.agent_config` when it starts
+(`AgentModeConfig` in `gaia/domain/agent_modes.py`). The graph's shape does not change; the
+services read the config:
+
+| Mode | `GatewayPlanner` | `approve_plan` | `RuntimeStepRunner` | `GatewayReviewer` |
+|---|---|---|---|---|
+| `single` (straight shot) | no model call: the ticket becomes a one-step plan | skipped (`plan_meta.skip_gate`): no approval row | the one model, every attempt, as the lead | the one model reviews its own step; the final review is skipped |
+| `tiered` | one call on `lead_model`, with the worker roster in the message; each step's `worker` is pinned into the pool | the usual gate | the step's worker; from `lead_attempt_from` on, `lead_model` | `lead_model` |
+| `crowd` | each `panel_models` entry plans in parallel; `lead_model` merges them (`CrowdPlan`, `lead_synthesize.md`) | the usual gate, with `candidates`, `provenance` and `notes` in the payload | as tiered | as tiered |
+
+- **Which runtime:** `services/agent_modes.runtime_for_model`. Anthropic models run on the Claude
+  Agent SDK runtime, every other provider on the native loop, and `AgentTask.model` carries the
+  model. In demo mode an Anthropic session runs natively on `junior_model`.
+- **A run without a config** (started before 19b) resolves to `legacy_agent_config`: two tiered,
+  `planner_model` leads, `junior_model` works (or `lead_model`, for the old
+  `junior_runtime=claude_agent_sdk` override). That is exactly the pre-19b behaviour, so a resumed
+  old run does not change models.
+- **The crowd's failures:** a panelist that raises is skipped and named in `notes`; if all fail,
+  the lead plans alone. `LLMBudgetExceeded` and cancellation are never swallowed: the budget guard
+  pauses the run as for any other call.
+- **The default** for new runs is `data_dir/agent-mode.json` (`AgentModeStore`, 0600, like auto
+  mode), written through `PUT /admin/agent-mode`. Runs never read it after they start.
+
 ### The swap drill: proof that Claude is replaceable (ADR-001 P5)
 `tests/test_swap_drill.py` runs one ticket from `pending` to `completed` through the **real**
 wiring, with `planner_provider=deepseek` and **both** `junior_runtime` and `lead_runtime` on the
@@ -141,7 +165,8 @@ test asserts:
 - the commit exists, and the ticket is `done`;
 - the Claude runtime was never called: it is patched to fail.
 
-If this test passes, migrating away from Claude is a settings change.
+If this test passes, migrating away from Claude is a settings change. Since 19b it is also a
+per-run choice: an `agent_config` whose models are all non-Anthropic never touches Claude.
 
 ## Changing it safely
 - **A new node:** add a file in `nodes/`, `add(...)` it in `graph.py`, declare its routes in a

@@ -99,6 +99,14 @@ def gateway_llm_factory(
         raise ValueError("the native runtime needs an OpenAI-compatible provider, not anthropic")
 
     async def factory(task: AgentTask) -> LlmHandle:
+        # A task may name its own model (doc 19b); its provider comes from the
+        # catalog, and the factory's provider covers a model the table lacks.
+        task_model = task.model or model
+        task_provider = price_table.provider_of(task_model) or provider
+        if LLMProvider(task_provider) is LLMProvider.ANTHROPIC:
+            raise ValueError(
+                f"model {task_model!r} is an Anthropic model; it runs on the Claude runtime"
+            )
         async with session_scope(sessions) as session:
             minted = await run_tokens.mint(
                 session,
@@ -106,7 +114,7 @@ def gateway_llm_factory(
                 run_id=task.run_id,
                 run_step_id=task.run_step_id,
                 agent_id=task.agent_id,
-                provider=provider,
+                provider=task_provider,
                 ttl_s=ttl_s,
             )
         token_id = minted.token_id
@@ -114,11 +122,11 @@ def gateway_llm_factory(
         # ``gateway_base`` is the server origin, like the default; the provider
         # route is always appended (lead review N3).
         origin = (gateway_base or f"http://{settings.host}:{settings.port}").rstrip("/")
-        base_url = f"{origin}/llm/{provider}"
+        base_url = f"{origin}/llm/{task_provider}"
         tally = UsageTally()
         client = build_chat_llm(
-            provider=provider,
-            model=model,
+            provider=task_provider,
+            model=task_model,
             api_key=minted.token,
             base_url=base_url,
             recorder=tally,

@@ -55,6 +55,13 @@ REVIEW_JSON = REVIEW.model_dump_json()
 DEEPSEEK_KEY = "sk-deepseek-test-" + "x" * 40
 
 
+def _assigned(plan: Plan, worker: str = "deepseek-v4-pro") -> Plan:
+    """``plan`` with every step pinned to ``worker``, as the planner returns it (19b)."""
+    return plan.model_copy(
+        update={"steps": [step.model_copy(update={"worker": worker}) for step in plan.steps]}
+    )
+
+
 class ChunkedBody(httpx.AsyncByteStream):
     """An async response body that yields fixed chunks."""
 
@@ -185,7 +192,7 @@ async def test_lead_services_run_on_each_provider(
         git=cast(GitService, fake_git),
     )
 
-    plan = await planner.plan(chain.run.id)
+    outcome = await planner.plan(chain.run.id)
     step_review = await reviewer.review_step(
         chain.run.id,
         0,
@@ -194,7 +201,8 @@ async def test_lead_services_run_on_each_provider(
     )
     final_review = await reviewer.final_review(chain.run.id)
 
-    assert plan == PLAN
+    assert outcome.plan == _assigned(PLAN)
+    assert outcome.skip_gate is False
     assert step_review == REVIEW
     assert final_review == REVIEW
     assert len(factory_calls) == 3
@@ -300,9 +308,10 @@ async def test_deepseek_gateway_path_records_usage_and_cost(
                 sessions=database.sessions,
                 price_table=load_price_table(),
             )
-            plan = await planner.plan(chain.run.id)
+            outcome = await planner.plan(chain.run.id)
 
-        assert plan == PLAN
+        assert outcome.plan == _assigned(PLAN)
+        assert outcome.skip_gate is False
         assert len(factory_calls) == 1
         assert factory_calls[0]["provider"] == "deepseek"
         assert factory_calls[0]["model"] == "deepseek-v4-pro"

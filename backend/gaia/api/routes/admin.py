@@ -1,4 +1,4 @@
-"""Global kill-switch (doc 18a) and auto-mode routes.
+"""Global kill-switch (doc 18a), auto-mode and default agent-mode routes.
 
 Pause and auto mode are global, not per workspace: Gaia is single-user and
 local. The routes are still mounted on the authenticated ``/api/v1`` router, so
@@ -11,7 +11,9 @@ from fastapi import APIRouter, Request, Response, status
 
 from gaia.api.deps import PrincipalDep, ScopedDep, ServicesDep, append_audit_log
 from gaia.api.errors import ErrorCode, error_response
+from gaia.domain.agent_modes import AgentModeConfig
 from gaia.domain.schemas import (
+    AgentModeDefault,
     AutoModeStatus,
     AutoModeUpdate,
     PauseAllRequest,
@@ -20,6 +22,7 @@ from gaia.domain.schemas import (
     ResumeAllResult,
 )
 from gaia.orchestrator.auto_mode import AutoModeState
+from gaia.services.agent_modes import catalog_problems, legacy_agent_config
 
 router = APIRouter(tags=["admin"])
 
@@ -138,3 +141,60 @@ async def update_auto_mode(
         details={"before": before.as_dict(), "after": after.as_dict()},
     )
     return AutoModeStatus(**after.as_dict())
+
+
+@router.get(
+    "/admin/agent-mode",
+    response_model=AgentModeDefault,
+    summary="Read the default agent mode",
+)
+async def get_agent_mode(request: Request, services: ServicesDep) -> AgentModeDefault | Response:
+    """Return the mode and models a new run uses unless it names its own (doc 19b)."""
+    if services.agent_modes is None:
+        return _unavailable(request)
+    saved = services.agent_modes.read()
+    if saved is not None:
+        return AgentModeDefault(config=saved, saved=True)
+    return AgentModeDefault(config=legacy_agent_config(services.settings, None), saved=False)
+
+
+@router.put(
+    "/admin/agent-mode",
+    response_model=AgentModeDefault,
+    summary="Save the default agent mode",
+)
+async def put_agent_mode(
+    payload: AgentModeConfig,
+    request: Request,
+    scoped: ScopedDep,
+    principal: PrincipalDep,
+    services: ServicesDep,
+) -> AgentModeDefault | Response:
+    """Save the default for new runs. Runs already started keep their own config.
+
+    Every model must be in the catalog. Provider keys are checked when a run
+    starts, not here, so a default can name a provider before its key is added.
+    """
+    if services.agent_modes is None:
+        return _unavailable(request)
+    problems = catalog_problems(payload, services.prices)
+    if problems:
+        return error_response(
+            request,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            ErrorCode.UNKNOWN_MODEL,
+            "; ".join(problems),
+        )
+    before = services.agent_modes.read()
+    services.agent_modes.write(payload)
+    await append_audit_log(
+        scoped.session,
+        scoped.workspace_id,
+        actor_user_id=principal.user_id,
+        action="admin.agent_mode",
+        details={
+            "before": before.model_dump(mode="json") if before is not None else None,
+            "after": payload.model_dump(mode="json"),
+        },
+    )
+    return AgentModeDefault(config=payload, saved=True)

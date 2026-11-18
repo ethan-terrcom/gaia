@@ -1,0 +1,32 @@
+"""run agent config
+
+The agent mode and models a run started with (doc 19b), as JSON. ``NULL`` means
+the run started before 19b and uses the settings-derived config.
+
+Revision ID: 0007
+Revises: 0006
+Create Date: 2026-11-17 20:00:00.000000
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+
+import sqlalchemy as sa
+
+from alembic import op
+
+revision: str = "0007"
+down_revision: str | None = "0006"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
+
+
+def upgrade() -> None:
+    with op.batch_alter_table("run", schema=None) as batch_op:
+        batch_op.add_column(sa.Column("agent_config", sa.JSON(), nullable=True))
+
+
+def downgrade() -> None:
+    with op.batch_alter_table("run", schema=None) as batch_op:
+        batch_op.drop_column("agent_config")

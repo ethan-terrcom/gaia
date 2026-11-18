@@ -431,7 +431,7 @@ class ClaudeAgentSdkRuntime:
             setting_sources=[],
             system_prompt=_load_prompt(task.role),
             max_turns=task.max_turns,
-            model=self._model,
+            model=self._model_for(task),
             cwd=str(task.worktree.work_tree),
             cli_path=str(wrapper_path),
             env=env,
@@ -507,7 +507,7 @@ class ClaudeAgentSdkRuntime:
     ) -> AgentResult:
         """Map a terminal SDK result to a Gaia result."""
         finish = self._finish_args.get(task.task_id)
-        usage = self._usage_from_message(message)
+        usage = self._usage_from_message(message, self._model_for(task))
 
         if finish is not None and not message.is_error:
             return AgentResult(
@@ -539,7 +539,11 @@ class ClaudeAgentSdkRuntime:
         message: claude_agent_sdk.ResultMessage | None,
     ) -> AgentResult:
         """Return the budget/failed result for a missing or error result."""
-        usage = self._usage_from_message(message) if message is not None else RuntimeUsage()
+        usage = (
+            self._usage_from_message(message, self._model_for(task))
+            if message is not None
+            else RuntimeUsage()
+        )
         if await self._budget_exhausted(task):
             return AgentResult(
                 status="budget_exceeded",
@@ -560,7 +564,13 @@ class ClaudeAgentSdkRuntime:
             transcript_ref=None,
         )
 
-    def _usage_from_message(self, message: claude_agent_sdk.ResultMessage) -> RuntimeUsage:
+    def _model_for(self, task: AgentTask) -> str:
+        """The task's own model (doc 19b), else the runtime's default."""
+        return task.model or self._model
+
+    def _usage_from_message(
+        self, message: claude_agent_sdk.ResultMessage, model: str
+    ) -> RuntimeUsage:
         """Build Gaia usage from the SDK's token counts, priced by Gaia."""
         raw = message.usage or {}
         input_tokens = _usage_int(raw, "input_tokens")
@@ -570,7 +580,7 @@ class ClaudeAgentSdkRuntime:
 
         usage = LLMUsage(
             provider="anthropic",
-            model=self._model,
+            model=model,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             cache_read_tokens=cache_read_tokens,

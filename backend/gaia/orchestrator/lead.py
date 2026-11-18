@@ -15,7 +15,7 @@ from typing import TypeVar
 
 from pydantic import BaseModel
 
-from gaia.domain.plans import Plan, Review, TicketInput
+from gaia.domain.plans import CrowdPlan, Plan, Review, TicketInput
 from gaia.llm.base import LLMMessage, LLMStop, StructuredLLM
 from gaia.llm.untrusted import wrap_untrusted
 from gaia.orchestrator.repo_context import RepoContext
@@ -23,6 +23,11 @@ from gaia.security.commands import CommandPolicy
 
 _PROMPTS_DIR = Path(__file__).with_name("prompts")
 PLAN_SYSTEM_PROMPT = (_PROMPTS_DIR / "lead_plan.md").read_text(encoding="utf-8")
+#: The crowd's merge call (doc 19b) keeps every planning rule and adds the merge
+#: instructions after them, so both prompts stay byte-stable for caching.
+SYNTHESIZE_SYSTEM_PROMPT = (
+    PLAN_SYSTEM_PROMPT + "\n" + (_PROMPTS_DIR / "lead_synthesize.md").read_text(encoding="utf-8")
+)
 REVIEW_SYSTEM_PROMPT = (_PROMPTS_DIR / "lead_review.md").read_text(encoding="utf-8")
 
 #: Diff truncation caps from doc 11 task 2.
@@ -31,6 +36,7 @@ DIFF_TOTAL_CAP = 150_000
 TEST_OUTPUT_CAP = 20_000
 
 _StructuredT = TypeVar("_StructuredT", bound=BaseModel)
+_PlanT = TypeVar("_PlanT", bound=Plan)
 
 
 class LeadEscalation(Exception):
@@ -132,6 +138,7 @@ class LeadEngineer:
         *,
         extra_allow: Sequence[Sequence[str]] = (),
         test_command: Sequence[str] | None = None,
+        workers_note: str | None = None,
     ) -> Plan:
         """Turn one ticket into a :class:`Plan`, retrying denied commands once.
 
@@ -140,23 +147,53 @@ class LeadEngineer:
         program it wraps (``pytest`` behind ``uv run pytest``) is usually not on
         the sandbox's ``PATH``, so a plan that drops the prefix fails its checks
         with "command not found" (found in the first live end-to-end run).
+
+        ``workers_note`` is Gaia's list of the run's workers (doc 19b), which
+        the lead assigns steps to; ``None`` leaves every ``worker`` empty.
         """
-        required = tuple(test_command) if test_command else ()
-        user_content = (
-            wrap_untrusted(_render_ticket(ticket), f"ticket:{ticket.id}")
-            + "\n\n"
-            + wrap_untrusted(repo_context.render(), "repo-context")
-        )
-        if required:
-            # Gaia's own instruction, not repository content, so it is not wrapped.
-            user_content += (
-                "\n\nThe repository's registered test command is "
-                f"`{json.dumps(list(required))}`. Every step's `test_command` must "
-                "start with exactly these elements; append test paths or options "
-                "after them."
-            )
+        user_content = _plan_request(ticket, repo_context, test_command, workers_note)
         messages = [LLMMessage(role="user", content=user_content)]
-        plan = await self._parse_structured(PLAN_SYSTEM_PROMPT, messages, Plan)
+        return await self._plan_with_policy(
+            PLAN_SYSTEM_PROMPT, messages, Plan, extra_allow, test_command
+        )
+
+    async def synthesize_plan(
+        self,
+        ticket: TicketInput,
+        repo_context: RepoContext,
+        candidates: Sequence[tuple[str, Plan]],
+        *,
+        extra_allow: Sequence[Sequence[str]] = (),
+        test_command: Sequence[str] | None = None,
+        workers_note: str | None = None,
+    ) -> CrowdPlan:
+        """Merge the panel's ``(label, plan)`` candidates into one plan (doc 19b).
+
+        The candidates are model output, so each is wrapped as untrusted data.
+        The merged plan passes the same command-policy check, with the same one
+        retry, as a plan written from scratch.
+        """
+        parts = [_plan_request(ticket, repo_context, test_command, workers_note)]
+        parts.extend(
+            wrap_untrusted(f"Plan {label}\n{plan.model_dump_json(indent=2)}", f"panel:plan:{label}")
+            for label, plan in candidates
+        )
+        messages = [LLMMessage(role="user", content="\n\n".join(parts))]
+        return await self._plan_with_policy(
+            SYNTHESIZE_SYSTEM_PROMPT, messages, CrowdPlan, extra_allow, test_command
+        )
+
+    async def _plan_with_policy(
+        self,
+        system: str,
+        messages: list[LLMMessage],
+        output_model: type[_PlanT],
+        extra_allow: Sequence[Sequence[str]],
+        test_command: Sequence[str] | None,
+    ) -> _PlanT:
+        """Parse a plan, and give the model one chance to fix denied commands."""
+        required = tuple(test_command) if test_command else ()
+        plan = await self._parse_structured(system, messages, output_model)
         denied = self._denied_test_commands(plan, extra_allow, required)
         if not denied:
             return plan
@@ -169,12 +206,12 @@ class LeadEngineer:
                 role="user",
                 content=(
                     "The plan was rejected by the command policy. Revise the "
-                    "`test_command` fields and return a valid Plan.\n"
+                    f"`test_command` fields and return a valid {output_model.__name__}.\n"
                     + wrap_untrusted("\n".join(denied), "gaia:command-policy")
                 ),
             )
         )
-        plan = await self._parse_structured(PLAN_SYSTEM_PROMPT, messages, Plan)
+        plan = await self._parse_structured(system, messages, output_model)
         denied = self._denied_test_commands(plan, extra_allow, required)
         if denied:
             raise PlanRejected(denied)
@@ -277,6 +314,31 @@ class LeadEngineer:
                     "allowlisted test runner"
                 )
         return denied
+
+
+def _plan_request(
+    ticket: TicketInput,
+    repo_context: RepoContext,
+    test_command: Sequence[str] | None,
+    workers_note: str | None,
+) -> str:
+    """The user message for planning: ticket and context as data, then Gaia's notes."""
+    content = (
+        wrap_untrusted(_render_ticket(ticket), f"ticket:{ticket.id}")
+        + "\n\n"
+        + wrap_untrusted(repo_context.render(), "repo-context")
+    )
+    if test_command:
+        # Gaia's own instruction, not repository content, so it is not wrapped.
+        content += (
+            "\n\nThe repository's registered test command is "
+            f"`{json.dumps(list(test_command))}`. Every step's `test_command` must "
+            "start with exactly these elements; append test paths or options "
+            "after them."
+        )
+    if workers_note:
+        content += "\n\n" + workers_note
+    return content
 
 
 def _render_ticket(ticket: TicketInput) -> str:

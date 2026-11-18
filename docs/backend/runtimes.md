@@ -76,6 +76,14 @@ A runtime registers every process group it starts. At startup, `reap_stale` kill
 only if `ps` confirms that the pid still has the recorded start time **and** command. pids get
 reused, and killing a stranger's process is worse than leaving an orphan.
 
+### Which model a task runs on (19b)
+`AgentTask.model` names the model; `None` means the runtime's own default (the only behaviour
+before 19b). The native runtime's `gateway_llm_factory` takes the task model's provider from the
+catalog (DeepSeek, OpenAI or xAI) and refuses an Anthropic model; the Claude runtime passes the
+task model to the SDK and prices usage at it. The orchestrator picks the runtime from the model's
+provider (`services/agent_modes.runtime_for_model`), and the native task's auto-mode switch is
+its own model's family.
+
 ## The native runtime (10b): Gaia's own agent loop
 `NativeRuntime` is the default junior runtime (ADR-001). It is a plain loop that Gaia owns end to
 end, and it is **provider-neutral**: it talks to any `ToolChatLLM` (`gaia/llm/base.py`), and

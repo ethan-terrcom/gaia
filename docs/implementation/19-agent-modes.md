@@ -106,31 +106,59 @@ cached 2026-11-03).
 reasoning outside `completion_tokens` were taken from xAI's documented example), and OpenAI's
 JSON mode on the GPT-6 family. Each is one line to change if wrong.
 
-## 19b — the modes (design)
+## 19b — the modes (as built)
 
-- **`AgentModeConfig`** (`domain/agent_modes.py`): `mode` plus the models for its roles:
-  `single`: `model`; `tiered`: `lead_model`, `worker_models` (1 to 4); `crowd`: `lead_model`,
-  `panel_models` (2 to 5), `worker_models`. Every model must be in the catalog.
-- **Default:** a 0600 JSON file `agent-mode.json` in the data dir (like auto mode), read and
-  written through `GET`/`PUT /api/v1/admin/agent-mode` (audited). Without the file, the default
-  is two tiered with `lead_model = settings.lead_model` and `worker_models = [junior_model]`,
-  which is today's behaviour.
-- **Per run:** `POST /runs` takes an optional `agent_config`. The run stores the config it
-  started with in `run.agent_config` (migration `0007`). A run without one (started before 19b)
-  resolves to the settings default. Starting a run checks that every provider's key is set
-  (422 naming the `gaia secrets set …` command) so a run never fails at its first model call.
-- **Routing a model to a runtime:** Anthropic → the Claude Agent SDK runtime with that model;
-  everything else → the native runtime on that provider. `AgentTask.model` carries it. In demo
-  mode an Anthropic agent session runs on the native runtime, as today.
-- **Straight shot:** the planner returns a one-step plan built from the ticket (no model call),
-  `approve_plan` routes straight on, the step runs on the one model, and the same model reviews.
-  The final review is skipped because the single step's review already covered the whole diff.
-- **Two tiered:** the planner gets the worker roster (model, label, tier, prices) and sets
-  `PlanStep.worker`; an unknown or missing worker falls back to the first one.
-- **Wisdom of crowds:** panel plans in parallel (each panelist's own provider token), then one
-  synthesis call on the lead (`lead_synthesize.md`) that returns the merged plan and its
-  provenance. Panelists that fail are skipped; if all fail, the lead plans alone and says so in an
-  event. The candidates and provenance go into the plan approval's payload.
+### What it adds
+- **`AgentModeConfig`** (`domain/agent_modes.py`): `mode` (`single`, `tiered`, `crowd`),
+  `lead_model`, `worker_models` (1 to 4, distinct; empty for `single`) and `panel_models` (2 to 5,
+  distinct; `crowd` only). In `single` mode `lead_model` is the one model.
+- **The default** for new runs: `AgentModeStore`, a 0600 file `agent-mode.json` in the data dir
+  (like auto mode), read and written through `GET`/`PUT /api/v1/admin/agent-mode` (audited as
+  `admin.agent_mode`). Without a saved default, `legacy_agent_config` applies: two tiered,
+  `planner_model` leads, `junior_model` works.
+- **Per run:** `POST /runs` takes an optional `agent_config`. The resolved config is stored on
+  `run.agent_config` (migration `0007`) and returned on `RunRead`. Order: the request's config,
+  then the old `junior_runtime` override (translated to the pre-19b roles), then the saved default,
+  then the settings default. Every model must be in the catalog (422 `unknown_model`) and every
+  provider's key must be set (422 `provider_not_configured`, naming each `gaia secrets set …`).
+- **Model → runtime:** `services/agent_modes.runtime_for_model`: Anthropic → Claude Agent SDK,
+  everything else → the native loop; `AgentTask.model` carries the model to either runtime. In
+  demo mode an Anthropic agent session runs natively on `junior_model`.
+- **The planner returns a `PlanOutcome`** (`plan`, `skip_gate`, `candidates`, `provenance`,
+  `notes`). `lead_plan` keeps its extras in `RunState.plan_meta`, and `approve_plan` either skips
+  the gate (straight shot) or puts the extras on the approval payload (crowd).
+- **Straight shot:** `straight_shot_plan` turns the ticket into one step (no model call, no
+  `test_command`, so the repository's registered command runs). The gate is skipped, the one model
+  implements every attempt, reviews its own step, and the final review is skipped.
+- **Two tiered:** the lead's planning message ends with a `## Workers` list (id, label, tier,
+  list prices); `PlanStep.worker` records the choice and `assign_workers` pins it into the pool.
+- **Wisdom of crowds:** the panel plans in parallel (`asyncio.gather`, one run token per call,
+  each on its own provider); the lead merges with `lead_plan.md` + `lead_synthesize.md` into a
+  `CrowdPlan` (a `Plan` plus `provenance`). Candidates are labelled Plan A, B, C by panel order.
+- **Demo mode** answers a `CrowdPlan` schema with a demo merge, so all three modes run without a
+  key; `test_demo_mode_e2e.py` drives straight shot to the PR gate and the crowd to the plan gate.
+
+### Decisions and deviations (as built)
+| # | Decision | Why |
+|---|---|---|
+| B1 | The modes live in the services and in `approve_plan`, not in the graph's shape | No new nodes or edges, so checkpoints of in-flight runs stay valid and `docs/graph.md` is unchanged |
+| B2 | A run stores its resolved config; a run without one gets the pre-19b behaviour (`legacy_agent_config`) | M3: a resume after a restart, or after the owner changes the default, uses the same models. Runs started before 19b keep working unchanged |
+| B3 | Provider keys are checked when a run starts, not when the default is saved | A default can name OpenAI or xAI before the key is added; a run still never fails at its first model call |
+| B4 | The runtime follows the model's provider; the settings `lead_runtime`/`junior_runtime` no longer choose it | With any model in any role, the provider is the only thing that decides which harness can run it. The two settings stay (demo mode and the dev CLI read them) and can be removed later |
+| B5 | Straight shot's model plays the lead role (`agent:lead`, `lead_max_turns`) | It does the whole ticket, which is the lead's turn budget, not a step's |
+| B6 | Straight shot skips the final review | Its plan has one step, so the step review already covered the whole diff; a second call would review the same bytes |
+| B7 | The lead sees the panel's plans as Plan A, B, C, never the model names | Judging plans on content, not brand. The owner sees the names at the gate |
+| B8 | A failing panelist is skipped and noted; if all fail, the lead plans alone. A budget stop or cancellation is never swallowed | A run should survive one provider being down; a budget stop must pause the run as for any call |
+| B9 | The worker list shows list prices and tiers | The prompt asks the lead to give each step to the cheapest worker that can do it well |
+| B10 | The old `junior_runtime` request field stays, and is refused together with `agent_config` | API clients (the current Tickets view) keep working; one request cannot say two things |
+| B11 | Pools are bounded: 1 to 4 workers, 2 to 5 panelists | A run must not fan out into dozens of parallel calls against one budget (07b G7) |
+
+### Verified
+- `make check`: 2089 backend tests at 100% coverage, 140 frontend tests, gitleaks.
+- Demo mode end to end: straight shot on `gpt-6.2-sol` reached the PR gate with no plan gate and
+  only OpenAI usage; the crowd (lead Claude, panel OpenAI, xAI, DeepSeek) stopped at the plan
+  gate with three candidates, provenance, and usage on all four providers.
+- The swap drill still passes: a run whose roles are all DeepSeek never touches Claude.
 
 ## 19c — UI (design)
 

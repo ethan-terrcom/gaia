@@ -270,6 +270,7 @@ def _lifespan(
                 wiring=wiring,
                 pause=wiring.pause if wiring is not None else None,
                 auto_mode=wiring.auto_mode if wiring is not None else None,
+                agent_modes=wiring.agent_modes if wiring is not None else None,
             )
             if settings.pr_sync_enabled:
                 pr_sync = PRSyncService(

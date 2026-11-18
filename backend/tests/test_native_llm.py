@@ -190,8 +190,34 @@ def test_factory_refuses_anthropic(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="OpenAI-compatible"):
         gateway_llm_factory(
             settings=Settings(data_dir=tmp_path),
-            sessions=None,  # type: ignore[arg-type]
+            sessions=None,  # type: ignore[arg-type]  # refused before any session opens
             price_table=PriceTable({}),
             model="claude-opus-5-5",
             provider="anthropic",
         )
+
+
+async def test_factory_refuses_a_task_on_an_anthropic_model(tmp_path: Path) -> None:
+    from gaia.services.costs import load_price_table
+
+    factory = gateway_llm_factory(
+        settings=Settings(data_dir=tmp_path),
+        sessions=None,  # type: ignore[arg-type]  # refused before any session opens
+        price_table=load_price_table(),
+        model="deepseek-v4-pro",
+    )
+    task = AgentTask(
+        task_id="t",
+        run_id="r",
+        run_step_id=None,
+        workspace_id="w",
+        agent_id=None,
+        role=AgentRole.JUNIOR,
+        instructions="x",
+        worktree=WorktreeLocation(work_tree=tmp_path, git_dir=tmp_path / ".git"),
+        base_sha="0" * 40,
+        model="claude-sonnet-5-5",
+    )
+
+    with pytest.raises(ValueError, match="Claude runtime"):
+        await factory(task)

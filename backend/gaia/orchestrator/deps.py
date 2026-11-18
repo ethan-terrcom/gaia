@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Protocol
+from typing import Any, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -39,6 +39,46 @@ class CheckOutcome:
     output: str
 
 
+@dataclass(frozen=True)
+class PlanCandidate:
+    """One panelist's plan in wisdom-of-crowds mode (doc 19b)."""
+
+    label: str
+    model: str
+    plan: Plan
+
+    def as_payload(self) -> dict[str, Any]:
+        """The JSON shape stored on the plan approval and shown in the UI."""
+        return {"label": self.label, "model": self.model, "plan": self.plan.model_dump()}
+
+
+@dataclass(frozen=True)
+class PlanOutcome:
+    """What planning produced: the plan, plus how the plan gate should treat it.
+
+    ``skip_gate`` is straight shot's (doc 19b, M1): there is no plan to approve,
+    so starting the run was the go-ahead. ``candidates`` and ``provenance`` are
+    the crowd's (M4): the panel's plans and what the lead took from each.
+    """
+
+    plan: Plan
+    skip_gate: bool = False
+    candidates: tuple[PlanCandidate, ...] = ()
+    provenance: tuple[str, ...] = ()
+    #: Things the owner should know about how the plan was made, such as a
+    #: panelist that failed.
+    notes: tuple[str, ...] = ()
+
+    def meta(self) -> dict[str, Any]:
+        """The JSON-safe extras ``lead_plan`` keeps in the graph state."""
+        return {
+            "skip_gate": self.skip_gate,
+            "candidates": [candidate.as_payload() for candidate in self.candidates],
+            "provenance": list(self.provenance),
+            "notes": list(self.notes),
+        }
+
+
 class WorktreePreparer(Protocol):
     """Create or reuse the run's worktree (doc 05/12b)."""
 
@@ -48,10 +88,10 @@ class WorktreePreparer(Protocol):
 
 
 class Planner(Protocol):
-    """Produce the ticket plan (doc 11)."""
+    """Produce the ticket plan (doc 11), in the run's agent mode (doc 19b)."""
 
-    async def plan(self, run_id: str) -> Plan:
-        """Return the plan to persist as ``run_step`` rows."""
+    async def plan(self, run_id: str) -> PlanOutcome:
+        """Return the plan to persist as ``run_step`` rows, and its gate extras."""
         ...
 
 

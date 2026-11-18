@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from gaia.config.secrets import SecretStore
 from gaia.config.settings import Settings
 from gaia.domain.enums import LLMProvider, RuntimeKind
+from gaia.orchestrator.agent_mode_store import AGENT_MODE_FILE, AgentModeStore
 from gaia.orchestrator.auto_mode import (
     AUTO_MODE_FILE,
     AutoModeSwitch,
@@ -69,6 +70,7 @@ class Wiring:
     approvals: DbApprovalBroker
     pause: PauseSwitch
     auto_mode: AutoModeSwitch
+    agent_modes: AgentModeStore
 
 
 class LazySrtRunner:
@@ -156,6 +158,7 @@ def build_wiring(
     approvals = DbApprovalBroker(sessions, bus)
     pause = PauseSwitch(settings.data_dir / "paused")
     auto_mode = AutoModeSwitch(settings.data_dir / AUTO_MODE_FILE)
+    agent_modes = AgentModeStore(settings.data_dir / AGENT_MODE_FILE)
     audit = DbAuditSink(sessions)
 
     setup_runner = command_runner or LazySrtRunner(
@@ -164,9 +167,12 @@ def build_wiring(
     check_runner = command_runner or LazySrtRunner(settings)
     tool_runner = command_runner or LazySrtRunner(settings)
     # The native runtime serves whichever OpenAI-compatible provider prices.toml
-    # assigns to the junior model (19a); an unlisted provider means DeepSeek.
+    # assigns to a task's model (19a, 19b); an unlisted provider means DeepSeek.
     junior_provider = prices.provider_of(settings.junior_model) or LLMProvider.DEEPSEEK.value
-    junior_family = family_for_provider(junior_provider)
+
+    def native_family(task: AgentTask) -> ModelFamily:
+        provider = prices.provider_of(task.model or settings.junior_model) or junior_provider
+        return family_for_provider(provider)
 
     async def native_context_factory(task: AgentTask, events: EventSink) -> ToolContext:
         return ToolContext(
@@ -181,9 +187,9 @@ def build_wiring(
             actor=f"agent:{task.role.value}",
             approval_timeout_s=settings.command_approval_timeout_s,
             rg_path=rg_path,
-            # The native runtime's tasks follow the switch of its model's
-            # provider (in demo mode both roles use it, on DeepSeek).
-            auto_approve=partial(auto_mode.enabled, junior_family),
+            # A native task follows the auto-mode switch of its own model's
+            # provider (in demo mode every agent session is native, on DeepSeek).
+            auto_approve=partial(auto_mode.enabled, native_family(task)),
             extra_allow_source=partial(load_extra_allow, sessions, task.workspace_id, task.run_id),
         )
 
@@ -265,6 +271,7 @@ def build_wiring(
             git=git,
             runtimes=runtimes,
             bus=bus,
+            price_table=prices,
         ),
         checks=SandboxCheckRunner(
             settings=settings,
@@ -289,5 +296,10 @@ def build_wiring(
         settings=settings,
     )
     return Wiring(
-        deps=deps, runtimes=runtimes, approvals=approvals, pause=pause, auto_mode=auto_mode
+        deps=deps,
+        runtimes=runtimes,
+        approvals=approvals,
+        pause=pause,
+        auto_mode=auto_mode,
+        agent_modes=agent_modes,
     )

@@ -37,6 +37,9 @@ class PlanStep(BaseModel):
     files_likely_touched: list[str]
     acceptance: list[str]
     test_command: list[str] | None = None
+    #: The worker model the lead assigns this step to (doc 19b). ``None``, or an
+    #: id outside the run's worker pool, means the pool's first worker.
+    worker: str | None = None
 
     @field_validator("title")
     @classmethod
@@ -95,6 +98,20 @@ class Plan(BaseModel):
                 f"steps must contain between 1 and {MAX_PLAN_STEPS} items, got {len(value)}"
             )
         return value
+
+
+class CrowdPlan(Plan):
+    """The lead's merge of the panel's plans (wisdom of crowds, doc 19b).
+
+    ``provenance`` says what came from which candidate plan, one line each, so
+    the owner can see at the plan gate how the crowd was used.
+    """
+
+    provenance: list[str]
+
+    def as_plan(self) -> Plan:
+        """The merged plan without the provenance notes."""
+        return Plan.model_validate(self.model_dump(exclude={"provenance"}))
 
 
 class Review(BaseModel):

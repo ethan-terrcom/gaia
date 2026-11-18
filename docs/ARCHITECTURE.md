@@ -74,6 +74,13 @@ Implementations, as decided by [ADR-001](decisions/ADR-001-agent-runtimes.md) (a
 Lead **planning and review** are single structured calls behind the `StructuredLLM` seam (doc 11),
 on Claude by default and on DeepSeek as a tested alternative.
 
+**Agent modes (doc 19).** Which models play which roles is chosen per run: **straight shot** (one
+model does the whole ticket in one session), **two tiered** (a lead plans, assigns steps to a pool
+of workers, reviews and escalates) or **wisdom of crowds** (a panel plans in parallel and the lead
+merges the plans, then two tiered). Any model in the catalog (`prices.toml`: Anthropic, DeepSeek,
+OpenAI, xAI) can fill any role; the runtime follows the model's provider (Anthropic → Agent SDK,
+others → native).
+
 **Portability.** The owner accepted Claude for lead work on the condition that Gaia can move off
 it later without a rewrite. ADR-001's rules P1–P6 keep every vendor SDK inside one adapter module,
 make "which model and runtime plays which role" a setting, and keep tools, state, prompts and cost

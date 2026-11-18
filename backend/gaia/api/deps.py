@@ -34,6 +34,7 @@ from gaia.config.settings import Settings
 from gaia.db.engine import session_scope
 from gaia.db.models import AuditLog, Base
 from gaia.db.repo import AuditLogRepo, ScopedRepo
+from gaia.orchestrator.agent_mode_store import AgentModeStore
 from gaia.orchestrator.auto_mode import AutoModeSwitch
 from gaia.orchestrator.pause import PauseSwitch
 from gaia.orchestrator.runner import RunManager
@@ -71,6 +72,7 @@ class AppServices:
     wiring: Wiring | None = None
     pause: PauseSwitch | None = None
     auto_mode: AutoModeSwitch | None = None
+    agent_modes: AgentModeStore | None = None
 
 
 def services_of(request: Request) -> AppServices:
